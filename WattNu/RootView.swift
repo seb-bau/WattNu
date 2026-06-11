@@ -1,14 +1,8 @@
-//
-//  RootView.swift
-//  WattNu
-//
-//  Created by Sebastian Bauhaus on 09.06.26.
-//
-
 import SwiftUI
 
 struct RootView: View {
     @EnvironmentObject private var session: SessionStore
+    @EnvironmentObject private var localSettings: LocalAppSettings
 
     var body: some View {
         Group {
@@ -20,6 +14,7 @@ struct RootView: View {
                 LoginView()
             }
         }
+        .preferredColorScheme(localSettings.preferredColorScheme)
         .alert("Hinweis", isPresented: Binding(
             get: { session.errorMessage != nil },
             set: { newValue in

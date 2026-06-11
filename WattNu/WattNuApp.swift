@@ -16,6 +16,7 @@ struct DatLaeuftApp: App {
         WindowGroup {
             RootView()
                 .environmentObject(session)
+                .environmentObject(session.localSettings)
                 .environmentObject(locationStore)
                 .task {
                     await session.bootstrap()

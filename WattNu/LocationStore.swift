@@ -1,5 +1,6 @@
 import Foundation
 import CoreLocation
+import Combine
 
 @MainActor
 final class LocationStore: NSObject, ObservableObject, CLLocationManagerDelegate {
@@ -15,12 +16,17 @@ final class LocationStore: NSObject, ObservableObject, CLLocationManagerDelegate
     }
 
     func requestLocation() {
-        if manager.authorizationStatus == .notDetermined {
+        let status = manager.authorizationStatus
+        authorizationStatus = status
+
+        if status == .notDetermined {
             manager.requestWhenInUseAuthorization()
             return
         }
 
-        manager.requestLocation()
+        if status == .authorizedWhenInUse || status == .authorizedAlways {
+            manager.requestLocation()
+        }
     }
 
     func locationManagerDidChangeAuthorization(_ manager: CLLocationManager) {

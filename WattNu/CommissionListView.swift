@@ -2,6 +2,7 @@ import SwiftUI
 
 struct CommissionListView: View {
     @EnvironmentObject private var session: SessionStore
+    @EnvironmentObject private var locationStore: LocationStore
 
     @State private var commissions: [Commission] = []
     @State private var commissionUsers: [AppUser] = []
@@ -9,6 +10,8 @@ struct CommissionListView: View {
     @State private var scopeFilter: CommissionScopeFilter = .mine
     @State private var statusFilter: CommissionStatusFilter = .active
     @State private var selectedUserId: Int?
+    @State private var sortMode: CommissionSortMode = .defaultOrder
+    @State private var isSearchVisible = false
     @State private var isLoading = false
     @State private var errorMessage: String?
 
@@ -32,6 +35,25 @@ struct CommissionListView: View {
         }
     }
 
+    private var sortedCommissions: [Commission] {
+        switch sortMode {
+        case .distance:
+            return searchedCommissions.sorted {
+                let left = locationStore.distanceMeters(to: $0) ?? Double.greatestFiniteMagnitude
+                let right = locationStore.distanceMeters(to: $1) ?? Double.greatestFiniteMagnitude
+                return left < right
+            }
+
+        case .title:
+            return searchedCommissions.sorted {
+                $0.displayTitle.localizedCaseInsensitiveCompare($1.displayTitle) == .orderedAscending
+            }
+
+        case .defaultOrder:
+            return searchedCommissions
+        }
+    }
+
     var body: some View {
         NavigationStack {
             VStack(spacing: 0) {
@@ -40,24 +62,67 @@ struct CommissionListView: View {
                     statusFilter: $statusFilter,
                     selectedUserId: $selectedUserId,
                     users: commissionUsers,
-                    resultCount: searchedCommissions.count
+                    resultCount: sortedCommissions.count
                 )
 
-                Divider()
+                VStack(spacing: 8) {
+                    Picker("Sortierung", selection: $sortMode) {
+                        ForEach(CommissionSortMode.allCases) { mode in
+                            Text(mode.label).tag(mode)
+                        }
+                    }
+                    .pickerStyle(.segmented)
+
+                    if isSearchVisible {
+                        HStack(spacing: 8) {
+                            Image(systemName: "magnifyingglass")
+                                .foregroundStyle(.secondary)
+
+                            TextField("Aufträge suchen", text: $searchText)
+                                .textInputAutocapitalization(.never)
+                                .autocorrectionDisabled()
+
+                            if !searchText.isEmpty {
+                                Button {
+                                    searchText = ""
+                                } label: {
+                                    Image(systemName: "xmark.circle.fill")
+                                        .foregroundStyle(.secondary)
+                                }
+                                .buttonStyle(.plain)
+                            }
+                        }
+                        .padding(.horizontal, 10)
+                        .frame(height: 36)
+                        .background(Color(.secondarySystemGroupedBackground))
+                        .clipShape(RoundedRectangle(cornerRadius: 10, style: .continuous))
+                    }
+                }
+                .padding(.horizontal)
+                .padding(.top, 8)
+                .padding(.bottom, 10)
+                .background(Color(.systemGroupedBackground))
 
                 Group {
                     if isLoading && commissions.isEmpty {
                         ProgressView("Aufträge werden geladen …")
                             .frame(maxWidth: .infinity, maxHeight: .infinity)
-                    } else if searchedCommissions.isEmpty {
+                    } else if sortedCommissions.isEmpty {
                         ContentUnavailableView("Keine Aufträge", systemImage: "tray", description: Text("Es sind aktuell keine passenden Aufträge vorhanden."))
                             .frame(maxWidth: .infinity, maxHeight: .infinity)
                     } else {
-                        List(searchedCommissions) { commission in
+                        List(sortedCommissions) { commission in
                             NavigationLink(value: commission) {
                                 CommissionRowView(commission: commission)
                             }
+                            .buttonStyle(.plain)
+                            .listRowSeparator(.hidden)
+                            .listRowInsets(EdgeInsets(top: 7, leading: 16, bottom: 7, trailing: 16))
+                            .listRowBackground(Color.clear)
                         }
+                        .listStyle(.plain)
+                        .scrollContentBackground(.hidden)
+                        .background(Color(.systemGroupedBackground))
                         .refreshable {
                             await loadInitialData()
                         }
@@ -65,9 +130,25 @@ struct CommissionListView: View {
                 }
             }
             .navigationTitle("Aufträge")
-            .searchable(text: $searchText, prompt: "Aufträge suchen")
             .toolbar {
-                ToolbarItem(placement: .topBarTrailing) {
+                ToolbarItemGroup(placement: .topBarTrailing) {
+                    Button {
+                        withAnimation(.easeInOut(duration: 0.2)) {
+                            isSearchVisible.toggle()
+                            if !isSearchVisible {
+                                searchText = ""
+                            }
+                        }
+                    } label: {
+                        Image(systemName: isSearchVisible ? "magnifyingglass.circle.fill" : "magnifyingglass")
+                    }
+
+                    NavigationLink {
+                        CommissionMapView(commissions: sortedCommissions)
+                    } label: {
+                        Image(systemName: "map")
+                    }
+
                     Button {
                         Task {
                             await loadInitialData()
@@ -81,6 +162,7 @@ struct CommissionListView: View {
                 CommissionDetailView(commissionId: commission.id)
             }
             .task {
+                locationStore.requestLocation()
                 await loadInitialData()
             }
             .onChange(of: scopeFilter) { _, newValue in
@@ -151,6 +233,25 @@ struct CommissionListView: View {
             )
         } catch {
             errorMessage = error.localizedDescription
+        }
+    }
+}
+
+enum CommissionSortMode: String, CaseIterable, Identifiable {
+    case defaultOrder
+    case distance
+    case title
+
+    var id: String { rawValue }
+
+    var label: String {
+        switch self {
+        case .defaultOrder:
+            return "Standard"
+        case .distance:
+            return "Entfernung"
+        case .title:
+            return "Titel"
         }
     }
 }

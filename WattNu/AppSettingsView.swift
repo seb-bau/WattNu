@@ -2,6 +2,7 @@ import SwiftUI
 
 struct AppSettingsView: View {
     @EnvironmentObject private var session: SessionStore
+    @EnvironmentObject private var localSettings: LocalAppSettings
 
     var body: some View {
         NavigationStack {
@@ -14,11 +15,19 @@ struct AppSettingsView: View {
                     }
                 }
 
+                Section("Darstellung") {
+                    Picker("Design", selection: $localSettings.appearanceMode) {
+                        ForEach(AppAppearanceMode.allCases) { mode in
+                            Text(mode.label).tag(mode)
+                        }
+                    }
+                }
+
                 Section("Backend") {
                     TextField("Backend-URL", text: Binding(
-                        get: { session.localSettings.baseURLString },
+                        get: { localSettings.baseURLString },
                         set: { value in
-                            session.localSettings.baseURLString = value
+                            localSettings.baseURLString = value
                             session.applyCurrentBaseURL()
                         }
                     ))

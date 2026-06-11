@@ -6,6 +6,7 @@
 //
 
 import Foundation
+import CoreLocation
 
 struct MobileConfig: Codable, Equatable {
     let passwordLoginEnabled: Bool
