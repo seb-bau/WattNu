@@ -8,10 +8,18 @@
 import SwiftUI
 
 @main
-struct WattNuApp: App {
+struct DatLaeuftApp: App {
+    @StateObject private var session = SessionStore()
+    @StateObject private var locationStore = LocationStore()
+
     var body: some Scene {
         WindowGroup {
-            ContentView()
+            RootView()
+                .environmentObject(session)
+                .environmentObject(locationStore)
+                .task {
+                    await session.bootstrap()
+                }
         }
     }
 }

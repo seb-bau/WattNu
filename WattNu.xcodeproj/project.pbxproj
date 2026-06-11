@@ -6,6 +6,10 @@
 	objectVersion = 77;
 	objects = {
 
+/* Begin PBXBuildFile section */
+		9E890D572FD812FD00E57D41 /* MSAL in Frameworks */ = {isa = PBXBuildFile; productRef = 9E890D562FD812FD00E57D41 /* MSAL */; };
+/* End PBXBuildFile section */
+
 /* Begin PBXContainerItemProxy section */
 		9E890D392FD8127300E57D41 /* PBXContainerItemProxy */ = {
 			isa = PBXContainerItemProxy;
@@ -29,9 +33,22 @@
 		9E890D422FD8127300E57D41 /* WattNuUITests.xctest */ = {isa = PBXFileReference; explicitFileType = wrapper.cfbundle; includeInIndex = 0; path = WattNuUITests.xctest; sourceTree = BUILT_PRODUCTS_DIR; };
 /* End PBXFileReference section */
 
+/* Begin PBXFileSystemSynchronizedBuildFileExceptionSet section */
+		9E890D592FD8132E00E57D41 /* Exceptions for "WattNu" folder in "WattNu" target */ = {
+			isa = PBXFileSystemSynchronizedBuildFileExceptionSet;
+			membershipExceptions = (
+				Info.plist,
+			);
+			target = 9E890D2A2FD8127100E57D41 /* WattNu */;
+		};
+/* End PBXFileSystemSynchronizedBuildFileExceptionSet section */
+
 /* Begin PBXFileSystemSynchronizedRootGroup section */
 		9E890D2D2FD8127100E57D41 /* WattNu */ = {
 			isa = PBXFileSystemSynchronizedRootGroup;
+			exceptions = (
+				9E890D592FD8132E00E57D41 /* Exceptions for "WattNu" folder in "WattNu" target */,
+			);
 			path = WattNu;
 			sourceTree = "<group>";
 		};
@@ -52,6 +69,7 @@
 			isa = PBXFrameworksBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
+				9E890D572FD812FD00E57D41 /* MSAL in Frameworks */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -112,6 +130,7 @@
 			);
 			name = WattNu;
 			packageProductDependencies = (
+				9E890D562FD812FD00E57D41 /* MSAL */,
 			);
 			productName = WattNu;
 			productReference = 9E890D2B2FD8127100E57D41 /* WattNu.app */;
@@ -195,6 +214,9 @@
 			);
 			mainGroup = 9E890D222FD8127100E57D41;
 			minimizedProjectReferenceProxies = 1;
+			packageReferences = (
+				9E890D552FD812FD00E57D41 /* XCRemoteSwiftPackageReference "microsoft-authentication-library-for-objc" */,
+			);
 			preferredProjectObjectVersion = 77;
 			productRefGroup = 9E890D2C2FD8127100E57D41 /* Products */;
 			projectDirPath = "";
@@ -400,6 +422,8 @@
 				DEVELOPMENT_TEAM = 52GAMHDYKB;
 				ENABLE_PREVIEWS = YES;
 				GENERATE_INFOPLIST_FILE = YES;
+				INFOPLIST_FILE = WattNu/Info.plist;
+				INFOPLIST_KEY_NSCameraUsageDescription = "Bli Bla Blop";
 				INFOPLIST_KEY_UIApplicationSceneManifest_Generation = YES;
 				INFOPLIST_KEY_UIApplicationSupportsIndirectInputEvents = YES;
 				INFOPLIST_KEY_UILaunchScreen_Generation = YES;
@@ -432,6 +456,8 @@
 				DEVELOPMENT_TEAM = 52GAMHDYKB;
 				ENABLE_PREVIEWS = YES;
 				GENERATE_INFOPLIST_FILE = YES;
+				INFOPLIST_FILE = WattNu/Info.plist;
+				INFOPLIST_KEY_NSCameraUsageDescription = "Bli Bla Blop";
 				INFOPLIST_KEY_UIApplicationSceneManifest_Generation = YES;
 				INFOPLIST_KEY_UIApplicationSupportsIndirectInputEvents = YES;
 				INFOPLIST_KEY_UILaunchScreen_Generation = YES;
@@ -578,6 +604,25 @@
 			defaultConfigurationName = Release;
 		};
 /* End XCConfigurationList section */
+
+/* Begin XCRemoteSwiftPackageReference section */
+		9E890D552FD812FD00E57D41 /* XCRemoteSwiftPackageReference "microsoft-authentication-library-for-objc" */ = {
+			isa = XCRemoteSwiftPackageReference;
+			repositoryURL = "https://github.com/AzureAD/microsoft-authentication-library-for-objc";
+			requirement = {
+				kind = upToNextMajorVersion;
+				minimumVersion = 2.12.1;
+			};
+		};
+/* End XCRemoteSwiftPackageReference section */
+
+/* Begin XCSwiftPackageProductDependency section */
+		9E890D562FD812FD00E57D41 /* MSAL */ = {
+			isa = XCSwiftPackageProductDependency;
+			package = 9E890D552FD812FD00E57D41 /* XCRemoteSwiftPackageReference "microsoft-authentication-library-for-objc" */;
+			productName = MSAL;
+		};
+/* End XCSwiftPackageProductDependency section */
 	};
 	rootObject = 9E890D232FD8127100E57D41 /* Project object */;
 }
