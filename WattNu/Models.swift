@@ -263,6 +263,8 @@ struct InventoryMovement: Codable, Identifiable, Equatable {
     let quantity: Double
     let note: String?
     let occurredAt: String?
+    let isCancelled: Bool?
+    let canCancel: Bool?
 
     enum CodingKeys: String, CodingKey {
         case id
@@ -273,6 +275,8 @@ struct InventoryMovement: Codable, Identifiable, Equatable {
         case quantity
         case note
         case occurredAt = "occurred_at"
+        case isCancelled = "is_cancelled"
+        case canCancel = "can_cancel"
     }
 
     var movementTypeLabel: String {
@@ -285,9 +289,19 @@ struct InventoryMovement: Codable, Identifiable, Equatable {
             return "Eingelagert"
         case "correction":
             return "Korrektur"
+        case "cancellation":
+            return "Storno"
         default:
             return movementType
         }
+    }
+
+    var isCancelledValue: Bool {
+        isCancelled ?? false
+    }
+
+    var canCancelValue: Bool {
+        canCancel ?? false
     }
 }
 

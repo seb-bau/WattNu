@@ -13,8 +13,12 @@ struct MaterialsSectionView: View {
     @State private var searchSuggestions: [InventoryItem] = []
     @State private var scannerPresented = false
     @State private var isLoading = false
+    @State private var isCancelling = false
     @State private var errorMessage: String?
     @State private var suggestionTask: Task<Void, Never>?
+    @State private var movementToCancel: InventoryMovement?
+    @State private var suppressNextSuggestionSearch = false
+    @State private var isCancelDialogPresented = false
 
     var body: some View {
         List {
@@ -131,7 +135,7 @@ struct MaterialsSectionView: View {
                 } else {
                     ForEach(movements) { movement in
                         VStack(alignment: .leading, spacing: 6) {
-                            HStack {
+                            HStack(alignment: .firstTextBaseline) {
                                 Text(movement.item.name)
                                     .font(.headline)
 
@@ -139,11 +143,19 @@ struct MaterialsSectionView: View {
 
                                 Text(Formatters.quantityText(movement.quantity, unit: movement.item.unit))
                                     .font(.subheadline.bold())
+                                    .foregroundStyle(movement.movementType == "cancellation" ? .green : .primary)
                             }
 
                             HStack {
                                 Text(movement.movementTypeLabel)
+
+                                if movement.isCancelledValue {
+                                    Text("· storniert")
+                                        .foregroundStyle(.red)
+                                }
+
                                 Spacer()
+
                                 Text(Formatters.dateTimeText(movement.occurredAt))
                             }
                             .font(.caption)
@@ -158,6 +170,29 @@ struct MaterialsSectionView: View {
                             if let note = movement.note, !note.isEmpty {
                                 Text(note)
                                     .font(.caption)
+                            }
+
+                            if movement.canCancelValue && commission.canEditValue {
+                                Button(role: .destructive) {
+                                    movementToCancel = movement
+                                    isCancelDialogPresented = true
+                                } label: {
+                                    Label("Buchung stornieren", systemImage: "arrow.uturn.backward.circle")
+                                        .font(.caption)
+                                }
+                                .disabled(isCancelling)
+                                .padding(.top, 2)
+                            }
+                        }
+                        .swipeActions(edge: .trailing, allowsFullSwipe: false) {
+                            if movement.canCancelValue && commission.canEditValue {
+                                Button(role: .destructive) {
+                                    movementToCancel = movement
+                                    isCancelDialogPresented = true
+                                } label: {
+                                    Label("Stornieren", systemImage: "arrow.uturn.backward.circle")
+                                }
+                                .disabled(isCancelling)
                             }
                         }
                         .padding(.vertical, 4)
@@ -177,8 +212,10 @@ struct MaterialsSectionView: View {
         .sheet(isPresented: $scannerPresented) {
             NavigationStack {
                 CodeScannerView { scannedCode in
+                    suggestionTask?.cancel()
                     selectedItem = nil
                     searchSuggestions = []
+                    suppressNextSuggestionSearch = true
                     code = scannedCode
                     scannerPresented = false
 
@@ -188,6 +225,31 @@ struct MaterialsSectionView: View {
                 }
                 .navigationTitle("Code scannen")
                 .navigationBarTitleDisplayMode(.inline)
+            }
+        }
+        .confirmationDialog(
+            "Materialbuchung stornieren?",
+            isPresented: $isCancelDialogPresented,
+            titleVisibility: .visible
+        ) {
+            Button("Buchung stornieren", role: .destructive) {
+                guard let movement = movementToCancel else {
+                    return
+                }
+
+                Task {
+                    await cancelMaterial(movement)
+                }
+            }
+
+            Button("Abbrechen", role: .cancel) {
+                movementToCancel = nil
+            }
+        } message: {
+            if let movement = movementToCancel {
+                Text("\(movement.item.name) · \(Formatters.quantityText(movement.quantity, unit: movement.item.unit))")
+            } else {
+                Text("")
             }
         }
         .alert("Fehler", isPresented: Binding(
@@ -215,6 +277,11 @@ struct MaterialsSectionView: View {
     }
 
     private func handleCodeChange(_ value: String) {
+        if suppressNextSuggestionSearch {
+            suppressNextSuggestionSearch = false
+            return
+        }
+        
         if selectedItem?.itemNumber == value || selectedItem?.ean == value || selectedItem?.qrCodePayload == value {
             return
         }
@@ -276,6 +343,26 @@ struct MaterialsSectionView: View {
             await searchItems(showErrorWhenEmpty: true)
         }
     }
+    
+    private func lookupScannedItem()  async {
+        let searchText = code.trimmingCharacters(in: .whitespacesAndNewlines)
+        
+        guard !searchText.isEmpty else {
+            return
+        }
+        
+        suggestionTask?.cancel()
+        searchSuggestions = []
+        
+        do {
+            selectedItem = try await session.apiClient.lookupInventory(code: searchText)
+            searchSuggestions = []
+        } catch {
+            selectedItem = nil
+            searchSuggestions = []
+            errorMessage = "Kein Artikel für diesen QR-Code gefunden."
+        }
+    }
 
     private func searchItems(showErrorWhenEmpty: Bool) async {
         let searchText = code.trimmingCharacters(in: .whitespacesAndNewlines)
@@ -331,22 +418,47 @@ struct MaterialsSectionView: View {
         }
 
         do {
-            let response = try await session.apiClient.addMaterial(
+            _ = try await session.apiClient.addMaterial(
                 commissionId: commission.id,
                 code: selectedItem.itemNumber,
                 quantity: quantity,
                 note: note.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ? nil : note
             )
 
-            self.selectedItem = response.inventoryItem
-            code = response.inventoryItem.itemNumber
-            quantityText = "1"
-            note = ""
-            searchSuggestions = []
+            clearMaterialInput()
+            await loadMaterials()
+        } catch {
+            errorMessage = error.localizedDescription
+        }
+    }
+    
+    private func cancelMaterial(_ movement: InventoryMovement) async {
+        isCancelling = true
+
+        defer {
+            isCancelling = false
+            movementToCancel = nil
+            isCancelDialogPresented = false
+        }
+
+        do {
+            _ = try await session.apiClient.cancelMaterial(
+                commissionId: commission.id,
+                movementId: movement.id
+            )
 
             await loadMaterials()
         } catch {
             errorMessage = error.localizedDescription
         }
+    }
+
+    private func clearMaterialInput() {
+        suggestionTask?.cancel()
+        selectedItem = nil
+        searchSuggestions = []
+        code = ""
+        quantityText = "1"
+        note = ""
     }
 }

@@ -145,6 +145,15 @@ final class APIClient {
         let body = MaterialRequest(code: code, quantity: quantity, note: note)
         return try await send(path: "/api/commissions/\(commissionId)/materials", method: "POST", body: body)
     }
+    
+    func cancelMaterial(commissionId: Int, movementId: Int) async throws -> MaterialResponse {
+        try requireToken()
+        return try await send(
+            path: "/api/commissions/\(commissionId)/materials/\(movementId)/cancel",
+            method: "POST",
+            body: EmptyRequest()
+        )
+    }
 
     func fetchTimeTasks() async throws -> [TimeTask] {
         try requireToken()
