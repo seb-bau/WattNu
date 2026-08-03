@@ -14,6 +14,7 @@ struct CommissionListView: View {
     @State private var isSearchVisible = false
     @State private var isLoading = false
     @State private var errorMessage: String?
+    @State private var isCreatePresented = false
 
     private var searchedCommissions: [Commission] {
         let query = searchText.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
@@ -26,7 +27,9 @@ struct CommissionListView: View {
             commission.displayTitle.lowercased().contains(query)
             || commission.displayNumber.lowercased().contains(query)
             || commission.assigneeName.lowercased().contains(query)
-            || "\(commission.erpId)".contains(query)
+            || commission.erpId.map {
+                String($0).contains(query)
+            } == true
             || commission.localStatusLabel.lowercased().contains(query)
             || (commission.damageLocation ?? "").lowercased().contains(query)
             || (commission.apartmentAddress ?? "").lowercased().contains(query)
@@ -133,6 +136,16 @@ struct CommissionListView: View {
             .toolbar {
                 ToolbarItemGroup(placement: .topBarTrailing) {
                     Button {
+                        isCreatePresented = true
+                    } label: {
+                        Image(
+                            systemName: "plus"
+                        )
+                    }
+                    .disabled(
+                        session.user?.craftsmanErpId == nil
+                    )
+                    Button {
                         withAnimation(.easeInOut(duration: 0.2)) {
                             isSearchVisible.toggle()
                             if !isSearchVisible {
@@ -160,6 +173,18 @@ struct CommissionListView: View {
             }
             .navigationDestination(for: Commission.self) { commission in
                 CommissionDetailView(commissionId: commission.id)
+            }
+            .sheet(
+                isPresented: $isCreatePresented
+            ) {
+                NavigationStack {
+                    CommissionCreateView {
+                        Task {
+                            await loadCommissions()
+                        }
+                    }
+                }
+                .environmentObject(session)
             }
             .task {
                 locationStore.requestLocation()

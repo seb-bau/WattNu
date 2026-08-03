@@ -28,8 +28,12 @@ enum CommissionScopeFilter: String, CaseIterable, Identifiable {
 enum CommissionStatusFilter: String, CaseIterable, Identifiable {
     case active
     case all
+    case recorded
+    case waitingForAcceptance = "waiting_for_acceptance"
     case open
     case inProgress = "in_progress"
+    case completionReview = "completion_review"
+    case tenantChargeReview = "tenant_charge_review"
     case done
 
     var id: String {
@@ -42,10 +46,18 @@ enum CommissionStatusFilter: String, CaseIterable, Identifiable {
             return "Aktive"
         case .all:
             return "Alle Status"
+        case .recorded:
+            return "Ausstehend"
+        case .waitingForAcceptance:
+            return "Warte auf Annahme"
         case .open:
             return "Offen"
         case .inProgress:
-            return "In Arbeit"
+            return "In Bearbeitung"
+        case .completionReview:
+            return "Abschlussprüfung"
+        case .tenantChargeReview:
+            return "Mieterbelastung"
         case .done:
             return "Abgeschlossen"
         }

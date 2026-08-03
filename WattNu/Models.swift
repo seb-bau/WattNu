@@ -74,7 +74,7 @@ struct ItemResponse<Item: Decodable>: Decodable {
 
 struct Commission: Codable, Identifiable, Hashable {
     let id: Int
-    let erpId: Int
+    let erpId: Int?
     let erpIdNum: String?
     let code: String?
     let title: String?
@@ -101,6 +101,17 @@ struct Commission: Codable, Identifiable, Hashable {
     let latitude: Double?
     let longitude: Double?
     let hasCoordinates: Bool?
+    let publicId: String?
+    let source: String?
+    let erpSyncState: String?
+    let erpSyncMessage: String?
+    let commissionTypeId: Int?
+    let isActionable: Bool?
+    let displayTitleFromAPI: String?
+    let completionSuccessful: Bool?
+    let tenantChargeRequested: Bool?
+    let completionReason: String?
+    let positions: [CommissionPosition]
 
     enum CodingKeys: String, CodingKey {
         case id
@@ -131,22 +142,61 @@ struct Commission: Codable, Identifiable, Hashable {
         case latitude
         case longitude
         case hasCoordinates = "has_coordinates"
+        case publicId = "public_id"
+        case source
+        case erpSyncState = "erp_sync_state"
+        case erpSyncMessage = "erp_sync_message"
+        case commissionTypeId = "commission_type_id"
+        case isActionable = "is_actionable"
+        case displayTitleFromAPI = "display_title"
+        case completionSuccessful = "completion_successful"
+        case tenantChargeRequested = "tenant_charge_requested"
+        case completionReason = "completion_reason"
+        case positions
     }
-    
+
     var coordinate: CLLocationCoordinate2D? {
         guard let latitude, let longitude else {
             return nil
         }
 
-        return CLLocationCoordinate2D(latitude: latitude, longitude: longitude)
+        return CLLocationCoordinate2D(
+            latitude: latitude,
+            longitude: longitude
+        )
     }
 
     var displayTitle: String {
-        title?.isEmpty == false ? title! : "Auftrag \(erpId)"
+        if let displayTitleFromAPI,
+           !displayTitleFromAPI.isEmpty {
+            return displayTitleFromAPI
+        }
+
+        if let title, !title.isEmpty {
+            return title
+        }
+
+        if let erpId {
+            return "Auftrag \(erpId)"
+        }
+
+        return "Ausstehender Auftrag"
     }
 
     var displayNumber: String {
-        erpIdNum ?? code ?? "\(erpId)"
+        if let erpIdNum, !erpIdNum.isEmpty {
+            return erpIdNum
+        }
+
+        if let code, !code.isEmpty {
+            return code
+        }
+
+        if let erpId {
+            return String(erpId)
+        }
+
+        return "Ausstehend"
     }
 
     var assigneeName: String {
@@ -165,12 +215,24 @@ struct Commission: Codable, Identifiable, Hashable {
         canEdit ?? true
     }
 
+    var isActionableValue: Bool {
+        isActionable ?? (erpId != nil)
+    }
+
     var localStatusLabel: String {
         switch localStatus {
+        case "recorded":
+            return "Ausstehend"
+        case "waiting_for_acceptance":
+            return "Warte auf Annahme"
         case "open":
             return "Offen"
         case "in_progress":
-            return "In Arbeit"
+            return "In Bearbeitung"
+        case "completion_review":
+            return "Abschlussprüfung"
+        case "tenant_charge_review":
+            return "Mieterbelastung prüfen"
         case "done":
             return "Abgeschlossen"
         case "deleted":
@@ -178,6 +240,45 @@ struct Commission: Codable, Identifiable, Hashable {
         default:
             return localStatus
         }
+    }
+}
+
+struct CommissionPosition: Codable, Identifiable, Hashable {
+    let id: Int
+    let erpId: Int?
+    let positionIndex: Int
+    let positionNumber: Double?
+    let code: String?
+    let commissionText: String?
+    let internalDescription: String?
+    let description: String?
+    let displayText: String?
+    let units: Double
+    let serviceCatalogId: Int?
+    let craftActivityId: Int?
+
+    enum CodingKeys: String, CodingKey {
+        case id
+        case erpId = "erp_id"
+        case positionIndex = "position_index"
+        case positionNumber = "position_number"
+        case code
+        case commissionText = "commission_text"
+        case internalDescription = "internal_description"
+        case description
+        case displayText = "display_text"
+        case units
+        case serviceCatalogId = "service_catalog_id"
+        case craftActivityId = "craft_activity_id"
+    }
+
+    var displayTextValue: String {
+        displayText
+        ?? internalDescription
+        ?? commissionText
+        ?? description
+        ?? code
+        ?? "Position \(positionIndex + 1)"
     }
 }
 
@@ -369,6 +470,9 @@ struct TimeTask: Codable, Identifiable, Hashable {
     let code: String
     let title: String
     let suggestedMinutes: Int?
+    let serviceCatalogId: Int?
+    let erpIdNum: String?
+    let craftActivity: CraftActivity?
     let expectedMaterials: [ExpectedMaterial]?
 
     enum CodingKeys: String, CodingKey {
@@ -376,11 +480,28 @@ struct TimeTask: Codable, Identifiable, Hashable {
         case code
         case title
         case suggestedMinutes = "suggested_minutes"
+        case serviceCatalogId = "service_catalog_id"
+        case erpIdNum = "erp_idnum"
+        case craftActivity = "craft_activity"
         case expectedMaterials = "expected_materials"
     }
 
     var expectedMaterialsValue: [ExpectedMaterial] {
         expectedMaterials ?? []
+    }
+}
+
+struct CraftActivity: Codable, Identifiable, Hashable {
+    let id: Int
+    let erpId: Int?
+    let code: String?
+    let name: String?
+
+    enum CodingKeys: String, CodingKey {
+        case id
+        case erpId = "erp_id"
+        case code
+        case name
     }
 }
 
@@ -465,6 +586,89 @@ struct TimeEntry: Codable, Identifiable, Equatable {
     }
 }
 
+struct CommissionCreateOptions: Decodable {
+    let canCreate: Bool
+    let companyCodes: [CompanyCodeOption]
+    let commissionTypes: [CommissionTypeOption]
+
+    enum CodingKeys: String, CodingKey {
+        case canCreate = "can_create"
+        case companyCodes = "company_codes"
+        case commissionTypes = "commission_types"
+    }
+}
+
+struct CompanyCodeOption: Codable, Identifiable, Hashable {
+    let id: Int
+    let code: String
+    let name: String
+
+    var displayName: String {
+        "\(code) · \(name)"
+    }
+}
+
+struct CommissionTypeOption: Codable, Identifiable, Hashable {
+    let id: Int
+    let code: String?
+
+    var displayName: String {
+        if let code, !code.isEmpty {
+            return code
+        }
+
+        return String(id)
+    }
+}
+
+struct CommissionCreateRequest: Encodable {
+    let companyCodeCode: String
+    let commissionTypeId: Int
+    let useUnitIdNum: String?
+    let buildingIdNum: String?
+    let licenseAgreementIdNum: String?
+    let title: String?
+    let damageLocation: String?
+    let contactPerson: String?
+    let executionFrom: String?
+    let executionTo: String?
+    let positions: [CommissionPositionRequest]
+
+    enum CodingKeys: String, CodingKey {
+        case companyCodeCode = "company_code_code"
+        case commissionTypeId = "commission_type_id"
+        case useUnitIdNum = "use_unit_idnum"
+        case buildingIdNum = "building_idnum"
+        case licenseAgreementIdNum = "license_agreement_idnum"
+        case title
+        case damageLocation = "damage_location"
+        case contactPerson = "contact_person"
+        case executionFrom = "execution_from"
+        case executionTo = "execution_to"
+        case positions
+    }
+}
+
+struct CommissionPositionRequest: Encodable {
+    let code: String?
+    let commissionText: String
+    let internalDescription: String?
+    let units: Double
+    let serviceCatalogId: Int
+
+    enum CodingKeys: String, CodingKey {
+        case code
+        case commissionText = "commission_text"
+        case internalDescription = "internal_description"
+        case units
+        case serviceCatalogId = "service_catalog_id"
+    }
+}
+
+struct ErrorResponse: Decodable {
+    let message: String?
+}
+
 struct PasswordLoginRequest: Encodable {
     let email: String
     let password: String
@@ -538,4 +742,36 @@ struct EmptyRequest: Encodable {
 }
 
 struct EmptyResponse: Decodable {
+}
+
+struct CommissionHistoryEntry: Codable, Identifiable, Hashable {
+    let id: Int
+    let action: String
+    let title: String
+    let detail: String?
+    let actor: AppUser?
+    let actorName: String
+    let createdAt: String?
+
+    enum CodingKeys: String, CodingKey {
+        case id
+        case action
+        case title
+        case detail
+        case actor
+        case actorName = "actor_name"
+        case createdAt = "created_at"
+    }
+}
+
+struct CommissionCompletionRequest: Encodable {
+    let completed: Bool
+    let tenantCharge: Bool
+    let reason: String?
+
+    enum CodingKeys: String, CodingKey {
+        case completed
+        case tenantCharge = "tenant_charge"
+        case reason
+    }
 }

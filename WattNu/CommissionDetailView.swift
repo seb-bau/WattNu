@@ -3,7 +3,8 @@ import SwiftUI
 enum CommissionDetailSection: String, CaseIterable, Identifiable {
     case order = "Auftrag"
     case materials = "Lager"
-    case time = "Zeiterfassung"
+    case time = "Zeit"
+    case history = "Verlauf"
 
     var id: String {
         rawValue
@@ -19,6 +20,7 @@ struct CommissionDetailView: View {
     @State private var selectedSection: CommissionDetailSection = .order
     @State private var isLoading = false
     @State private var errorMessage: String?
+    @State private var isCompletionPresented = false
 
     var body: some View {
         Group {
@@ -46,15 +48,42 @@ struct CommissionDetailView: View {
                                 }
                             },
                             completeAction: {
-                                Task {
-                                    await completeCommission()
-                                }
+                                isCompletionPresented = true
                             }
                         )
                     case .materials:
-                        MaterialsSectionView(commission: commission)
+                        if commission.isActionableValue {
+                            MaterialsSectionView(
+                                commission: commission
+                            )
+                        } else {
+                            ContentUnavailableView(
+                                "Übertragung ausstehend",
+                                systemImage: "clock.arrow.circlepath",
+                                description: Text(
+                                    "Material kann erst nach der Wowiport-Bestätigung gebucht werden."
+                                )
+                            )
+                        }
+
                     case .time:
-                        TimeSectionView(commission: commission)
+                        if commission.isActionableValue {
+                            TimeSectionView(
+                                commission: commission
+                            )
+                        } else {
+                            ContentUnavailableView(
+                                "Übertragung ausstehend",
+                                systemImage: "clock.arrow.circlepath",
+                                description: Text(
+                                    "Zeiten können erst nach der Wowiport-Bestätigung erfasst werden."
+                                )
+                            )
+                        }
+                    case .history:
+                        CommissionHistoryView(
+                            commission: commission
+                        )
                     }
                 }
             } else {
@@ -68,6 +97,20 @@ struct CommissionDetailView: View {
         }
         .refreshable {
             await loadCommission()
+        }
+        .sheet(
+            isPresented: $isCompletionPresented
+        ) {
+            NavigationStack {
+                if let commission {
+                    CommissionCompletionView(
+                        commission: commission
+                    ) { updatedCommission in
+                        self.commission = updatedCommission
+                    }
+                }
+            }
+            .environmentObject(session)
         }
         .alert("Fehler", isPresented: Binding(
             get: { errorMessage != nil },
@@ -102,14 +145,6 @@ struct CommissionDetailView: View {
     private func startCommission() async {
         do {
             commission = try await session.apiClient.startCommission(id: commissionId)
-        } catch {
-            errorMessage = error.localizedDescription
-        }
-    }
-
-    private func completeCommission() async {
-        do {
-            commission = try await session.apiClient.completeCommission(id: commissionId)
         } catch {
             errorMessage = error.localizedDescription
         }

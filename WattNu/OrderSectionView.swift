@@ -9,89 +9,274 @@ struct OrderSectionView: View {
 
     var body: some View {
         ScrollView {
-            VStack(alignment: .leading, spacing: 18) {
-                VStack(alignment: .leading, spacing: 6) {
+            VStack(
+                alignment: .leading,
+                spacing: 18
+            ) {
+                VStack(
+                    alignment: .leading,
+                    spacing: 6
+                ) {
                     Text(commission.displayTitle)
                         .font(.title2.bold())
 
-                    Text("Auftrag \(commission.displayNumber)")
-                        .foregroundStyle(.secondary)
+                    Text(
+                        "Auftrag \(commission.displayNumber)"
+                    )
+                    .foregroundStyle(.secondary)
                 }
 
                 VStack(spacing: 12) {
-                    DetailRowView(title: "Adresse", value: commission.apartmentAddress ?? "-")
-                    DetailRowView(title: "Lage", value: commission.apartmentLocation ?? "-")
-                    DetailRowView(title: "Mieter", value: commission.tenantName ?? "-")
-                    DetailRowView(title: "Status", value: commission.localStatusLabel)
-                    DetailRowView(title: "ERP-Status", value: commission.statusCode ?? commission.statusId.map(String.init) ?? "-")
-                    DetailRowView(title: "Ausführung von", value: Formatters.dateTimeText(commission.executionFrom))
-                    DetailRowView(title: "Ausführung bis", value: Formatters.dateTimeText(commission.executionTo))
-                    DetailRowView(title: "Freigabe", value: Formatters.dateTimeText(commission.releaseDate))
-                    DetailRowView(title: "Handwerker-ID", value: commission.craftsmanErpId.map(String.init) ?? "-")
-                    DetailRowView(title: "Monteur", value: commission.assigneeName)
-                    DetailRowView(title: "Kontakt Auftrag", value: commission.contactPerson ?? "-")
+                    DetailRowView(
+                        title: "Adresse",
+                        value: commission.apartmentAddress ?? "-"
+                    )
+                    DetailRowView(
+                        title: "Lage",
+                        value: commission.apartmentLocation ?? "-"
+                    )
+                    DetailRowView(
+                        title: "Mieter",
+                        value: commission.tenantName ?? "-"
+                    )
+                    DetailRowView(
+                        title: "Status",
+                        value: commission.localStatusLabel
+                    )
+                    DetailRowView(
+                        title: "ERP-Status",
+                        value: commission.statusCode
+                        ?? commission.statusId.map(String.init)
+                        ?? "-"
+                    )
+                    DetailRowView(
+                        title: "Ausführung von",
+                        value: Formatters.dateTimeText(
+                            commission.executionFrom
+                        )
+                    )
+                    DetailRowView(
+                        title: "Ausführung bis",
+                        value: Formatters.dateTimeText(
+                            commission.executionTo
+                        )
+                    )
+                    DetailRowView(
+                        title: "Freigabe",
+                        value: Formatters.dateTimeText(
+                            commission.releaseDate
+                        )
+                    )
+                    DetailRowView(
+                        title: "Handwerker-ID",
+                        value: commission.craftsmanErpId
+                            .map(String.init) ?? "-"
+                    )
+                    DetailRowView(
+                        title: "Monteur",
+                        value: commission.assigneeName
+                    )
+                    DetailRowView(
+                        title: "Kontakt Auftrag",
+                        value: commission.contactPerson ?? "-"
+                    )
                 }
                 .padding()
                 .background(.thinMaterial)
-                .clipShape(RoundedRectangle(cornerRadius: 18))
+                .clipShape(
+                    RoundedRectangle(
+                        cornerRadius: 18
+                    )
+                )
 
-                Button {
-                    showContacts = true
-                } label: {
-                    Label("Bewohner und Kontaktdaten anzeigen", systemImage: "person.2")
+                if commission.isActionableValue {
+                    Button {
+                        showContacts = true
+                    } label: {
+                        Label(
+                            "Bewohner und Kontaktdaten anzeigen",
+                            systemImage: "person.2"
+                        )
                         .frame(maxWidth: .infinity)
-                }
-                .buttonStyle(.bordered)
+                    }
+                    .buttonStyle(.bordered)
+                } else {
+                    VStack(
+                        alignment: .leading,
+                        spacing: 8
+                    ) {
+                        Label(
+                            "Übertragung ausstehend",
+                            systemImage: "clock.arrow.circlepath"
+                        )
+                        .font(.headline)
 
-                if let description = commission.description, !description.isEmpty {
-                    VStack(alignment: .leading, spacing: 8) {
+                        Text(
+                            commission.erpSyncMessage
+                            ?? "Der Auftrag wird an Wowiport übertragen. Er kann erst nach Vergabe der Wowiport-Auftragsnummer bearbeitet werden."
+                        )
+                        .foregroundStyle(.secondary)
+                    }
+                    .frame(
+                        maxWidth: .infinity,
+                        alignment: .leading
+                    )
+                    .padding()
+                    .background(.thinMaterial)
+                    .clipShape(
+                        RoundedRectangle(
+                            cornerRadius: 18
+                        )
+                    )
+                }
+
+                if !commission.positions.isEmpty {
+                    VStack(
+                        alignment: .leading,
+                        spacing: 12
+                    ) {
+                        Text("Auftragspositionen")
+                            .font(.headline)
+
+                        ForEach(
+                            Array(
+                                commission.positions.enumerated()
+                            ),
+                            id: \.element.id
+                        ) { index, position in
+                            VStack(
+                                alignment: .leading,
+                                spacing: 6
+                            ) {
+                                Text(
+                                    "\(index + 1). \(position.displayTextValue)"
+                                )
+                                .font(.subheadline.bold())
+
+                                HStack {
+                                    if let code = position.code,
+                                       !code.isEmpty {
+                                        Text(code)
+                                    }
+
+                                    Spacer()
+
+                                    Text(
+                                        "\(position.units, specifier: "%.2f")"
+                                    )
+                                }
+                                .font(.caption)
+                                .foregroundStyle(.secondary)
+                            }
+
+                            if index
+                                < commission.positions.count - 1 {
+                                Divider()
+                            }
+                        }
+                    }
+                    .frame(
+                        maxWidth: .infinity,
+                        alignment: .leading
+                    )
+                    .padding()
+                    .background(.thinMaterial)
+                    .clipShape(
+                        RoundedRectangle(
+                            cornerRadius: 18
+                        )
+                    )
+                }
+
+                if let description = commission.description,
+                   !description.isEmpty,
+                   commission.positions.count <= 1 {
+                    VStack(
+                        alignment: .leading,
+                        spacing: 8
+                    ) {
                         Text("Beschreibung")
                             .font(.headline)
 
                         Text(description)
-                            .foregroundStyle(.primary)
                     }
-                    .frame(maxWidth: .infinity, alignment: .leading)
+                    .frame(
+                        maxWidth: .infinity,
+                        alignment: .leading
+                    )
                     .padding()
                     .background(.thinMaterial)
-                    .clipShape(RoundedRectangle(cornerRadius: 18))
+                    .clipShape(
+                        RoundedRectangle(
+                            cornerRadius: 18
+                        )
+                    )
                 }
 
                 if commission.canEditValue == false {
-                    Text("Dieser Auftrag ist nur zur Ansicht geöffnet.")
-                        .font(.callout)
-                        .foregroundStyle(.secondary)
-                        .padding()
-                        .frame(maxWidth: .infinity, alignment: .leading)
-                        .background(.thinMaterial)
-                        .clipShape(RoundedRectangle(cornerRadius: 18))
+                    Text(
+                        "Dieser Auftrag ist nur zur Ansicht geöffnet."
+                    )
+                    .font(.callout)
+                    .foregroundStyle(.secondary)
+                    .padding()
+                    .frame(
+                        maxWidth: .infinity,
+                        alignment: .leading
+                    )
+                    .background(.thinMaterial)
+                    .clipShape(
+                        RoundedRectangle(
+                            cornerRadius: 18
+                        )
+                    )
                 }
 
                 VStack(spacing: 12) {
                     Button {
                         startAction()
                     } label: {
-                        Label("Auftrag starten", systemImage: "play.fill")
-                            .frame(maxWidth: .infinity)
+                        Label(
+                            "Auftrag annehmen",
+                            systemImage: "play.fill"
+                        )
+                        .frame(maxWidth: .infinity)
                     }
                     .buttonStyle(.borderedProminent)
-                    .disabled(commission.localStatus == "in_progress" || commission.localStatus == "done" || commission.canEditValue == false)
+                    .disabled(
+                        commission.localStatus
+                            != "waiting_for_acceptance"
+                        || !commission.isActionableValue
+                        || !commission.canEditValue
+                    )
 
-                    Button(role: .destructive) {
+                    Button {
                         completeAction()
                     } label: {
-                        Label("Auftrag abschließen", systemImage: "checkmark.circle.fill")
-                            .frame(maxWidth: .infinity)
+                        Label(
+                            "Auftrag abschließen",
+                            systemImage: "checkmark.circle.fill"
+                        )
+                        .frame(maxWidth: .infinity)
                     }
                     .buttonStyle(.bordered)
-                    .disabled(commission.localStatus == "done" || commission.canEditValue == false)
+                    .disabled(
+                        commission.localStatus
+                            != "in_progress"
+                        || !commission.isActionableValue
+                        || !commission.canEditValue
+                    )
                 }
             }
             .padding()
         }
-        .sheet(isPresented: $showContacts) {
+        .sheet(
+            isPresented: $showContacts
+        ) {
             NavigationStack {
-                CommissionContactsView(commission: commission)
+                CommissionContactsView(
+                    commission: commission
+                )
             }
         }
     }

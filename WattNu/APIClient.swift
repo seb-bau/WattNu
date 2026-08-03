@@ -87,6 +87,40 @@ final class APIClient {
         return response.items
     }
     
+    func fetchCommissionHistory(
+        commissionId: Int
+    ) async throws -> [CommissionHistoryEntry] {
+        try requireToken()
+
+        let response: ListResponse<CommissionHistoryEntry> = try await request(
+            path: "/api/commissions/\(commissionId)/history"
+        )
+
+        return response.items
+    }
+    
+    func fetchCommissionCreateOptions() async throws -> CommissionCreateOptions {
+        try requireToken()
+
+        return try await request(
+            path: "/api/commissions/create-options"
+        )
+    }
+
+    func createCommission(
+        body: CommissionCreateRequest
+    ) async throws -> Commission {
+        try requireToken()
+
+        let response: ItemResponse<Commission> = try await send(
+            path: "/api/commissions",
+            method: "POST",
+            body: body
+        )
+
+        return response.item
+    }
+    
     func fetchCommissionUsers() async throws -> [AppUser] {
         try requireToken()
         let response: ListResponse<AppUser> = try await request(path: "/api/commissions/users")
@@ -111,9 +145,26 @@ final class APIClient {
         return response.item
     }
 
-    func completeCommission(id: Int) async throws -> Commission {
+    func completeCommission(
+        id: Int,
+        completed: Bool,
+        tenantCharge: Bool,
+        reason: String?
+    ) async throws -> Commission {
         try requireToken()
-        let response: ItemResponse<Commission> = try await send(path: "/api/commissions/\(id)/complete", method: "POST", body: EmptyRequest())
+
+        let body = CommissionCompletionRequest(
+            completed: completed,
+            tenantCharge: tenantCharge,
+            reason: reason
+        )
+
+        let response: ItemResponse<Commission> = try await send(
+            path: "/api/commissions/\(id)/complete",
+            method: "POST",
+            body: body
+        )
+
         return response.item
     }
 
@@ -241,8 +292,20 @@ final class APIClient {
         }
 
         guard 200..<300 ~= httpResponse.statusCode else {
-            let message = String(data: data, encoding: .utf8) ?? ""
-            throw APIError.serverStatus(httpResponse.statusCode, message)
+            let errorResponse = try? decoder.decode(
+                ErrorResponse.self,
+                from: data
+            )
+
+            let fallbackMessage = String(
+                data: data,
+                encoding: .utf8
+            ) ?? ""
+
+            throw APIError.serverStatus(
+                httpResponse.statusCode,
+                errorResponse?.message ?? fallbackMessage
+            )
         }
 
         do {
