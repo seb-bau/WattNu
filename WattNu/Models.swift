@@ -232,7 +232,7 @@ struct CommissionContactItem: Codable, Identifiable, Hashable {
     }
 }
 
-struct InventoryItem: Codable, Identifiable, Equatable {
+struct InventoryItem: Codable, Identifiable, Equatable, Hashable {
     let id: Int
     let itemNumber: String
     let name: String
@@ -259,9 +259,15 @@ struct InventoryMovement: Codable, Identifiable, Equatable {
     let item: InventoryItem
     let user: AppUser?
     let commissionId: Int?
+    let taskTemplate: TimeTask?
     let movementType: String
     let quantity: Double
+    let source: String?
+    let usageStatus: String?
+    let deviationReason: String?
     let note: String?
+    let reviewStatus: String?
+    let reviewLevel: String?
     let occurredAt: String?
     let isCancelled: Bool?
     let canCancel: Bool?
@@ -271,9 +277,15 @@ struct InventoryMovement: Codable, Identifiable, Equatable {
         case item
         case user
         case commissionId = "commission_id"
+        case taskTemplate = "task_template"
         case movementType = "movement_type"
         case quantity
+        case source
+        case usageStatus = "usage_status"
+        case deviationReason = "deviation_reason"
         case note
+        case reviewStatus = "review_status"
+        case reviewLevel = "review_level"
         case occurredAt = "occurred_at"
         case isCancelled = "is_cancelled"
         case canCancel = "can_cancel"
@@ -296,6 +308,53 @@ struct InventoryMovement: Codable, Identifiable, Equatable {
         }
     }
 
+    var sourceLabel: String {
+        switch source {
+        case "warehouse":
+            return "Lager"
+        case "vehicle":
+            return "Fahrzeug"
+        case "direct_purchase":
+            return "Direktkauf"
+        case "on_site":
+            return "Vor Ort vorhanden"
+        default:
+            return source ?? ""
+        }
+    }
+
+    var usageStatusLabel: String {
+        switch usageStatus {
+        case "installed":
+            return "Verbaut"
+        case "not_installed":
+            return "Nicht verbaut"
+        case "returned":
+            return "Zurückgegeben"
+        case "defective":
+            return "Defekt"
+        case "in_vehicle":
+            return "Im Fahrzeug"
+        default:
+            return usageStatus ?? ""
+        }
+    }
+
+    var reviewLabel: String {
+        switch reviewStatus {
+        case "ok":
+            return "OK"
+        case "needs_review":
+            return "Prüfung nötig"
+        case "approved":
+            return "Freigegeben"
+        case "rejected":
+            return "Abgelehnt"
+        default:
+            return reviewStatus ?? ""
+        }
+    }
+
     var isCancelledValue: Bool {
         isCancelled ?? false
     }
@@ -310,12 +369,36 @@ struct TimeTask: Codable, Identifiable, Hashable {
     let code: String
     let title: String
     let suggestedMinutes: Int?
+    let expectedMaterials: [ExpectedMaterial]?
 
     enum CodingKeys: String, CodingKey {
         case id
         case code
         case title
         case suggestedMinutes = "suggested_minutes"
+        case expectedMaterials = "expected_materials"
+    }
+
+    var expectedMaterialsValue: [ExpectedMaterial] {
+        expectedMaterials ?? []
+    }
+}
+
+struct ExpectedMaterial: Codable, Identifiable, Hashable {
+    let id: Int
+    let taskTemplateId: Int
+    let item: InventoryItem
+    let quantity: Double
+    let required: Bool
+    let note: String?
+
+    enum CodingKeys: String, CodingKey {
+        case id
+        case taskTemplateId = "task_template_id"
+        case item
+        case quantity
+        case required
+        case note
     }
 }
 
@@ -325,11 +408,20 @@ struct TimeEntry: Codable, Identifiable, Equatable {
     let user: AppUser
     let taskTemplate: TimeTask?
     let minutes: Int
+    let workMinutes: Int?
+    let waitingMinutes: Int?
+    let materialMinutes: Int?
+    let travelMinutes: Int?
+    let documentationMinutes: Int?
+    let extraMinutes: Int?
+    let deviationReason: String?
     let note: String?
     let deviationMinutes: Int
     let deviationPercent: Double
     let reviewStatus: String
+    let reviewLevel: String?
     let createdAt: String?
+    let canEdit: Bool?
 
     enum CodingKeys: String, CodingKey {
         case id
@@ -337,11 +429,24 @@ struct TimeEntry: Codable, Identifiable, Equatable {
         case user
         case taskTemplate = "task_template"
         case minutes
+        case workMinutes = "work_minutes"
+        case waitingMinutes = "waiting_minutes"
+        case materialMinutes = "material_minutes"
+        case travelMinutes = "travel_minutes"
+        case documentationMinutes = "documentation_minutes"
+        case extraMinutes = "extra_minutes"
+        case deviationReason = "deviation_reason"
         case note
         case deviationMinutes = "deviation_minutes"
         case deviationPercent = "deviation_percent"
         case reviewStatus = "review_status"
+        case reviewLevel = "review_level"
         case createdAt = "created_at"
+        case canEdit = "can_edit"
+    }
+    
+    var canEditValue: Bool {
+        canEdit ?? true
     }
 
     var reviewStatusLabel: String {
@@ -376,7 +481,21 @@ struct MicrosoftLoginRequest: Encodable {
 struct MaterialRequest: Encodable {
     let code: String
     let quantity: Double
+    let taskTemplateId: Int?
+    let usageStatus: String?
+    let source: String?
+    let deviationReason: String?
     let note: String?
+
+    enum CodingKeys: String, CodingKey {
+        case code
+        case quantity
+        case taskTemplateId = "task_template_id"
+        case usageStatus = "usage_status"
+        case source
+        case deviationReason = "deviation_reason"
+        case note
+    }
 }
 
 struct MaterialResponse: Decodable {
@@ -391,15 +510,32 @@ struct MaterialResponse: Decodable {
 
 struct TimeEntryRequest: Encodable {
     let taskTemplateId: Int?
-    let minutes: Int
+    let minutes: Int?
+    let workMinutes: Int?
+    let waitingMinutes: Int?
+    let materialMinutes: Int?
+    let travelMinutes: Int?
+    let documentationMinutes: Int?
+    let extraMinutes: Int?
+    let deviationReason: String?
     let note: String?
 
     enum CodingKeys: String, CodingKey {
         case taskTemplateId = "task_template_id"
         case minutes
+        case workMinutes = "work_minutes"
+        case waitingMinutes = "waiting_minutes"
+        case materialMinutes = "material_minutes"
+        case travelMinutes = "travel_minutes"
+        case documentationMinutes = "documentation_minutes"
+        case extraMinutes = "extra_minutes"
+        case deviationReason = "deviation_reason"
         case note
     }
 }
 
 struct EmptyRequest: Encodable {
+}
+
+struct EmptyResponse: Decodable {
 }

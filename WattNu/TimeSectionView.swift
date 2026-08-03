@@ -10,14 +10,71 @@ struct TimeSectionView: View {
     @State private var selectedTask: TimeTask?
     @State private var taskSuggestions: [TimeTask] = []
     @State private var minutesText = ""
+    @State private var workMinutesText = ""
+    @State private var waitingMinutesText = ""
+    @State private var materialMinutesText = ""
+    @State private var travelMinutesText = ""
+    @State private var documentationMinutesText = ""
+    @State private var extraMinutesText = ""
+    @State private var deviationReason = ""
     @State private var note = ""
+    @State private var editingEntry: TimeEntry?
+    @State private var entryToDelete: TimeEntry?
     @State private var isLoading = false
     @State private var errorMessage: String?
     @State private var suggestionTask: Task<Void, Never>?
 
+    private let deviationReasons = [
+        ("", "Keine Besonderheit"),
+        ("waiting", "Wartezeit"),
+        ("extra_damage", "Zusätzlicher Schaden"),
+        ("difficult_access", "Erschwerte Bedingungen"),
+        ("material", "Materialbeschaffung"),
+        ("consultation", "Rücksprache"),
+        ("other", "Sonstiges")
+    ]
+
+    private var formTitle: String {
+        editingEntry == nil ? "Zeit erfassen" : "Zeit bearbeiten"
+    }
+
+    private var saveButtonTitle: String {
+        editingEntry == nil ? "Zeit speichern" : "Änderung speichern"
+    }
+
+    private var componentTexts: [String] {
+        [
+            workMinutesText,
+            waitingMinutesText,
+            materialMinutesText,
+            travelMinutesText,
+            documentationMinutesText,
+            extraMinutesText
+        ]
+    }
+
+    private var hasComponentInput: Bool {
+        componentTexts.contains { value in
+            !value.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+        }
+    }
+
+    private var isSaveDisabled: Bool {
+        if isLoading || commission.canEditValue == false {
+            return true
+        }
+
+        if editingEntry == nil && selectedTask == nil {
+            return true
+        }
+
+        let hasTotalInput = !minutesText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+        return !hasTotalInput && !hasComponentInput
+    }
+
     var body: some View {
         List {
-            Section("Zeit erfassen") {
+            Section(formTitle) {
                 if commission.canEditValue == false {
                     Text("Zeiten sind für Kollegenaufträge nur lesend verfügbar.")
                         .foregroundStyle(.secondary)
@@ -37,6 +94,12 @@ struct TimeSectionView: View {
                             Text(selectedTask.code)
                                 .font(.caption)
                                 .foregroundStyle(.secondary)
+
+                            if let suggestedMinutes = selectedTask.suggestedMinutes, suggestedMinutes > 0 {
+                                Text("SOLL-Zeit: \(suggestedMinutes) Min.")
+                                    .font(.caption)
+                                    .foregroundStyle(.secondary)
+                            }
                         }
 
                         Spacer()
@@ -89,25 +152,48 @@ struct TimeSectionView: View {
                     .padding(.vertical, 4)
                 }
 
-                TextField("Minuten", text: $minutesText)
+                TextField("Gesamtzeit in Minuten", text: $minutesText)
                     .keyboardType(.numberPad)
                     .disabled(commission.canEditValue == false)
 
-                TextField("Notiz", text: $note, axis: .vertical)
+                DisclosureGroup("Zeitbausteine") {
+                    minuteField("Arbeitszeit vor Ort", text: $workMinutesText)
+                    minuteField("Wartezeit", text: $waitingMinutesText)
+                    minuteField("Materialbeschaffung", text: $materialMinutesText)
+                    minuteField("Fahrt / Wegezeit", text: $travelMinutesText)
+                    minuteField("Dokumentation / Rücksprache", text: $documentationMinutesText)
+                    minuteField("Zusatzarbeit", text: $extraMinutesText)
+                }
+
+                Picker("Grund bei Abweichung", selection: $deviationReason) {
+                    ForEach(deviationReasons, id: \.0) { reason in
+                        Text(reason.1).tag(reason.0)
+                    }
+                }
+                .disabled(commission.canEditValue == false)
+
+                TextField("Notiz / Erläuterung", text: $note, axis: .vertical)
                     .disabled(commission.canEditValue == false)
 
                 Button {
                     Task {
-                        await addTimeEntry()
+                        await saveTimeEntry()
                     }
                 } label: {
                     if isLoading {
                         ProgressView()
                     } else {
-                        Label("Zeit speichern", systemImage: "clock.badge.checkmark")
+                        Label(saveButtonTitle, systemImage: "clock.badge.checkmark")
                     }
                 }
-                .disabled(selectedTask == nil || minutesText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty || isLoading || commission.canEditValue == false)
+                .disabled(isSaveDisabled)
+
+                if editingEntry != nil {
+                    Button("Bearbeitung abbrechen") {
+                        clearTimeInput()
+                    }
+                    .disabled(isLoading)
+                }
             }
 
             Section("Erfasste Zeiten") {
@@ -116,35 +202,7 @@ struct TimeSectionView: View {
                         .foregroundStyle(.secondary)
                 } else {
                     ForEach(entries) { entry in
-                        VStack(alignment: .leading, spacing: 6) {
-                            HStack {
-                                Text(entry.taskTemplate?.title ?? "Zeitbuchung")
-                                    .font(.headline)
-
-                                Spacer()
-
-                                Text("\(entry.minutes) Min.")
-                                    .font(.subheadline.bold())
-                            }
-
-                            HStack {
-                                Text(entry.reviewStatusLabel)
-                                Spacer()
-                                Text(Formatters.dateTimeText(entry.createdAt))
-                            }
-                            .font(.caption)
-                            .foregroundStyle(entry.reviewStatus == "needs_review" ? .orange : .secondary)
-
-                            Text(entry.user.displayName)
-                                .font(.caption)
-                                .foregroundStyle(.secondary)
-
-                            if let note = entry.note, !note.isEmpty {
-                                Text(note)
-                                    .font(.caption)
-                            }
-                        }
-                        .padding(.vertical, 4)
+                        timeEntryRow(entry)
                     }
                 }
             }
@@ -157,6 +215,28 @@ struct TimeSectionView: View {
         }
         .onChange(of: taskSearchText) { _, newValue in
             handleTaskSearchTextChange(newValue)
+        }
+        .confirmationDialog("Zeiterfassung löschen?", isPresented: Binding(
+            get: { entryToDelete != nil },
+            set: { newValue in
+                if !newValue {
+                    entryToDelete = nil
+                }
+            }
+        ), titleVisibility: .visible) {
+            Button("Löschen", role: .destructive) {
+                if let entryToDelete {
+                    Task {
+                        await deleteTimeEntry(entryToDelete)
+                    }
+                }
+            }
+
+            Button("Abbrechen", role: .cancel) {
+                entryToDelete = nil
+            }
+        } message: {
+            Text("Diese Zeitposition wird endgültig gelöscht.")
         }
         .alert("Fehler", isPresented: Binding(
             get: { errorMessage != nil },
@@ -172,6 +252,72 @@ struct TimeSectionView: View {
         } message: {
             Text(errorMessage ?? "")
         }
+    }
+
+    private func timeEntryRow(_ entry: TimeEntry) -> some View {
+        VStack(alignment: .leading, spacing: 6) {
+            HStack {
+                Text(entry.taskTemplate?.title ?? "Zeitbuchung")
+                    .font(.headline)
+
+                Spacer()
+
+                Text("\(entry.minutes) Min.")
+                    .font(.subheadline.bold())
+            }
+
+            HStack {
+                Text(entry.reviewStatusLabel)
+                if let reviewLevel = entry.reviewLevel, !reviewLevel.isEmpty {
+                    Text("· \(reviewLevel)")
+                }
+                Spacer()
+                Text(Formatters.dateTimeText(entry.createdAt))
+            }
+            .font(.caption)
+            .foregroundStyle(entry.reviewStatus == "needs_review" ? .orange : .secondary)
+
+            Text(entry.user.displayName)
+                .font(.caption)
+                .foregroundStyle(.secondary)
+
+            if hasComponents(entry) {
+                Text(componentSummary(for: entry))
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+            }
+
+            if let deviationReason = entry.deviationReason, !deviationReason.isEmpty {
+                Text(deviationReason)
+                    .font(.caption)
+            }
+
+            if let note = entry.note, !note.isEmpty {
+                Text(note)
+                    .font(.caption)
+            }
+
+            if canEdit(entry) {
+                HStack {
+                    Button("Bearbeiten") {
+                        beginEditing(entry)
+                    }
+
+                    Button("Löschen", role: .destructive) {
+                        entryToDelete = entry
+                    }
+                }
+                .font(.caption)
+                .buttonStyle(.borderless)
+            }
+        }
+        .padding(.vertical, 4)
+    }
+
+    private func minuteField(_ title: String, text: Binding<String>) -> some View {
+        TextField(title, text: text)
+            .keyboardType(.numberPad)
+            .disabled(commission.canEditValue == false)
     }
 
     private func loadEntries() async {
@@ -240,14 +386,54 @@ struct TimeSectionView: View {
         taskSuggestions = []
     }
 
-    private func addTimeEntry() async {
-        guard let selectedTask else {
+    private func beginEditing(_ entry: TimeEntry) {
+        editingEntry = entry
+        suggestionTask?.cancel()
+        selectedTask = entry.taskTemplate
+        taskSuggestions = []
+        taskSearchText = entry.taskTemplate?.title ?? ""
+
+        if hasComponents(entry) {
+            minutesText = ""
+            workMinutesText = minutesText(for: entry.workMinutes)
+            waitingMinutesText = minutesText(for: entry.waitingMinutes)
+            materialMinutesText = minutesText(for: entry.materialMinutes)
+            travelMinutesText = minutesText(for: entry.travelMinutes)
+            documentationMinutesText = minutesText(for: entry.documentationMinutes)
+            extraMinutesText = minutesText(for: entry.extraMinutes)
+        } else {
+            minutesText = "\(entry.minutes)"
+            workMinutesText = ""
+            waitingMinutesText = ""
+            materialMinutesText = ""
+            travelMinutesText = ""
+            documentationMinutesText = ""
+            extraMinutesText = ""
+        }
+
+        deviationReason = entry.deviationReason ?? ""
+        note = entry.note ?? ""
+    }
+
+    private func saveTimeEntry() async {
+        if editingEntry == nil && selectedTask == nil {
             errorMessage = "Bitte zuerst eine Position auswählen."
             return
         }
 
-        guard let minutes = Int(minutesText), minutes > 0 else {
-            errorMessage = "Bitte gültige Minuten eingeben."
+        let values = parsedTimeInput()
+        if values.hasInvalidComponent {
+            errorMessage = "Bitte gültige Minuten in den Zeitbausteinen eingeben."
+            return
+        }
+
+        if values.hasComponentInput && values.componentSum <= 0 {
+            errorMessage = "Bitte mindestens einen Zeitbaustein ausfüllen."
+            return
+        }
+
+        if !values.hasComponentInput && (values.totalMinutes ?? 0) <= 0 {
+            errorMessage = "Bitte eine Gesamtzeit oder Zeitbausteine eingeben."
             return
         }
 
@@ -258,20 +444,161 @@ struct TimeSectionView: View {
         }
 
         do {
-            _ = try await session.apiClient.addTimeEntry(
-                commissionId: commission.id,
-                taskTemplateId: selectedTask.id,
-                minutes: minutes,
-                note: note.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ? nil : note
-            )
+            if let editingEntry {
+                _ = try await session.apiClient.updateTimeEntry(
+                    commissionId: commission.id,
+                    entryId: editingEntry.id,
+                    taskTemplateId: selectedTask?.id,
+                    minutes: values.hasComponentInput ? nil : values.totalMinutes,
+                    workMinutes: values.hasComponentInput ? values.workMinutes : nil,
+                    waitingMinutes: values.hasComponentInput ? values.waitingMinutes : nil,
+                    materialMinutes: values.hasComponentInput ? values.materialMinutes : nil,
+                    travelMinutes: values.hasComponentInput ? values.travelMinutes : nil,
+                    documentationMinutes: values.hasComponentInput ? values.documentationMinutes : nil,
+                    extraMinutes: values.hasComponentInput ? values.extraMinutes : nil,
+                    deviationReason: deviationReason.isEmpty ? nil : deviationReason,
+                    note: note.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ? nil : note
+                )
+            } else {
+                _ = try await session.apiClient.addTimeEntry(
+                    commissionId: commission.id,
+                    taskTemplateId: selectedTask?.id,
+                    minutes: values.hasComponentInput ? nil : values.totalMinutes,
+                    workMinutes: values.hasComponentInput ? values.workMinutes : nil,
+                    waitingMinutes: values.hasComponentInput ? values.waitingMinutes : nil,
+                    materialMinutes: values.hasComponentInput ? values.materialMinutes : nil,
+                    travelMinutes: values.hasComponentInput ? values.travelMinutes : nil,
+                    documentationMinutes: values.hasComponentInput ? values.documentationMinutes : nil,
+                    extraMinutes: values.hasComponentInput ? values.extraMinutes : nil,
+                    deviationReason: deviationReason.isEmpty ? nil : deviationReason,
+                    note: note.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ? nil : note
+                )
+            }
 
-            minutesText = ""
-            note = ""
-            clearSelectedTask()
-
+            clearTimeInput()
             await loadEntries()
         } catch {
             errorMessage = error.localizedDescription
         }
     }
+
+    private func deleteTimeEntry(_ entry: TimeEntry) async {
+        isLoading = true
+
+        defer {
+            isLoading = false
+        }
+
+        do {
+            try await session.apiClient.deleteTimeEntry(commissionId: commission.id, entryId: entry.id)
+
+            if editingEntry?.id == entry.id {
+                clearTimeInput()
+            }
+
+            entryToDelete = nil
+            await loadEntries()
+        } catch {
+            errorMessage = error.localizedDescription
+        }
+    }
+
+    private func parsedTimeInput() -> ParsedTimeInput {
+        let workMinutes = integerValue(workMinutesText) ?? 0
+        let waitingMinutes = integerValue(waitingMinutesText) ?? 0
+        let materialMinutes = integerValue(materialMinutesText) ?? 0
+        let travelMinutes = integerValue(travelMinutesText) ?? 0
+        let documentationMinutes = integerValue(documentationMinutesText) ?? 0
+        let extraMinutes = integerValue(extraMinutesText) ?? 0
+        let hasInvalidComponent = componentTexts.contains { value in
+            integerValue(value) == nil && !value.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+        }
+        let componentSum = workMinutes + waitingMinutes + materialMinutes + travelMinutes + documentationMinutes + extraMinutes
+
+        return ParsedTimeInput(
+            totalMinutes: integerValue(minutesText),
+            hasComponentInput: hasComponentInput,
+            hasInvalidComponent: hasInvalidComponent,
+            componentSum: componentSum,
+            workMinutes: workMinutes,
+            waitingMinutes: waitingMinutes,
+            materialMinutes: materialMinutes,
+            travelMinutes: travelMinutes,
+            documentationMinutes: documentationMinutes,
+            extraMinutes: extraMinutes
+        )
+    }
+
+    private func integerValue(_ value: String) -> Int? {
+        let trimmedValue = value.trimmingCharacters(in: .whitespacesAndNewlines)
+        if trimmedValue.isEmpty {
+            return nil
+        }
+        return Int(trimmedValue)
+    }
+
+    private func minutesText(for value: Int?) -> String {
+        guard let value, value > 0 else {
+            return ""
+        }
+
+        return "\(value)"
+    }
+
+    private func hasComponents(_ entry: TimeEntry) -> Bool {
+        let componentValues: [Int?] = [
+            entry.workMinutes,
+            entry.waitingMinutes,
+            entry.materialMinutes,
+            entry.travelMinutes,
+            entry.documentationMinutes,
+            entry.extraMinutes
+        ]
+
+        return componentValues.contains { value in
+            (value ?? 0) > 0
+        }
+    }
+
+    private func componentSummary(for entry: TimeEntry) -> String {
+        let workMinutes = entry.workMinutes ?? 0
+        let waitingMinutes = entry.waitingMinutes ?? 0
+        let materialMinutes = entry.materialMinutes ?? 0
+        let travelMinutes = entry.travelMinutes ?? 0
+        let documentationMinutes = entry.documentationMinutes ?? 0
+        let extraMinutes = entry.extraMinutes ?? 0
+
+        return "Arbeit \(workMinutes) · Warten \(waitingMinutes) · Material \(materialMinutes) · Fahrt \(travelMinutes) · Doku \(documentationMinutes) · Zusatz \(extraMinutes)"
+    }
+
+    private func canEdit(_ entry: TimeEntry) -> Bool {
+        commission.canEditValue && entry.canEditValue
+    }
+
+    private func clearTimeInput() {
+        minutesText = ""
+        workMinutesText = ""
+        waitingMinutesText = ""
+        materialMinutesText = ""
+        travelMinutesText = ""
+        documentationMinutesText = ""
+        extraMinutesText = ""
+        deviationReason = ""
+        note = ""
+        editingEntry = nil
+        clearSelectedTask()
+    }
+}
+
+private struct ParsedTimeInput {
+    let totalMinutes: Int?
+    let hasComponentInput: Bool
+    let hasInvalidComponent: Bool
+    let componentSum: Int
+    let workMinutes: Int
+    let waitingMinutes: Int
+    let materialMinutes: Int
+    let travelMinutes: Int
+    let documentationMinutes: Int
+    let extraMinutes: Int
 }
