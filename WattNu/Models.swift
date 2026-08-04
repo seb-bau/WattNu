@@ -971,6 +971,8 @@ struct CommissionAppointmentRequest: Codable, Identifiable {
             return "Nicht mehr aktuell"
         case "expired":
             return "Abgelaufen"
+        case "cancelled":
+            return "Termin aufgehoben"
         default:
             return status
         }

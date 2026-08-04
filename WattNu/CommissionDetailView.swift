@@ -49,6 +49,9 @@ struct CommissionDetailView: View {
                             },
                             completeAction: {
                                 isCompletionPresented = true
+                            },
+                            commissionUpdatedAction: { updatedCommission in
+                                self.commission = updatedCommission
                             }
                         )
                     case .materials:

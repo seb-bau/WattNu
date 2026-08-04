@@ -257,11 +257,52 @@ struct AppointmentProposalComposerView: View {
                 loadedWindows
             )
 
+            let availableContacts = result.0.filter { contact in
+                guard let email = contact.email else {
+                    return false
+                }
+
+                return !email.trimmingCharacters(
+                    in: .whitespacesAndNewlines
+                ).isEmpty
+            }
+
             contacts = result.0
             windows = result.1
 
-            if recipientName.isEmpty {
-                recipientName = commission.tenantName ?? ""
+            if recipientEmail.isEmpty {
+                let tenantName = commission.tenantName?
+                    .trimmingCharacters(
+                        in: .whitespacesAndNewlines
+                    )
+
+                let selectedContact = availableContacts.first { contact in
+                    guard let tenantName,
+                          !tenantName.isEmpty,
+                          let contactName = contact.name else {
+                        return false
+                    }
+
+                    return contactName.compare(
+                        tenantName,
+                        options: [
+                            .caseInsensitive,
+                            .diacriticInsensitive
+                        ]
+                    ) == .orderedSame
+                } ?? availableContacts.first
+
+                if let selectedContact,
+                   let email = selectedContact.email {
+                    recipientEmail = email
+                    recipientName = (
+                        selectedContact.name
+                        ?? commission.tenantName
+                        ?? ""
+                    )
+                } else if recipientName.isEmpty {
+                    recipientName = commission.tenantName ?? ""
+                }
             }
 
             if proposals.isEmpty {

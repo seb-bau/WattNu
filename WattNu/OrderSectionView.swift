@@ -4,6 +4,7 @@ struct OrderSectionView: View {
     let commission: Commission
     let startAction: () -> Void
     let completeAction: () -> Void
+    let commissionUpdatedAction: (Commission) -> Void
 
     @State private var showContacts = false
 
@@ -94,7 +95,8 @@ struct OrderSectionView: View {
                 )
                 
                 CommissionAppointmentSectionView(
-                    commission: commission
+                    commission: commission,
+                    onCommissionUpdated: commissionUpdatedAction
                 )
 
                 if commission.isActionableValue {

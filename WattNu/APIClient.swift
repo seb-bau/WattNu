@@ -185,6 +185,20 @@ final class APIClient {
 
         return response.item
     }
+    
+    func cancelAcceptedCommissionAppointment(
+        commissionId: Int
+    ) async throws -> Commission {
+        try requireToken()
+
+        let response: ItemResponse<Commission> = try await send(
+            path: "/api/commissions/\(commissionId)/appointments/accepted",
+            method: "DELETE",
+            body: EmptyRequest()
+        )
+
+        return response.item
+    }
 
     func startCommission(id: Int) async throws -> Commission {
         try requireToken()

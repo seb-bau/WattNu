@@ -69,6 +69,31 @@ enum AppointmentReminderService {
             return
         }
     }
+    
+    static func cancel(
+        for commission: Commission
+    ) {
+        let identifiers = [
+            identifier(
+                commissionId: commission.id,
+                suffix: "day"
+            ),
+            identifier(
+                commissionId: commission.id,
+                suffix: "hour"
+            )
+        ]
+
+        let center = UNUserNotificationCenter.current()
+
+        center.removePendingNotificationRequests(
+            withIdentifiers: identifiers
+        )
+
+        center.removeDeliveredNotifications(
+            withIdentifiers: identifiers
+        )
+    }
 
     private static func addReminder(
         center: UNUserNotificationCenter,

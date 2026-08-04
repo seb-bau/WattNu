@@ -4,11 +4,14 @@ struct CommissionAppointmentSectionView: View {
     @EnvironmentObject private var session: SessionStore
 
     let commission: Commission
+    let onCommissionUpdated: (Commission) -> Void
 
     @State private var requests: [CommissionAppointmentRequest] = []
     @State private var composerPresented = false
     @State private var isLoading = false
     @State private var errorMessage: String?
+    @State private var cancellationConfirmationPresented = false
+    @State private var isCancelling = false
 
     var body: some View {
         VStack(
@@ -59,6 +62,24 @@ struct CommissionAppointmentSectionView: View {
                         Text(comment)
                             .font(.caption)
                             .foregroundStyle(.secondary)
+                    }
+                    
+                    if commission.canEditValue {
+                        Button {
+                            cancellationConfirmationPresented = true
+                        } label: {
+                            if isCancelling {
+                                ProgressView()
+                            } else {
+                                Label(
+                                    "Bestätigten Termin aufheben",
+                                    systemImage: "calendar.badge.minus"
+                                )
+                            }
+                        }
+                        .buttonStyle(.bordered)
+                        .tint(.red)
+                        .disabled(isCancelling)
                     }
                 }
                 .padding()
@@ -174,7 +195,7 @@ struct CommissionAppointmentSectionView: View {
                 cornerRadius: 18
             )
         )
-        .task {
+        .task(id: commission.acceptedAppointmentFrom) {
             if commission.acceptedAppointmentFrom == nil {
                 await loadRequests()
             }
@@ -197,6 +218,30 @@ struct CommissionAppointmentSectionView: View {
                 }
             }
             .environmentObject(session)
+        }
+        .confirmationDialog(
+            "Bestätigten Termin aufheben?",
+            isPresented: $cancellationConfirmationPresented,
+            titleVisibility: .visible
+        ) {
+            Button(
+                "Termin aufheben",
+                role: .destructive
+            ) {
+                Task {
+                    await cancelAcceptedAppointment()
+                }
+            }
+
+            Button(
+                "Abbrechen",
+                role: .cancel
+            ) {
+            }
+        } message: {
+            Text(
+                "Die bisherige Zusage bleibt im Verlauf gespeichert. Anschließend können neue Terminvorschläge versendet werden."
+            )
         }
         .alert(
             "Fehler",
@@ -234,6 +279,39 @@ struct CommissionAppointmentSectionView: View {
                 .fetchCommissionAppointments(
                     commissionId: commission.id
                 )
+        } catch {
+            if error.isRequestCancellation {
+                return
+            }
+
+            errorMessage = error.localizedDescription
+        }
+    }
+    
+    private func cancelAcceptedAppointment() async {
+        guard !isCancelling else {
+            return
+        }
+
+        isCancelling = true
+
+        defer {
+            isCancelling = false
+        }
+
+        do {
+            let updatedCommission = try await session.apiClient
+                .cancelAcceptedCommissionAppointment(
+                    commissionId: commission.id
+                )
+
+            AppointmentReminderService.cancel(
+                for: commission
+            )
+
+            onCommissionUpdated(
+                updatedCommission
+            )
         } catch {
             if error.isRequestCancellation {
                 return
