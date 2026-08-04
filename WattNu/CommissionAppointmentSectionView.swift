@@ -21,16 +21,18 @@ struct CommissionAppointmentSectionView: View {
 
                 Spacer()
 
-                Button {
-                    Task {
-                        await loadRequests()
+                if commission.acceptedAppointmentFrom == nil {
+                    Button {
+                        Task {
+                            await loadRequests()
+                        }
+                    } label: {
+                        Image(
+                            systemName: "arrow.clockwise"
+                        )
                     }
-                } label: {
-                    Image(
-                        systemName: "arrow.clockwise"
-                    )
+                    .disabled(isLoading)
                 }
-                .disabled(isLoading)
             }
 
             if let appointmentFrom = commission.acceptedAppointmentFrom {
@@ -74,9 +76,11 @@ struct CommissionAppointmentSectionView: View {
                 )
             }
 
-            if isLoading && requests.isEmpty {
+            if commission.acceptedAppointmentFrom == nil
+                && isLoading
+                && requests.isEmpty {
                 ProgressView()
-            } else {
+            } else if commission.acceptedAppointmentFrom == nil {
                 ForEach(
                     requests.prefix(5)
                 ) { item in
@@ -143,7 +147,8 @@ struct CommissionAppointmentSectionView: View {
             }
 
             if commission.canEditValue
-                && commission.isActionableValue {
+                && commission.isActionableValue
+                && commission.acceptedAppointmentFrom == nil {
                 Button {
                     composerPresented = true
                 } label: {
@@ -170,7 +175,9 @@ struct CommissionAppointmentSectionView: View {
             )
         )
         .task {
-            await loadRequests()
+            if commission.acceptedAppointmentFrom == nil {
+                await loadRequests()
+            }
 
             await AppointmentReminderService.schedule(
                 for: commission
@@ -255,14 +262,9 @@ struct CommissionAppointmentSectionView: View {
         from: String,
         to: String?
     ) -> String {
-        let startText = Formatters.dateTimeText(
-            from
-        )
-
-        guard let to else {
-            return startText
-        }
-
-        return "\(startText) bis \(Formatters.dateTimeText(to))"
+        Formatters.appointmentRangeText(
+            fromValue: from,
+            toValue: to
+        ) ?? from
     }
 }
