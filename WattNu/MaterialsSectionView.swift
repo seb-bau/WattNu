@@ -13,6 +13,8 @@ struct MaterialsSectionView: View {
     @State private var quantityText = "1"
     @State private var materialSource = "warehouse"
     @State private var usageStatus = "installed"
+    @State private var inventoryLocations: [InventoryLocation] = []
+    @State private var selectedInventoryLocationId: Int?
     @State private var deviationReason = ""
     @State private var note = ""
     @State private var selectedItem: InventoryItem?
@@ -33,6 +35,28 @@ struct MaterialsSectionView: View {
         ("direct_purchase", "Direktkauf"),
         ("on_site", "Vor Ort vorhanden")
     ]
+    
+    private var requiresInventoryLocation: Bool {
+        materialSource == "warehouse"
+        || materialSource == "vehicle"
+    }
+
+    private var availableInventoryLocations: [InventoryLocation] {
+        switch materialSource {
+        case "vehicle":
+            return inventoryLocations.filter {
+                $0.locationType == "vehicle"
+            }
+
+        case "warehouse":
+            return inventoryLocations.filter {
+                $0.locationType != "vehicle"
+            }
+
+        default:
+            return []
+        }
+    }
 
     private let usageStatuses = [
         ("installed", "Verbaut"),
@@ -244,6 +268,55 @@ struct MaterialsSectionView: View {
                     }
                 }
                 .disabled(commission.canEditValue == false)
+                
+                if requiresInventoryLocation {
+                    Picker(
+                        "Lagerort",
+                        selection: $selectedInventoryLocationId
+                    ) {
+                        Text("Bitte auswählen")
+                            .tag(Int?.none)
+
+                        ForEach(
+                            availableInventoryLocations
+                        ) { location in
+                            Text(location.displayName)
+                                .tag(Optional(location.id))
+                        }
+                    }
+                    .disabled(
+                        selectedItem == nil
+                        || isLoading
+                        || commission.canEditValue == false
+                        || (
+                            requiresInventoryLocation
+                            && selectedInventoryLocationId == nil
+                        )
+                    )
+
+                    if let selectedItem,
+                       let selectedInventoryLocationId {
+                        let availableQuantity = selectedItem.stockQuantity(
+                            at: selectedInventoryLocationId
+                        )
+
+                        Text(
+                            "Verfügbar: \(Formatters.quantityText(availableQuantity, unit: selectedItem.unit))"
+                        )
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                    }   
+
+                    if availableInventoryLocations.isEmpty {
+                        Text(
+                            materialSource == "vehicle"
+                            ? "Es ist kein Fahrzeug-Lagerort eingerichtet."
+                            : "Es ist kein passender Lagerort eingerichtet."
+                        )
+                        .font(.caption)
+                        .foregroundStyle(.red)
+                    }
+                }
 
                 Picker("Status", selection: $usageStatus) {
                     ForEach(usageStatuses, id: \.0) { status in
@@ -320,6 +393,18 @@ struct MaterialsSectionView: View {
                                     .font(.caption)
                                     .foregroundStyle(.secondary)
                             }
+                            
+                            if let sourceLocation = movement.sourceLocation {
+                                Text("Entnommen aus: \(sourceLocation.name)")
+                                    .font(.caption)
+                                    .foregroundStyle(.secondary)
+                            }
+
+                            if let targetLocation = movement.targetLocation {
+                                Text("Zurückgebucht nach: \(targetLocation.name)")
+                                    .font(.caption)
+                                    .foregroundStyle(.secondary)
+                            }
 
                             if !movement.reviewLabel.isEmpty {
                                 Text(movement.reviewLabel)
@@ -372,10 +457,13 @@ struct MaterialsSectionView: View {
             }
         }
         .task {
-            await loadMaterials()
+            await loadData()
         }
         .refreshable {
-            await loadMaterials()
+            await loadData()
+        }
+        .onChange(of: materialSource) { _, _ in
+            configureInventoryLocation()
         }
         .onChange(of: code) { _, newValue in
             handleCodeChange(newValue)
@@ -440,6 +528,53 @@ struct MaterialsSectionView: View {
         } message: {
             Text(errorMessage ?? "")
         }
+    }
+    
+    private func loadData() async {
+        do {
+            async let loadedMovements =
+                session.apiClient.fetchMaterials(
+                    commissionId: commission.id
+                )
+
+            async let loadedLocations =
+                session.apiClient.fetchInventoryLocations()
+
+            let result = try await (
+                loadedMovements,
+                loadedLocations
+            )
+
+            movements = result.0
+            inventoryLocations = result.1
+            configureInventoryLocation()
+
+        } catch {
+            errorMessage = error.localizedDescription
+        }
+    }
+
+    private func configureInventoryLocation() {
+        guard requiresInventoryLocation else {
+            selectedInventoryLocationId = nil
+            return
+        }
+
+        if let selectedInventoryLocationId,
+           availableInventoryLocations.contains(
+            where: {
+                $0.id == selectedInventoryLocationId
+            }
+           ) {
+            return
+        }
+
+        selectedInventoryLocationId = (
+            availableInventoryLocations.first {
+                $0.isDefault
+            }
+            ?? availableInventoryLocations.first
+        )?.id
     }
 
     private func loadMaterials() async {
@@ -632,6 +767,28 @@ struct MaterialsSectionView: View {
             errorMessage = "Bitte eine gültige Menge eingeben."
             return
         }
+        
+        let locationId: Int?
+
+        if requiresInventoryLocation {
+            guard let selectedInventoryLocationId else {
+                errorMessage = "Bitte einen Lagerort auswählen."
+                return
+            }
+
+            let availableQuantity = selectedItem.stockQuantity(
+                at: selectedInventoryLocationId
+            )
+
+            guard availableQuantity + 0.0001 >= quantity else {
+                errorMessage = "Am ausgewählten Lagerort ist nicht genügend Bestand vorhanden."
+                return
+            }
+
+            locationId = selectedInventoryLocationId
+        } else {
+            locationId = nil
+        }
 
         isLoading = true
 
@@ -647,8 +804,19 @@ struct MaterialsSectionView: View {
                 taskTemplateId: selectedTask?.id,
                 usageStatus: usageStatus,
                 source: materialSource,
-                deviationReason: deviationReason.isEmpty ? nil : deviationReason,
-                note: note.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ? nil : note
+                locationId: locationId,
+                deviationReason: (
+                    deviationReason.isEmpty
+                    ? nil
+                    : deviationReason
+                ),
+                note: (
+                    note.trimmingCharacters(
+                        in: .whitespacesAndNewlines
+                    ).isEmpty
+                    ? nil
+                    : note
+                )
             )
 
             clearMaterialInput()
@@ -696,5 +864,6 @@ struct MaterialsSectionView: View {
         materialSource = "warehouse"
         deviationReason = ""
         note = ""
+        configureInventoryLocation()
     }
 }

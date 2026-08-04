@@ -333,6 +333,32 @@ struct CommissionContactItem: Codable, Identifiable, Hashable {
     }
 }
 
+struct InventoryLocation: Codable, Identifiable, Equatable, Hashable {
+    let id: Int
+    let code: String
+    let name: String
+    let locationType: String
+    let isDefault: Bool
+
+    enum CodingKeys: String, CodingKey {
+        case id
+        case code
+        case name
+        case locationType = "location_type"
+        case isDefault = "is_default"
+    }
+
+    var displayName: String {
+        isDefault ? "\(name) · Standard" : name
+    }
+}
+
+struct InventoryStock: Codable, Identifiable, Equatable, Hashable {
+    let id: Int
+    let quantity: Double
+    let location: InventoryLocation
+}
+
 struct InventoryItem: Codable, Identifiable, Equatable, Hashable {
     let id: Int
     let itemNumber: String
@@ -342,6 +368,8 @@ struct InventoryItem: Codable, Identifiable, Equatable, Hashable {
     let qrCodePayload: String
     let stockQuantity: Double
     let reorderLevel: Double
+    let barcodes: [String]?
+    let stocks: [InventoryStock]?
 
     enum CodingKeys: String, CodingKey {
         case id
@@ -352,6 +380,24 @@ struct InventoryItem: Codable, Identifiable, Equatable, Hashable {
         case qrCodePayload = "qr_code_payload"
         case stockQuantity = "stock_quantity"
         case reorderLevel = "reorder_level"
+        case barcodes
+        case stocks
+    }
+
+    var stocksValue: [InventoryStock] {
+        stocks ?? []
+    }
+
+    func stockQuantity(
+        at locationId: Int?
+    ) -> Double {
+        guard let locationId else {
+            return 0
+        }
+
+        return stocksValue.first {
+            $0.location.id == locationId
+        }?.quantity ?? 0
     }
 }
 
@@ -364,6 +410,8 @@ struct InventoryMovement: Codable, Identifiable, Equatable {
     let movementType: String
     let quantity: Double
     let source: String?
+    let sourceLocation: InventoryLocation?
+    let targetLocation: InventoryLocation?
     let usageStatus: String?
     let deviationReason: String?
     let note: String?
@@ -382,6 +430,8 @@ struct InventoryMovement: Codable, Identifiable, Equatable {
         case movementType = "movement_type"
         case quantity
         case source
+        case sourceLocation = "source_location"
+        case targetLocation = "target_location"
         case usageStatus = "usage_status"
         case deviationReason = "deviation_reason"
         case note
@@ -404,6 +454,8 @@ struct InventoryMovement: Codable, Identifiable, Equatable {
             return "Korrektur"
         case "cancellation":
             return "Storno"
+        case "transfer":
+            return "Umbuchung"
         default:
             return movementType
         }
@@ -688,6 +740,7 @@ struct MaterialRequest: Encodable {
     let taskTemplateId: Int?
     let usageStatus: String?
     let source: String?
+    let locationId: Int?
     let deviationReason: String?
     let note: String?
 
@@ -697,6 +750,7 @@ struct MaterialRequest: Encodable {
         case taskTemplateId = "task_template_id"
         case usageStatus = "usage_status"
         case source
+        case locationId = "location_id"
         case deviationReason = "deviation_reason"
         case note
     }
@@ -773,5 +827,35 @@ struct CommissionCompletionRequest: Encodable {
         case completed
         case tenantCharge = "tenant_charge"
         case reason
+    }
+}
+
+struct InventoryTransferRequest: Encodable {
+    let code: String
+    let quantity: Double
+    let sourceLocationId: Int
+    let targetLocationId: Int
+    let note: String?
+
+    enum CodingKeys: String, CodingKey {
+        case code
+        case quantity
+        case sourceLocationId = "source_location_id"
+        case targetLocationId = "target_location_id"
+        case note
+    }
+}
+
+struct InventoryReceiptRequest: Encodable {
+    let code: String
+    let quantity: Double
+    let targetLocationId: Int
+    let note: String?
+
+    enum CodingKeys: String, CodingKey {
+        case code
+        case quantity
+        case targetLocationId = "target_location_id"
+        case note
     }
 }

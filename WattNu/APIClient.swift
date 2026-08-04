@@ -184,6 +184,80 @@ final class APIClient {
         ])
         return response.items
     }
+    
+    func fetchInventoryLocations() async throws -> [InventoryLocation] {
+        try requireToken()
+
+        let response: ListResponse<InventoryLocation> = try await request(
+            path: "/api/inventory/locations"
+        )
+
+        return response.items
+    }
+
+    func fetchInventoryMovements(
+        limit: Int = 30
+    ) async throws -> [InventoryMovement] {
+        try requireToken()
+
+        let response: ListResponse<InventoryMovement> = try await request(
+            path: "/api/inventory/movements",
+            queryItems: [
+                URLQueryItem(
+                    name: "limit",
+                    value: "\(limit)"
+                )
+            ]
+        )
+
+        return response.items
+    }
+
+    func transferInventory(
+        code: String,
+        quantity: Double,
+        sourceLocationId: Int,
+        targetLocationId: Int,
+        note: String?
+    ) async throws -> MaterialResponse {
+        try requireToken()
+
+        let body = InventoryTransferRequest(
+            code: code,
+            quantity: quantity,
+            sourceLocationId: sourceLocationId,
+            targetLocationId: targetLocationId,
+            note: note
+        )
+
+        return try await send(
+            path: "/api/inventory/transfer",
+            method: "POST",
+            body: body
+        )
+    }
+
+    func receiveInventory(
+        code: String,
+        quantity: Double,
+        targetLocationId: Int,
+        note: String?
+    ) async throws -> MaterialResponse {
+        try requireToken()
+
+        let body = InventoryReceiptRequest(
+            code: code,
+            quantity: quantity,
+            targetLocationId: targetLocationId,
+            note: note
+        )
+
+        return try await send(
+            path: "/api/inventory/receipt",
+            method: "POST",
+            body: body
+        )
+    }
 
     func fetchMaterials(commissionId: Int) async throws -> [InventoryMovement] {
         try requireToken()
@@ -191,10 +265,35 @@ final class APIClient {
         return response.items
     }
 
-    func addMaterial(commissionId: Int, code: String, quantity: Double, taskTemplateId: Int?, usageStatus: String?, source: String?, deviationReason: String?, note: String?) async throws -> MaterialResponse {
+    func addMaterial(
+        commissionId: Int,
+        code: String,
+        quantity: Double,
+        taskTemplateId: Int?,
+        usageStatus: String?,
+        source: String?,
+        locationId: Int?,
+        deviationReason: String?,
+        note: String?
+    ) async throws -> MaterialResponse {
         try requireToken()
-        let body = MaterialRequest(code: code, quantity: quantity, taskTemplateId: taskTemplateId, usageStatus: usageStatus, source: source, deviationReason: deviationReason, note: note)
-        return try await send(path: "/api/commissions/\(commissionId)/materials", method: "POST", body: body)
+
+        let body = MaterialRequest(
+            code: code,
+            quantity: quantity,
+            taskTemplateId: taskTemplateId,
+            usageStatus: usageStatus,
+            source: source,
+            locationId: locationId,
+            deviationReason: deviationReason,
+            note: note
+        )
+
+        return try await send(
+            path: "/api/commissions/\(commissionId)/materials",
+            method: "POST",
+            body: body
+        )
     }
     
     func cancelMaterial(commissionId: Int, movementId: Int) async throws -> MaterialResponse {

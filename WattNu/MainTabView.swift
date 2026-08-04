@@ -12,12 +12,26 @@ struct MainTabView: View {
         TabView {
             CommissionListView()
                 .tabItem {
-                    Label("Aufträge", systemImage: "list.bullet.clipboard")
+                    Label(
+                        "Aufträge",
+                        systemImage: "list.bullet.clipboard"
+                    )
+                }
+
+            InventoryView()
+                .tabItem {
+                    Label(
+                        "Lager",
+                        systemImage: "shippingbox"
+                    )
                 }
 
             AppSettingsView()
                 .tabItem {
-                    Label("Einstellungen", systemImage: "gearshape")
+                    Label(
+                        "Einstellungen",
+                        systemImage: "gearshape"
+                    )
                 }
         }
     }
