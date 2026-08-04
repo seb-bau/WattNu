@@ -112,6 +112,9 @@ struct Commission: Codable, Identifiable, Hashable {
     let tenantChargeRequested: Bool?
     let completionReason: String?
     let positions: [CommissionPosition]
+    let acceptedAppointmentFrom: String?
+    let acceptedAppointmentTo: String?
+    let acceptedAppointmentComment: String?
 
     enum CodingKeys: String, CodingKey {
         case id
@@ -153,6 +156,9 @@ struct Commission: Codable, Identifiable, Hashable {
         case tenantChargeRequested = "tenant_charge_requested"
         case completionReason = "completion_reason"
         case positions
+        case acceptedAppointmentFrom = "accepted_appointment_from"
+        case acceptedAppointmentTo = "accepted_appointment_to"
+        case acceptedAppointmentComment = "accepted_appointment_comment"
     }
 
     var coordinate: CLLocationCoordinate2D? {
@@ -848,6 +854,164 @@ struct CommissionPhotoUploadResponse: Decodable {
 
 struct CommissionPhotoUpdateRequest: Encodable {
     let caption: String?
+}
+
+struct AppointmentWindow: Codable, Identifiable, Hashable {
+    let id: Int
+    let code: String
+    let name: String
+    let startTime: String
+    let endTime: String
+    let sortOrder: Int
+
+    enum CodingKeys: String, CodingKey {
+        case id
+        case code
+        case name
+        case startTime = "start_time"
+        case endTime = "end_time"
+        case sortOrder = "sort_order"
+    }
+
+    var displayName: String {
+        "\(name) · \(startTime)–\(endTime) Uhr"
+    }
+}
+
+struct CommissionAppointmentProposal: Codable, Identifiable, Hashable {
+    let id: Int
+    let windowId: Int?
+    let proposedDate: String
+    let startTime: String
+    let endTime: String
+    let windowName: String
+    let accepted: Bool
+
+    enum CodingKeys: String, CodingKey {
+        case id
+        case windowId = "window_id"
+        case proposedDate = "proposed_date"
+        case startTime = "start_time"
+        case endTime = "end_time"
+        case windowName = "window_name"
+        case accepted
+    }
+
+    var displayText: String {
+        let inputFormatter = DateFormatter()
+        inputFormatter.locale = Locale(
+            identifier: "en_US_POSIX"
+        )
+        inputFormatter.dateFormat = "yyyy-MM-dd"
+
+        let outputFormatter = DateFormatter()
+        outputFormatter.locale = Locale(
+            identifier: "de_DE"
+        )
+        outputFormatter.dateStyle = .medium
+
+        let dateText: String
+
+        if let date = inputFormatter.date(
+            from: proposedDate
+        ) {
+            dateText = outputFormatter.string(
+                from: date
+            )
+        } else {
+            dateText = proposedDate
+        }
+
+        return "\(dateText) · \(startTime)–\(endTime) Uhr"
+    }
+}
+
+struct CommissionAppointmentRequest: Codable, Identifiable {
+    let id: Int
+    let commissionId: Int
+    let recipientName: String?
+    let recipientEmail: String
+    let message: String?
+    let status: String
+    let tenantComment: String?
+    let sentAt: String?
+    let respondedAt: String?
+    let expiresAt: String?
+    let createdAt: String?
+    let createdBy: AppUser?
+    let acceptedProposalId: Int?
+    let proposals: [CommissionAppointmentProposal]
+
+    enum CodingKeys: String, CodingKey {
+        case id
+        case commissionId = "commission_id"
+        case recipientName = "recipient_name"
+        case recipientEmail = "recipient_email"
+        case message
+        case status
+        case tenantComment = "tenant_comment"
+        case sentAt = "sent_at"
+        case respondedAt = "responded_at"
+        case expiresAt = "expires_at"
+        case createdAt = "created_at"
+        case createdBy = "created_by"
+        case acceptedProposalId = "accepted_proposal_id"
+        case proposals
+    }
+
+    var statusLabel: String {
+        switch status {
+        case "pending":
+            return "Rückmeldung ausstehend"
+        case "accepted":
+            return "Angenommen"
+        case "rejected":
+            return "Abgelehnt"
+        case "superseded":
+            return "Nicht mehr aktuell"
+        case "expired":
+            return "Abgelaufen"
+        default:
+            return status
+        }
+    }
+
+    var statusColorName: String {
+        switch status {
+        case "accepted":
+            return "green"
+        case "rejected":
+            return "red"
+        case "pending":
+            return "orange"
+        default:
+            return "secondary"
+        }
+    }
+}
+
+struct AppointmentProposalCreatePayload: Encodable {
+    let date: String
+    let windowId: Int
+
+    enum CodingKeys: String, CodingKey {
+        case date
+        case windowId = "window_id"
+    }
+}
+
+struct AppointmentRequestCreatePayload: Encodable {
+    let recipientName: String?
+    let recipientEmail: String
+    let message: String?
+    let proposals: [AppointmentProposalCreatePayload]
+
+    enum CodingKeys: String, CodingKey {
+        case recipientName = "recipient_name"
+        case recipientEmail = "recipient_email"
+        case message
+        case proposals
+    }
 }
 
 struct CommissionHistoryEntry: Codable, Identifiable, Hashable {

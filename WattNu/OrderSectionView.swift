@@ -92,6 +92,10 @@ struct OrderSectionView: View {
                 CommissionPhotosSectionView(
                     commission: commission
                 )
+                
+                CommissionAppointmentSectionView(
+                    commission: commission
+                )
 
                 if commission.isActionableValue {
                     Button {

@@ -251,6 +251,10 @@ struct CommissionPhotosSectionView: View {
                 )
             }
         } catch {
+            if error.isRequestCancellation {
+                return
+            }
+
             errorMessage = error.localizedDescription
         }
     }
@@ -272,6 +276,10 @@ struct CommissionPhotosSectionView: View {
                 ] = image
             }
         } catch {
+            if error.isRequestCancellation {
+                return
+            }
+
             if errorMessage == nil {
                 errorMessage = error.localizedDescription
             }

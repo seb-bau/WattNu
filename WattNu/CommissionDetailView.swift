@@ -138,6 +138,10 @@ struct CommissionDetailView: View {
         do {
             commission = try await session.apiClient.fetchCommission(id: commissionId)
         } catch {
+            if error.isRequestCancellation {
+                return
+            }
+
             errorMessage = error.localizedDescription
         }
     }

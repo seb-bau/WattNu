@@ -138,6 +138,53 @@ final class APIClient {
         let response: CommissionContactsResponse = try await request(path: "/api/commissions/\(commissionId)/contacts")
         return response.contactItems
     }
+    
+    func fetchAppointmentWindows() async throws -> [AppointmentWindow] {
+        try requireToken()
+
+        let response: ListResponse<AppointmentWindow> = try await request(
+            path: "/api/appointment-windows"
+        )
+
+        return response.items
+    }
+
+    func fetchCommissionAppointments(
+        commissionId: Int
+    ) async throws -> [CommissionAppointmentRequest] {
+        try requireToken()
+
+        let response: ListResponse<CommissionAppointmentRequest> = try await request(
+            path: "/api/commissions/\(commissionId)/appointments"
+        )
+
+        return response.items
+    }
+
+    func createCommissionAppointmentRequest(
+        commissionId: Int,
+        recipientName: String?,
+        recipientEmail: String,
+        message: String?,
+        proposals: [AppointmentProposalCreatePayload]
+    ) async throws -> CommissionAppointmentRequest {
+        try requireToken()
+
+        let body = AppointmentRequestCreatePayload(
+            recipientName: recipientName,
+            recipientEmail: recipientEmail,
+            message: message,
+            proposals: proposals
+        )
+
+        let response: ItemResponse<CommissionAppointmentRequest> = try await send(
+            path: "/api/commissions/\(commissionId)/appointments",
+            method: "POST",
+            body: body
+        )
+
+        return response.item
+    }
 
     func startCommission(id: Int) async throws -> Commission {
         try requireToken()
