@@ -88,6 +88,10 @@ struct OrderSectionView: View {
                         cornerRadius: 18
                     )
                 )
+                
+                CommissionPhotosSectionView(
+                    commission: commission
+                )
 
                 if commission.isActionableValue {
                     Button {

@@ -798,6 +798,58 @@ struct EmptyRequest: Encodable {
 struct EmptyResponse: Decodable {
 }
 
+struct CommissionPhoto: Codable, Identifiable {
+    let id: Int
+    let commissionId: Int
+    let source: String
+    let externalId: String?
+    let originalFilename: String
+    let mimeType: String
+    let sizeBytes: Int
+    let caption: String?
+    let uploadedBy: AppUser?
+    let createdAt: String?
+    let updatedAt: String?
+    let contentPath: String
+    let thumbnailPath: String
+
+    enum CodingKeys: String, CodingKey {
+        case id
+        case commissionId = "commission_id"
+        case source
+        case externalId = "external_id"
+        case originalFilename = "original_filename"
+        case mimeType = "mime_type"
+        case sizeBytes = "size_bytes"
+        case caption
+        case uploadedBy = "uploaded_by"
+        case createdAt = "created_at"
+        case updatedAt = "updated_at"
+        case contentPath = "content_path"
+        case thumbnailPath = "thumbnail_path"
+    }
+
+    var sourceLabel: String {
+        switch source {
+        case "app":
+            return "App"
+        case "wowiport":
+            return "Wowiport"
+        default:
+            return source
+        }
+    }
+}
+
+struct CommissionPhotoUploadResponse: Decodable {
+    let item: CommissionPhoto
+    let duplicate: Bool?
+}
+
+struct CommissionPhotoUpdateRequest: Encodable {
+    let caption: String?
+}
+
 struct CommissionHistoryEntry: Codable, Identifiable, Hashable {
     let id: Int
     let action: String

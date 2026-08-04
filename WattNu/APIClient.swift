@@ -167,6 +167,118 @@ final class APIClient {
 
         return response.item
     }
+    
+    func fetchCommissionPhotos(
+        commissionId: Int
+    ) async throws -> [CommissionPhoto] {
+        try requireToken()
+
+        let response: ListResponse<CommissionPhoto> = try await request(
+            path: "/api/commissions/\(commissionId)/photos"
+        )
+
+        return response.items
+    }
+
+    func uploadCommissionPhoto(
+        commissionId: Int,
+        imageData: Data,
+        caption: String?
+    ) async throws -> CommissionPhotoUploadResponse {
+        try requireToken()
+
+        let boundary = "WattNu-\(UUID().uuidString)"
+        var body = Data()
+
+        if let caption,
+           !caption.isEmpty {
+            body.appendUTF8(
+                "--\(boundary)\r\n"
+            )
+            body.appendUTF8(
+                "Content-Disposition: form-data; name=\"caption\"\r\n\r\n"
+            )
+            body.appendUTF8(caption)
+            body.appendUTF8("\r\n")
+        }
+
+        body.appendUTF8(
+            "--\(boundary)\r\n"
+        )
+        body.appendUTF8(
+            "Content-Disposition: form-data; name=\"photo\"; filename=\"foto.jpg\"\r\n"
+        )
+        body.appendUTF8(
+            "Content-Type: image/jpeg\r\n\r\n"
+        )
+        body.append(imageData)
+        body.appendUTF8("\r\n")
+        body.appendUTF8(
+            "--\(boundary)--\r\n"
+        )
+
+        let data = try await performRaw(
+            path: "/api/commissions/\(commissionId)/photos",
+            method: "POST",
+            contentType: "multipart/form-data; boundary=\(boundary)",
+            accept: "application/json",
+            bodyData: body
+        )
+
+        return try decoder.decode(
+            CommissionPhotoUploadResponse.self,
+            from: data
+        )
+    }
+
+    func updateCommissionPhoto(
+        commissionId: Int,
+        photoId: Int,
+        caption: String?
+    ) async throws -> CommissionPhoto {
+        try requireToken()
+
+        let body = CommissionPhotoUpdateRequest(
+            caption: caption
+        )
+
+        let response: ItemResponse<CommissionPhoto> = try await send(
+            path: "/api/commissions/\(commissionId)/photos/\(photoId)",
+            method: "PATCH",
+            body: body
+        )
+
+        return response.item
+    }
+
+    func deleteCommissionPhoto(
+        commissionId: Int,
+        photoId: Int
+    ) async throws {
+        try requireToken()
+
+        _ = try await performRaw(
+            path: "/api/commissions/\(commissionId)/photos/\(photoId)",
+            method: "DELETE",
+            contentType: nil,
+            accept: "application/json",
+            bodyData: nil
+        )
+    }
+
+    func downloadCommissionPhoto(
+        path: String
+    ) async throws -> Data {
+        try requireToken()
+
+        return try await performRaw(
+            path: path,
+            method: "GET",
+            contentType: nil,
+            accept: "image/jpeg",
+            bodyData: nil
+        )
+    }
 
     func lookupInventory(code: String) async throws -> InventoryItem {
         try requireToken()
@@ -413,10 +525,103 @@ final class APIClient {
             throw APIError.serverStatus(httpResponse.statusCode, String(data: data, encoding: .utf8) ?? error.localizedDescription)
         }
     }
+    
+    private func performRaw(
+        path: String,
+        method: String,
+        contentType: String?,
+        accept: String,
+        bodyData: Data?
+    ) async throws -> Data {
+        guard var components = URLComponents(
+            url: baseURL.appendingPathComponent(
+                path.trimmingCharacters(
+                    in: CharacterSet(
+                        charactersIn: "/"
+                    )
+                )
+            ),
+            resolvingAgainstBaseURL: false
+        ) else {
+            throw APIError.invalidBaseURL
+        }
+
+        guard let url = components.url else {
+            throw APIError.invalidBaseURL
+        }
+
+        var request = URLRequest(url: url)
+        request.httpMethod = method
+        request.setValue(
+            accept,
+            forHTTPHeaderField: "Accept"
+        )
+
+        if let accessToken {
+            request.setValue(
+                "Bearer \(accessToken)",
+                forHTTPHeaderField: "Authorization"
+            )
+        }
+
+        if let contentType {
+            request.setValue(
+                contentType,
+                forHTTPHeaderField: "Content-Type"
+            )
+        }
+
+        request.httpBody = bodyData
+
+        let result = try await session.data(
+            for: request
+        )
+        let data = result.0
+
+        guard let response = result.1 as? HTTPURLResponse else {
+            throw APIError.invalidResponse
+        }
+
+        if response.statusCode == 401 {
+            throw APIError.unauthorized
+        }
+
+        guard 200..<300 ~= response.statusCode else {
+            let errorResponse = try? decoder.decode(
+                ErrorResponse.self,
+                from: data
+            )
+
+            let fallbackMessage = String(
+                data: data,
+                encoding: .utf8
+            ) ?? ""
+
+            throw APIError.serverStatus(
+                response.statusCode,
+                errorResponse?.message
+                ?? fallbackMessage
+            )
+        }
+
+        return data
+    }
 
     private func requireToken() throws {
         if accessToken == nil {
             throw APIError.missingToken
+        }
+    }
+}
+
+private extension Data {
+    mutating func appendUTF8(
+        _ value: String
+    ) {
+        if let data = value.data(
+            using: .utf8
+        ) {
+            append(data)
         }
     }
 }
