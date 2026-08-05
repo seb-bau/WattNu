@@ -804,6 +804,68 @@ struct EmptyRequest: Encodable {
 struct EmptyResponse: Decodable {
 }
 
+struct CommissionAttachment: Codable, Identifiable {
+    let id: Int
+    let commissionId: Int
+    let sourceEntityName: String
+    let sourceEntityId: Int?
+    let externalDocumentId: String?
+    let originalFilename: String
+    let mimeType: String
+    let sizeBytes: Int
+    let isImage: Bool
+    let createdAt: String?
+    let contentPath: String
+    let thumbnailPath: String?
+
+    enum CodingKeys: String, CodingKey {
+        case id
+        case commissionId = "commission_id"
+        case sourceEntityName = "source_entity_name"
+        case sourceEntityId = "source_entity_id"
+        case externalDocumentId = "external_document_id"
+        case originalFilename = "original_filename"
+        case mimeType = "mime_type"
+        case sizeBytes = "size_bytes"
+        case isImage = "is_image"
+        case createdAt = "created_at"
+        case contentPath = "content_path"
+        case thumbnailPath = "thumbnail_path"
+    }
+
+    var sourceLabel: String {
+        switch sourceEntityName.lowercased() {
+        case "commission":
+            return "Auftrag"
+        case "craftsprocess":
+            return "Vorgang"
+        case "ticket":
+            return "Ticket"
+        default:
+            return sourceEntityName
+        }
+    }
+
+    var sizeLabel: String {
+        ByteCountFormatter.string(
+            fromByteCount: Int64(sizeBytes),
+            countStyle: .file
+        )
+    }
+
+    var iconName: String {
+        if isImage {
+            return "photo"
+        }
+
+        if mimeType == "application/pdf" {
+            return "doc.richtext"
+        }
+
+        return "doc"
+    }
+}
+
 struct CommissionPhoto: Codable, Identifiable {
     let id: Int
     let commissionId: Int

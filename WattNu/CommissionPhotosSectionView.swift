@@ -34,7 +34,7 @@ struct CommissionPhotosSectionView: View {
             spacing: 12
         ) {
             HStack {
-                Text("Fotos")
+                Text("Auftragsfotos")
                     .font(.headline)
 
                 Spacer()
@@ -43,8 +43,7 @@ struct CommissionPhotosSectionView: View {
                     ProgressView()
                 }
 
-                if commission.canEditValue
-                    && commission.isActionableValue {
+                if commission.canEditValue {
                     Button {
                         sourceDialogPresented = true
                     } label: {

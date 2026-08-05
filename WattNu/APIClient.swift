@@ -229,6 +229,32 @@ final class APIClient {
         return response.item
     }
     
+    func fetchCommissionAttachments(
+        commissionId: Int
+    ) async throws -> [CommissionAttachment] {
+        try requireToken()
+
+        let response: ListResponse<CommissionAttachment> = try await request(
+            path: "/api/commissions/\(commissionId)/attachments"
+        )
+
+        return response.items
+    }
+
+    func downloadCommissionAttachment(
+        path: String
+    ) async throws -> Data {
+        try requireToken()
+
+        return try await performRaw(
+            path: path,
+            method: "GET",
+            contentType: nil,
+            accept: "*/*",
+            bodyData: nil
+        )
+    }
+    
     func fetchCommissionPhotos(
         commissionId: Int
     ) async throws -> [CommissionPhoto] {
