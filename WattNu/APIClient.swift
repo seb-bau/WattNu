@@ -256,12 +256,37 @@ final class APIClient {
     }
     
     func fetchCommissionPhotos(
-        commissionId: Int
+        commissionId: Int,
+        context: String? = nil,
+        entity: String? = nil
     ) async throws -> [CommissionPhoto] {
         try requireToken()
 
+        var queryItems: [URLQueryItem] = []
+
+        if let context,
+           !context.isEmpty {
+            queryItems.append(
+                URLQueryItem(
+                    name: "context",
+                    value: context
+                )
+            )
+        }
+
+        if let entity,
+           !entity.isEmpty {
+            queryItems.append(
+                URLQueryItem(
+                    name: "entity",
+                    value: entity
+                )
+            )
+        }
+
         let response: ListResponse<CommissionPhoto> = try await request(
-            path: "/api/commissions/\(commissionId)/photos"
+            path: "/api/commissions/\(commissionId)/photos",
+            queryItems: queryItems
         )
 
         return response.items

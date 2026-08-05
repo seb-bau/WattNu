@@ -8,6 +8,7 @@ struct CommissionPhotoDetailView: View {
     let commission: Commission
     let onUpdated: (CommissionPhoto) -> Void
     let onDeleted: (Int) -> Void
+    let allowsEditing: Bool
 
     @State private var photo: CommissionPhoto
     @State private var image: UIImage?
@@ -20,6 +21,7 @@ struct CommissionPhotoDetailView: View {
     init(
         commission: Commission,
         initialPhoto: CommissionPhoto,
+        allowsEditing: Bool = true,
         onUpdated: @escaping (
             CommissionPhoto
         ) -> Void,
@@ -28,6 +30,7 @@ struct CommissionPhotoDetailView: View {
         ) -> Void
     ) {
         self.commission = commission
+        self.allowsEditing = allowsEditing
         self.onUpdated = onUpdated
         self.onDeleted = onDeleted
         _photo = State(
@@ -35,6 +38,7 @@ struct CommissionPhotoDetailView: View {
         )
         _caption = State(
             initialValue: initialPhoto.caption
+            ?? initialPhoto.pictureTypeName
             ?? ""
         )
     }
@@ -93,7 +97,8 @@ struct CommissionPhotoDetailView: View {
                             )
                         )
                         .disabled(
-                            !commission.canEditValue
+                            !allowsEditing
+                            || !commission.canEditValue
                         )
                     }
 
@@ -121,7 +126,11 @@ struct CommissionPhotoDetailView: View {
                 }
                 .padding()
             }
-            .navigationTitle("Auftragsfoto")
+            .navigationTitle(
+                allowsEditing
+                ? "Auftragsfoto"
+                : "Bestandsfoto"
+            )
             .navigationBarTitleDisplayMode(
                 .inline
             )
@@ -134,7 +143,8 @@ struct CommissionPhotoDetailView: View {
                     }
                 }
 
-                if commission.canEditValue {
+                if allowsEditing
+                    && commission.canEditValue {
                     ToolbarItem(
                         placement: .primaryAction
                     ) {

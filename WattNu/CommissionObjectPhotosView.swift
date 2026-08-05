@@ -1,0 +1,317 @@
+import SwiftUI
+import UIKit
+
+enum CommissionObjectPhotoFilter:
+    String,
+    CaseIterable,
+    Identifiable {
+
+    case all = "Alle"
+    case building = "Gebäude"
+    case useUnit = "Wohnung"
+
+    var id: String {
+        rawValue
+    }
+
+    func includes(
+        _ photo: CommissionPhoto
+    ) -> Bool {
+        switch self {
+        case .all:
+            return true
+        case .building:
+            return photo.externalEntityName?
+                .caseInsensitiveCompare(
+                    "Building"
+                ) == .orderedSame
+        case .useUnit:
+            return photo.externalEntityName?
+                .caseInsensitiveCompare(
+                    "UseUnit"
+                ) == .orderedSame
+        }
+    }
+}
+
+struct CommissionObjectPhotosView: View {
+    @EnvironmentObject private var session: SessionStore
+
+    let commission: Commission
+
+    @State private var photos: [CommissionPhoto] = []
+    @State private var thumbnails: [Int: UIImage] = [:]
+    @State private var selectedPhoto: CommissionPhoto?
+    @State private var selectedFilter:
+        CommissionObjectPhotoFilter = .all
+    @State private var isLoading = false
+    @State private var errorMessage: String?
+
+    private let columns = [
+        GridItem(
+            .adaptive(
+                minimum: 120,
+                maximum: 180
+            ),
+            spacing: 12
+        )
+    ]
+
+    private var filteredPhotos: [CommissionPhoto] {
+        photos.filter {
+            selectedFilter.includes($0)
+        }
+    }
+
+    var body: some View {
+        ScrollView {
+            VStack(
+                alignment: .leading,
+                spacing: 16
+            ) {
+                Picker(
+                    "Bestandsobjekt",
+                    selection: $selectedFilter
+                ) {
+                    ForEach(
+                        CommissionObjectPhotoFilter
+                            .allCases
+                    ) { filter in
+                        Text(filter.rawValue)
+                            .tag(filter)
+                    }
+                }
+                .pickerStyle(.segmented)
+
+                if isLoading && photos.isEmpty {
+                    ProgressView(
+                        "Fotos werden geladen …"
+                    )
+                    .frame(
+                        maxWidth: .infinity,
+                        minHeight: 240
+                    )
+                } else if filteredPhotos.isEmpty {
+                    ContentUnavailableView(
+                        emptyTitle,
+                        systemImage:
+                            "photo.on.rectangle.angled",
+                        description: Text(
+                            emptyDescription
+                        )
+                    )
+                    .frame(minHeight: 240)
+                } else {
+                    LazyVGrid(
+                        columns: columns,
+                        spacing: 12
+                    ) {
+                        ForEach(
+                            filteredPhotos
+                        ) { photo in
+                            photoButton(photo)
+                        }
+                    }
+                }
+            }
+            .padding()
+        }
+        .task(id: commission.id) {
+            await loadPhotos()
+        }
+        .refreshable {
+            await loadPhotos()
+        }
+        .sheet(
+            item: $selectedPhoto
+        ) { photo in
+            CommissionPhotoDetailView(
+                commission: commission,
+                initialPhoto: photo,
+                allowsEditing: false,
+                onUpdated: { _ in
+                },
+                onDeleted: { _ in
+                }
+            )
+            .environmentObject(session)
+        }
+        .alert(
+            "Fehler",
+            isPresented: Binding(
+                get: {
+                    errorMessage != nil
+                },
+                set: { visible in
+                    if !visible {
+                        errorMessage = nil
+                    }
+                }
+            )
+        ) {
+            Button(
+                "OK",
+                role: .cancel
+            ) {
+                errorMessage = nil
+            }
+        } message: {
+            Text(errorMessage ?? "")
+        }
+    }
+
+    private func photoButton(
+        _ photo: CommissionPhoto
+    ) -> some View {
+        Button {
+            selectedPhoto = photo
+        } label: {
+            VStack(
+                alignment: .leading,
+                spacing: 8
+            ) {
+                ZStack {
+                    RoundedRectangle(
+                        cornerRadius: 14
+                    )
+                    .fill(
+                        Color.secondary.opacity(
+                            0.12
+                        )
+                    )
+
+                    if let image = thumbnails[
+                        photo.id
+                    ] {
+                        Image(
+                            uiImage: image
+                        )
+                        .resizable()
+                        .scaledToFill()
+                    } else {
+                        ProgressView()
+                    }
+                }
+                .frame(height: 130)
+                .clipShape(
+                    RoundedRectangle(
+                        cornerRadius: 14
+                    )
+                )
+
+                Text(photo.displayCaption)
+                    .font(.subheadline)
+                    .fontWeight(.medium)
+                    .foregroundStyle(.primary)
+                    .lineLimit(2)
+
+                Label(
+                    photo.entityLabel,
+                    systemImage: (
+                        photo.externalEntityName?
+                            .caseInsensitiveCompare(
+                                "Building"
+                            ) == .orderedSame
+                        ? "building.2"
+                        : "door.left.hand.open"
+                    )
+                )
+                .font(.caption)
+                .foregroundStyle(.secondary)
+            }
+            .frame(
+                maxWidth: .infinity,
+                alignment: .leading
+            )
+        }
+        .buttonStyle(.plain)
+    }
+
+    private var emptyTitle: String {
+        switch selectedFilter {
+        case .all:
+            return "Keine Bestandsfotos"
+        case .building:
+            return "Keine Gebäudefotos"
+        case .useUnit:
+            return "Keine Wohnungsfotos"
+        }
+    }
+
+    private var emptyDescription: String {
+        switch selectedFilter {
+        case .all:
+            return (
+                "Zu Gebäude und Wohnung "
+                + "wurden keine Fotos gefunden."
+            )
+        case .building:
+            return (
+                "Zu diesem Gebäude wurden "
+                + "keine Fotos gefunden."
+            )
+        case .useUnit:
+            return (
+                "Zu dieser Wohnung wurden "
+                + "keine Fotos gefunden."
+            )
+        }
+    }
+
+    private func loadPhotos() async {
+        isLoading = true
+
+        defer {
+            isLoading = false
+        }
+
+        do {
+            photos = try await session.apiClient
+                .fetchCommissionPhotos(
+                    commissionId: commission.id,
+                    context: "object"
+                )
+
+            thumbnails = [:]
+
+            for photo in photos {
+                await loadThumbnail(
+                    for: photo
+                )
+            }
+        } catch {
+            if error.isRequestCancellation {
+                return
+            }
+
+            errorMessage = error.localizedDescription
+        }
+    }
+
+    private func loadThumbnail(
+        for photo: CommissionPhoto
+    ) async {
+        do {
+            let data = try await session.apiClient
+                .downloadCommissionPhoto(
+                    path: photo.thumbnailPath
+                )
+
+            if let image = UIImage(
+                data: data
+            ) {
+                thumbnails[
+                    photo.id
+                ] = image
+            }
+        } catch {
+            if error.isRequestCancellation {
+                return
+            }
+
+            if errorMessage == nil {
+                errorMessage = error.localizedDescription
+            }
+        }
+    }
+}

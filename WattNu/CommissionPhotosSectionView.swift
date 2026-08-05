@@ -239,7 +239,8 @@ struct CommissionPhotosSectionView: View {
         do {
             photos = try await session.apiClient
                 .fetchCommissionPhotos(
-                    commissionId: commission.id
+                    commissionId: commission.id,
+                    context: "order"
                 )
 
             thumbnails = [:]

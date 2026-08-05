@@ -1,7 +1,12 @@
 import SwiftUI
 
-enum CommissionDetailSection: String, CaseIterable, Identifiable {
+enum CommissionDetailSection:
+    String,
+    CaseIterable,
+    Identifiable {
+
     case order = "Auftrag"
+    case photos = "Fotos"
     case materials = "Lager"
     case time = "Zeit"
     case history = "Verlauf"
@@ -53,6 +58,10 @@ struct CommissionDetailView: View {
                             commissionUpdatedAction: { updatedCommission in
                                 self.commission = updatedCommission
                             }
+                        )
+                    case .photos:
+                        CommissionObjectPhotosView(
+                            commission: commission
                         )
                     case .materials:
                         if commission.isActionableValue {

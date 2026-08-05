@@ -870,7 +870,16 @@ struct CommissionPhoto: Codable, Identifiable {
     let id: Int
     let commissionId: Int
     let source: String
+    let context: String?
     let externalId: String?
+    let externalDocumentId: String?
+    let externalEntityName: String?
+    let externalEntityId: Int?
+    let pictureTypeId: Int?
+    let pictureTypeName: String?
+    let erpSyncState: String?
+    let erpSyncMessage: String?
+    let erpSyncedAt: String?
     let originalFilename: String
     let mimeType: String
     let sizeBytes: Int
@@ -885,7 +894,16 @@ struct CommissionPhoto: Codable, Identifiable {
         case id
         case commissionId = "commission_id"
         case source
+        case context
         case externalId = "external_id"
+        case externalDocumentId = "external_document_id"
+        case externalEntityName = "external_entity_name"
+        case externalEntityId = "external_entity_id"
+        case pictureTypeId = "picture_type_id"
+        case pictureTypeName = "picture_type_name"
+        case erpSyncState = "erp_sync_state"
+        case erpSyncMessage = "erp_sync_message"
+        case erpSyncedAt = "erp_synced_at"
         case originalFilename = "original_filename"
         case mimeType = "mime_type"
         case sizeBytes = "size_bytes"
@@ -906,6 +924,32 @@ struct CommissionPhoto: Codable, Identifiable {
         default:
             return source
         }
+    }
+
+    var entityLabel: String {
+        switch externalEntityName?
+            .lowercased() {
+        case "building":
+            return "Gebäude"
+        case "useunit":
+            return "Wohnung"
+        default:
+            return "Bestandsobjekt"
+        }
+    }
+
+    var displayCaption: String {
+        if let caption,
+           !caption.isEmpty {
+            return caption
+        }
+
+        if let pictureTypeName,
+           !pictureTypeName.isEmpty {
+            return pictureTypeName
+        }
+
+        return entityLabel
     }
 }
 

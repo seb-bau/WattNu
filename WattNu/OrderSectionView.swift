@@ -93,20 +93,11 @@ struct OrderSectionView: View {
                 CommissionPhotosSectionView(
                     commission: commission
                 )
-                
-                CommissionPhotosSectionView(
-                    commission: commission
-                )
 
                 CommissionAttachmentsSectionView(
                     commission: commission
                 )
 
-                CommissionAppointmentSectionView(
-                    commission: commission,
-                    onCommissionUpdated: commissionUpdatedAction
-                )
-                
                 CommissionAppointmentSectionView(
                     commission: commission,
                     onCommissionUpdated: commissionUpdatedAction
