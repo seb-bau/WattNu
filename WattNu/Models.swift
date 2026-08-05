@@ -951,6 +951,11 @@ struct CommissionPhoto: Codable, Identifiable {
 
         return entityLabel
     }
+    
+    var canDeleteValue: Bool {
+        erpSyncState != "synced"
+            || externalId == nil
+    }
 }
 
 struct CommissionPhotoUploadResponse: Decodable {

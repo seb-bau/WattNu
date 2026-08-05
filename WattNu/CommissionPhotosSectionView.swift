@@ -189,6 +189,7 @@ struct CommissionPhotosSectionView: View {
             CommissionPhotoDetailView(
                 commission: commission,
                 initialPhoto: photo,
+                allowsDeleting: photo.canDeleteValue,
                 onUpdated: { updatedPhoto in
                     replacePhoto(
                         updatedPhoto

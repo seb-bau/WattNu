@@ -9,6 +9,7 @@ struct CommissionPhotoDetailView: View {
     let onUpdated: (CommissionPhoto) -> Void
     let onDeleted: (Int) -> Void
     let allowsEditing: Bool
+    let allowsDeleting: Bool
 
     @State private var photo: CommissionPhoto
     @State private var image: UIImage?
@@ -22,6 +23,7 @@ struct CommissionPhotoDetailView: View {
         commission: Commission,
         initialPhoto: CommissionPhoto,
         allowsEditing: Bool = true,
+        allowsDeleting: Bool = true,
         onUpdated: @escaping (
             CommissionPhoto
         ) -> Void,
@@ -31,6 +33,7 @@ struct CommissionPhotoDetailView: View {
     ) {
         self.commission = commission
         self.allowsEditing = allowsEditing
+        self.allowsDeleting = allowsDeleting
         self.onUpdated = onUpdated
         self.onDeleted = onDeleted
         _photo = State(
@@ -123,6 +126,17 @@ struct CommissionPhotoDetailView: View {
                     )
                     .font(.caption)
                     .foregroundStyle(.secondary)
+                    
+                    if allowsEditing
+                        && !allowsDeleting {
+                        Label(
+                            "Bereits an Wowiport übertragen. "
+                            + "Das Foto kann nur dort entfernt werden.",
+                            systemImage: "lock.fill"
+                        )
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                    }
                 }
                 .padding()
             }
@@ -155,7 +169,11 @@ struct CommissionPhotoDetailView: View {
                         }
                         .disabled(isSaving)
                     }
+                }
 
+                if allowsEditing
+                    && allowsDeleting
+                    && commission.canEditValue {
                     ToolbarItem(
                         placement: .bottomBar
                     ) {
