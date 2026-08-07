@@ -3,6 +3,8 @@ import SwiftUI
 struct CommissionListView: View {
     @EnvironmentObject private var session: SessionStore
     @EnvironmentObject private var locationStore: LocationStore
+    @EnvironmentObject private var navigation: AppNavigationStore
+    @EnvironmentObject private var pushNotifications: PushNotificationManager
 
     @State private var commissions: [Commission] = []
     @State private var commissionUsers: [AppUser] = []
@@ -58,8 +60,33 @@ struct CommissionListView: View {
     }
 
     var body: some View {
-        NavigationStack {
+        NavigationStack(path: $navigation.commissionPath) {
             VStack(spacing: 0) {
+                if pushNotifications.isDenied {
+                    HStack(alignment: .top, spacing: 12) {
+                        Image(systemName: "bell.slash.fill")
+                            .font(.title3)
+                            .foregroundStyle(.secondary)
+
+                        VStack(alignment: .leading, spacing: 4) {
+                            Text("Mitteilungen sind deaktiviert")
+                                .font(.headline)
+
+                            Text("Neue oder geänderte Aufträge können nicht als Push-Mitteilung angezeigt werden.")
+                                .font(.subheadline)
+                                .foregroundStyle(.secondary)
+                        }
+
+                        Spacer(minLength: 8)
+
+                        Button("Einstellungen") {
+                            pushNotifications.openSystemSettings()
+                        }
+                        .buttonStyle(.bordered)
+                    }
+                    .padding()
+                    .background(.thinMaterial)
+                }
                 CommissionFilterBarView(
                     scopeFilter: $scopeFilter,
                     statusFilter: $statusFilter,
@@ -173,6 +200,9 @@ struct CommissionListView: View {
             }
             .navigationDestination(for: Commission.self) { commission in
                 CommissionDetailView(commissionId: commission.id)
+            }
+            .navigationDestination(for: Int.self) { commissionId in
+                CommissionDetailView(commissionId: commissionId)
             }
             .sheet(
                 isPresented: $isCreatePresented

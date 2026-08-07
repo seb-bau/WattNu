@@ -1,16 +1,14 @@
-//
-//  WattNuApp.swift
-//  WattNu
-//
-//  Created by Sebastian Bauhaus on 09.06.26.
-//
-
 import SwiftUI
+import UIKit
 
 @main
 struct DatLaeuftApp: App {
+    @UIApplicationDelegateAdaptor(AppDelegate.self) private var appDelegate
+    @Environment(\.scenePhase) private var scenePhase
     @StateObject private var session = SessionStore()
     @StateObject private var locationStore = LocationStore()
+    @StateObject private var navigation = AppNavigationStore()
+    @StateObject private var pushNotifications = PushNotificationManager.shared
 
     var body: some Scene {
         WindowGroup {
@@ -18,9 +16,51 @@ struct DatLaeuftApp: App {
                 .environmentObject(session)
                 .environmentObject(session.localSettings)
                 .environmentObject(locationStore)
+                .environmentObject(navigation)
+                .environmentObject(pushNotifications)
                 .task {
-                    await session.bootstrap()
+                    async let sessionTask: Void = session.bootstrap()
+                    async let notificationTask: Void = pushNotifications.prepareAtLaunch()
+                    _ = await (sessionTask, notificationTask)
+                    await synchronizePushDevice()
+                }
+                .onChange(of: session.user?.id) { _, _ in
+                    Task {
+                        await synchronizePushDevice()
+                    }
+                }
+                .onChange(of: pushNotifications.deviceToken) { _, _ in
+                    Task {
+                        await synchronizePushDevice()
+                    }
+                }
+                .onChange(of: pushNotifications.authorizationStatus) { _, _ in
+                    Task {
+                        await synchronizePushDevice()
+                    }
+                }
+                .onChange(of: scenePhase) { _, newValue in
+                    if newValue == .active {
+                        Task {
+                            await pushNotifications.refreshAuthorizationStatus()
+                            await synchronizePushDevice()
+                        }
+                    }
                 }
         }
+    }
+
+    private func synchronizePushDevice() async {
+        let appVersion = Bundle.main.object(
+            forInfoDictionaryKey: "CFBundleShortVersionString"
+        ) as? String
+
+        await session.synchronizePushDevice(
+            deviceToken: pushNotifications.deviceToken,
+            notificationsDenied: pushNotifications.isDenied,
+            installationId: pushNotifications.installationId,
+            appVersion: appVersion,
+            deviceName: UIDevice.current.model
+        )
     }
 }

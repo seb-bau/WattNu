@@ -67,6 +67,68 @@ final class APIClient {
         try requireToken()
         return try await request(path: "/api/me")
     }
+    
+    func fetchPushPreferences() async throws -> PushPreferences {
+        try requireToken()
+        let response: PushPreferencesResponse = try await request(
+            path: "/api/push/preferences"
+        )
+        return response.preferences
+    }
+
+    func updatePushPreferences(
+        newCommissionEnabled: Bool,
+        changedCommissionEnabled: Bool
+    ) async throws -> PushPreferences {
+        try requireToken()
+        let body = PushPreferencesUpdateRequest(
+            newCommissionEnabled: newCommissionEnabled,
+            changedCommissionEnabled: changedCommissionEnabled
+        )
+        let response: PushPreferencesResponse = try await send(
+            path: "/api/push/preferences",
+            method: "PATCH",
+            body: body
+        )
+        return response.preferences
+    }
+
+    func registerPushDevice(
+        installationId: String,
+        deviceToken: String,
+        appVersion: String?,
+        deviceName: String?
+    ) async throws -> PushDeviceInfo {
+        try requireToken()
+        let body = PushDeviceRegistrationRequest(
+            installationId: installationId,
+            deviceToken: deviceToken,
+            platform: "ios",
+            appVersion: appVersion,
+            deviceName: deviceName
+        )
+        let response: PushDeviceRegistrationResponse = try await send(
+            path: "/api/push/device",
+            method: "PUT",
+            body: body
+        )
+        return response.device
+    }
+
+    func unregisterPushDevice(
+        installationId: String
+    ) async throws -> Bool {
+        try requireToken()
+        let body = PushDeviceUnregistrationRequest(
+            installationId: installationId
+        )
+        let response: PushDeviceUnregistrationResponse = try await send(
+            path: "/api/push/device",
+            method: "DELETE",
+            body: body
+        )
+        return response.unregistered
+    }
 
     func fetchCommissions(scope: CommissionScopeFilter = .mine, status: CommissionStatusFilter = .active, userId: Int? = nil) async throws -> [Commission] {
         try requireToken()

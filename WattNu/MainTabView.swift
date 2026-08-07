@@ -1,15 +1,11 @@
-//
-//  MainTabView.swift
-//  WattNu
-//
-//  Created by Sebastian Bauhaus on 09.06.26.
-//
-
 import SwiftUI
 
 struct MainTabView: View {
+    @EnvironmentObject private var navigation: AppNavigationStore
+    @EnvironmentObject private var pushNotifications: PushNotificationManager
+
     var body: some View {
-        TabView {
+        TabView(selection: $navigation.selectedTab) {
             CommissionListView()
                 .tabItem {
                     Label(
@@ -17,6 +13,7 @@ struct MainTabView: View {
                         systemImage: "list.bullet.clipboard"
                     )
                 }
+                .tag(MainTab.commissions)
 
             InventoryView()
                 .tabItem {
@@ -25,6 +22,7 @@ struct MainTabView: View {
                         systemImage: "shippingbox"
                     )
                 }
+                .tag(MainTab.inventory)
 
             AppSettingsView()
                 .tabItem {
@@ -33,6 +31,21 @@ struct MainTabView: View {
                         systemImage: "gearshape"
                     )
                 }
+                .tag(MainTab.settings)
         }
+        .task {
+            openPendingCommission()
+        }
+        .onChange(of: pushNotifications.pendingCommissionId) { _, _ in
+            openPendingCommission()
+        }
+    }
+
+    private func openPendingCommission() {
+        guard let commissionId = pushNotifications.consumePendingCommission() else {
+            return
+        }
+
+        navigation.openCommission(id: commissionId)
     }
 }

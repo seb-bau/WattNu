@@ -7,13 +7,21 @@ final class SessionStore: ObservableObject {
     @Published var user: AppUser?
     @Published var accessToken: String?
     @Published var mobileConfig: MobileConfig?
+    @Published var pushPreferences: PushPreferences?
     @Published var isLoading = false
+    @Published var isPushPreferencesLoading = false
+    @Published var isPushPreferencesSaving = false
     @Published var errorMessage: String?
+    @Published var pushRegistrationErrorMessage: String?
 
     let localSettings: LocalAppSettings
     let apiClient: APIClient
 
     private let tokenStore = KeychainTokenStore()
+    private var lastRegisteredDeviceKey: String?
+    private var pendingDeviceRegistrationKey: String?
+    private var lastUnregisteredDeviceKey: String?
+    private var pendingDeviceUnregistrationKey: String?
 
     var isAuthenticated: Bool {
         accessToken != nil && user != nil
@@ -54,8 +62,9 @@ final class SessionStore: ObservableObject {
             let response = try await apiClient.getMe()
             user = response.user
             Self.saveStoredUser(response.user)
+            await loadPushPreferences(showErrors: false)
         } catch APIError.unauthorized {
-            logout()
+            clearSession()
         } catch {
             if user == nil {
                 errorMessage = error.localizedDescription
@@ -84,6 +93,7 @@ final class SessionStore: ObservableObject {
             applyCurrentBaseURL()
             let response = try await apiClient.loginPassword(email: email, password: password)
             setSession(response)
+            await loadPushPreferences(showErrors: false)
         } catch {
             errorMessage = error.localizedDescription
         }
@@ -119,17 +129,151 @@ final class SessionStore: ObservableObject {
             )
             let response = try await apiClient.loginMicrosoft(idToken: idToken)
             setSession(response)
+            await loadPushPreferences(showErrors: false)
         } catch {
             errorMessage = error.localizedDescription
         }
     }
 
-    func logout() {
-        user = nil
-        accessToken = nil
-        apiClient.accessToken = nil
-        tokenStore.deleteToken()
-        Self.deleteStoredUser()
+    func logout(installationId: String) async {
+        isLoading = true
+
+        if accessToken != nil {
+            applyCurrentBaseURL()
+            _ = try? await apiClient.unregisterPushDevice(
+                installationId: installationId
+            )
+        }
+
+        clearSession()
+        isLoading = false
+    }
+
+    func loadPushPreferences(
+        showErrors: Bool = true
+    ) async {
+        guard isAuthenticated else {
+            pushPreferences = nil
+            return
+        }
+
+        if isPushPreferencesLoading {
+            return
+        }
+
+        isPushPreferencesLoading = true
+
+        defer {
+            isPushPreferencesLoading = false
+        }
+
+        do {
+            applyCurrentBaseURL()
+            pushPreferences = try await apiClient.fetchPushPreferences()
+        } catch APIError.unauthorized {
+            clearSession()
+        } catch {
+            if showErrors {
+                errorMessage = error.localizedDescription
+            }
+        }
+    }
+
+    func updatePushPreferences(
+        newCommissionEnabled: Bool,
+        changedCommissionEnabled: Bool
+    ) async {
+        guard isAuthenticated else {
+            return
+        }
+
+        let previousPreferences = pushPreferences
+        pushPreferences = PushPreferences(
+            newCommissionEnabled: newCommissionEnabled,
+            changedCommissionEnabled: changedCommissionEnabled
+        )
+        isPushPreferencesSaving = true
+
+        defer {
+            isPushPreferencesSaving = false
+        }
+
+        do {
+            applyCurrentBaseURL()
+            pushPreferences = try await apiClient.updatePushPreferences(
+                newCommissionEnabled: newCommissionEnabled,
+                changedCommissionEnabled: changedCommissionEnabled
+            )
+        } catch APIError.unauthorized {
+            clearSession()
+        } catch {
+            pushPreferences = previousPreferences
+            errorMessage = error.localizedDescription
+        }
+    }
+
+    func synchronizePushDevice(
+        deviceToken: String?,
+        notificationsDenied: Bool,
+        installationId: String,
+        appVersion: String?,
+        deviceName: String?
+    ) async {
+        guard let user, isAuthenticated else {
+            return
+        }
+
+        applyCurrentBaseURL()
+
+        if notificationsDenied {
+            await unregisterPushDeviceIfNeeded(
+                userId: user.id,
+                installationId: installationId
+            )
+            return
+        }
+
+        guard let deviceToken, !deviceToken.isEmpty else {
+            return
+        }
+
+        let registrationKey = [
+            apiClient.baseURL.absoluteString,
+            String(user.id),
+            installationId,
+            deviceToken,
+        ].joined(separator: "|")
+
+        if (
+            registrationKey == lastRegisteredDeviceKey
+            || registrationKey == pendingDeviceRegistrationKey
+        ) {
+            return
+        }
+
+        pendingDeviceRegistrationKey = registrationKey
+        pushRegistrationErrorMessage = nil
+
+        defer {
+            if pendingDeviceRegistrationKey == registrationKey {
+                pendingDeviceRegistrationKey = nil
+            }
+        }
+
+        do {
+            _ = try await apiClient.registerPushDevice(
+                installationId: installationId,
+                deviceToken: deviceToken,
+                appVersion: appVersion,
+                deviceName: deviceName
+            )
+            lastRegisteredDeviceKey = registrationKey
+            lastUnregisteredDeviceKey = nil
+        } catch APIError.unauthorized {
+            clearSession()
+        } catch {
+            pushRegistrationErrorMessage = error.localizedDescription
+        }
     }
 
     func applyCurrentBaseURL() {
@@ -137,15 +281,78 @@ final class SessionStore: ObservableObject {
             return
         }
 
-        apiClient.updateBaseURL(baseURL)
+        if apiClient.baseURL != baseURL {
+            apiClient.updateBaseURL(baseURL)
+            resetPushRegistration()
+        }
+    }
+
+    func resetPushRegistration() {
+        lastRegisteredDeviceKey = nil
+        pendingDeviceRegistrationKey = nil
+        lastUnregisteredDeviceKey = nil
+        pendingDeviceUnregistrationKey = nil
+    }
+
+    private func unregisterPushDeviceIfNeeded(
+        userId: Int,
+        installationId: String
+    ) async {
+        let unregistrationKey = [
+            apiClient.baseURL.absoluteString,
+            String(userId),
+            installationId,
+        ].joined(separator: "|")
+
+        if (
+            unregistrationKey == lastUnregisteredDeviceKey
+            || unregistrationKey == pendingDeviceUnregistrationKey
+        ) {
+            return
+        }
+
+        pendingDeviceUnregistrationKey = unregistrationKey
+        lastRegisteredDeviceKey = nil
+        pushRegistrationErrorMessage = nil
+
+        defer {
+            if pendingDeviceUnregistrationKey == unregistrationKey {
+                pendingDeviceUnregistrationKey = nil
+            }
+        }
+
+        do {
+            _ = try await apiClient.unregisterPushDevice(
+                installationId: installationId
+            )
+            lastUnregisteredDeviceKey = unregistrationKey
+            lastRegisteredDeviceKey = nil
+        } catch APIError.unauthorized {
+            clearSession()
+        } catch {
+            pushRegistrationErrorMessage = error.localizedDescription
+        }
     }
 
     private func setSession(_ response: AuthResponse) {
         user = response.user
         accessToken = response.accessToken
+        pushPreferences = nil
         apiClient.accessToken = response.accessToken
         tokenStore.saveToken(response.accessToken)
         Self.saveStoredUser(response.user)
+        resetPushRegistration()
+    }
+
+    private func clearSession() {
+        user = nil
+        accessToken = nil
+        pushPreferences = nil
+        pushRegistrationErrorMessage = nil
+        apiClient.accessToken = nil
+        tokenStore.deleteToken()
+        Self.deleteStoredUser()
+        resetPushRegistration()
     }
 
     private static func readStoredUser() -> AppUser? {

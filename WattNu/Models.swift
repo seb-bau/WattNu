@@ -64,6 +64,74 @@ struct CurrentUserResponse: Decodable {
     let user: AppUser
 }
 
+struct PushPreferences: Codable, Equatable {
+    let newCommissionEnabled: Bool
+    let changedCommissionEnabled: Bool
+
+    enum CodingKeys: String, CodingKey {
+        case newCommissionEnabled = "new_commission_enabled"
+        case changedCommissionEnabled = "changed_commission_enabled"
+    }
+}
+
+struct PushPreferencesResponse: Decodable {
+    let preferences: PushPreferences
+}
+
+struct PushPreferencesUpdateRequest: Encodable {
+    let newCommissionEnabled: Bool
+    let changedCommissionEnabled: Bool
+
+    enum CodingKeys: String, CodingKey {
+        case newCommissionEnabled = "new_commission_enabled"
+        case changedCommissionEnabled = "changed_commission_enabled"
+    }
+}
+
+struct PushDeviceRegistrationRequest: Encodable {
+    let installationId: String
+    let deviceToken: String
+    let platform: String
+    let appVersion: String?
+    let deviceName: String?
+
+    enum CodingKeys: String, CodingKey {
+        case installationId = "installation_id"
+        case deviceToken = "device_token"
+        case platform
+        case appVersion = "app_version"
+        case deviceName = "device_name"
+    }
+}
+
+struct PushDeviceRegistrationResponse: Decodable {
+    let device: PushDeviceInfo
+}
+
+struct PushDeviceInfo: Decodable {
+    let id: Int
+    let installationId: String
+    let active: Bool
+
+    enum CodingKeys: String, CodingKey {
+        case id
+        case installationId = "installation_id"
+        case active
+    }
+}
+
+struct PushDeviceUnregistrationRequest: Encodable {
+    let installationId: String
+
+    enum CodingKeys: String, CodingKey {
+        case installationId = "installation_id"
+    }
+}
+
+struct PushDeviceUnregistrationResponse: Decodable {
+    let unregistered: Bool
+}
+
 struct ListResponse<Item: Decodable>: Decodable {
     let items: [Item]
 }
