@@ -747,12 +747,102 @@ struct CommissionTypeOption: Codable, Identifiable, Hashable {
     }
 }
 
+struct CommissionObjectChoice: Decodable, Identifiable, Hashable {
+    let objectType: String
+    let objectId: Int
+    let label: String
+    let tenantName: String?
+    let isVacancy: Bool
+    let companyCode: CommissionObjectCompanyCode
+    let economicUnit: CommissionObjectEconomicUnit
+    let building: CommissionObjectBuilding?
+    let useUnit: CommissionObjectUseUnit?
+    let licenseAgreement: CommissionObjectLicenseAgreement?
+
+    var id: String {
+        "\(objectType):\(objectId)"
+    }
+
+    enum CodingKeys: String, CodingKey {
+        case objectType = "object_type"
+        case objectId = "object_id"
+        case label
+        case tenantName = "tenant_name"
+        case isVacancy = "is_vacancy"
+        case companyCode = "company_code"
+        case economicUnit = "economic_unit"
+        case building
+        case useUnit = "use_unit"
+        case licenseAgreement = "license_agreement"
+    }
+}
+
+struct CommissionObjectCompanyCode: Decodable, Hashable {
+    let erpId: Int?
+    let code: String?
+
+    enum CodingKeys: String, CodingKey {
+        case erpId = "erp_id"
+        case code
+    }
+}
+
+struct CommissionObjectEconomicUnit: Decodable, Hashable {
+    let erpId: Int
+    let idNum: String?
+    let name: String?
+
+    enum CodingKeys: String, CodingKey {
+        case erpId = "erp_id"
+        case idNum = "id_num"
+        case name
+    }
+}
+
+struct CommissionObjectBuilding: Decodable, Hashable {
+    let erpId: Int
+    let idNum: String?
+    let address: String?
+
+    enum CodingKeys: String, CodingKey {
+        case erpId = "erp_id"
+        case idNum = "id_num"
+        case address
+    }
+}
+
+struct CommissionObjectUseUnit: Decodable, Hashable {
+    let erpId: Int
+    let idNum: String?
+    let floor: String?
+    let position: String?
+    let description: String?
+    let address: String?
+
+    enum CodingKeys: String, CodingKey {
+        case erpId = "erp_id"
+        case idNum = "id_num"
+        case floor
+        case position
+        case description
+        case address
+    }
+}
+
+struct CommissionObjectLicenseAgreement: Decodable, Hashable {
+    let erpId: Int
+    let idNum: String?
+
+    enum CodingKeys: String, CodingKey {
+        case erpId = "erp_id"
+        case idNum = "id_num"
+    }
+}
+
 struct CommissionCreateRequest: Encodable {
-    let companyCodeCode: String
+    let objectType: String
+    let objectId: Int
     let commissionTypeId: Int
-    let useUnitIdNum: String?
-    let buildingIdNum: String?
-    let licenseAgreementIdNum: String?
     let title: String?
     let damageLocation: String?
     let contactPerson: String?
@@ -761,11 +851,9 @@ struct CommissionCreateRequest: Encodable {
     let positions: [CommissionPositionRequest]
 
     enum CodingKeys: String, CodingKey {
-        case companyCodeCode = "company_code_code"
+        case objectType = "object_type"
+        case objectId = "object_id"
         case commissionTypeId = "commission_type_id"
-        case useUnitIdNum = "use_unit_idnum"
-        case buildingIdNum = "building_idnum"
-        case licenseAgreementIdNum = "license_agreement_idnum"
         case title
         case damageLocation = "damage_location"
         case contactPerson = "contact_person"

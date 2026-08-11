@@ -168,6 +168,36 @@ final class APIClient {
             path: "/api/commissions/create-options"
         )
     }
+    
+    func fetchCommissionCreateTasks() async throws -> [TimeTask] {
+        try requireToken()
+
+        let response: ListResponse<TimeTask> = try await request(
+            path: "/api/commissions/create-tasks",
+            queryItems: [
+                URLQueryItem(name: "limit", value: "250")
+            ]
+        )
+
+        return response.items
+    }
+
+    func searchCommissionObjects(
+        query: String,
+        limit: Int = 30
+    ) async throws -> [CommissionObjectChoice] {
+        try requireToken()
+
+        let response: ListResponse<CommissionObjectChoice> = try await request(
+            path: "/api/commission-objects/search",
+            queryItems: [
+                URLQueryItem(name: "q", value: query),
+                URLQueryItem(name: "limit", value: "\(limit)")
+            ]
+        )
+
+        return response.items
+    }
 
     func createCommission(
         body: CommissionCreateRequest
