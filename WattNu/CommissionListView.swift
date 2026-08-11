@@ -17,15 +17,27 @@ struct CommissionListView: View {
     @State private var isLoading = false
     @State private var errorMessage: String?
     @State private var isCreatePresented = false
+    
+    private var statusFilteredCommissions: [Commission] {
+        guard statusFilter == .active else {
+            return commissions
+        }
+
+        return commissions.filter {
+            CommissionStatusFilter.activeLocalStatuses.contains(
+                $0.localStatus
+            )
+        }
+    }
 
     private var searchedCommissions: [Commission] {
         let query = searchText.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
 
         if query.isEmpty {
-            return commissions
+            return statusFilteredCommissions
         }
 
-        return commissions.filter { commission in
+        return statusFilteredCommissions.filter { commission in
             commission.displayTitle.lowercased().contains(query)
             || commission.displayNumber.lowercased().contains(query)
             || commission.assigneeName.lowercased().contains(query)

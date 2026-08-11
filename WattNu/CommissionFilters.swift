@@ -62,4 +62,10 @@ enum CommissionStatusFilter: String, CaseIterable, Identifiable {
             return "Abgeschlossen"
         }
     }
+    
+    static let activeLocalStatuses: Set<String> = [
+        "waiting_for_acceptance",
+        "open",
+        "in_progress"
+    ]
 }
