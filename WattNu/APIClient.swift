@@ -642,17 +642,82 @@ final class APIClient {
         return response.items
     }
 
-    func addTimeEntry(commissionId: Int, taskTemplateId: Int?, minutes: Int?, workMinutes: Int?, waitingMinutes: Int?, materialMinutes: Int?, travelMinutes: Int?, documentationMinutes: Int?, extraMinutes: Int?, deviationReason: String?, note: String?) async throws -> TimeEntry {
+    func addTimeEntry(
+        commissionId: Int,
+        taskTemplateId: Int?,
+        serviceDate: String,
+        minutes: Int?,
+        workMinutes: Int?,
+        waitingMinutes: Int?,
+        materialMinutes: Int?,
+        travelMinutes: Int?,
+        documentationMinutes: Int?,
+        extraMinutes: Int?,
+        deviationReason: String?,
+        note: String?
+    ) async throws -> TimeEntry {
         try requireToken()
-        let body = TimeEntryRequest(taskTemplateId: taskTemplateId, minutes: minutes, workMinutes: workMinutes, waitingMinutes: waitingMinutes, materialMinutes: materialMinutes, travelMinutes: travelMinutes, documentationMinutes: documentationMinutes, extraMinutes: extraMinutes, deviationReason: deviationReason, note: note)
-        let response: ItemResponse<TimeEntry> = try await send(path: "/api/commissions/\(commissionId)/time", method: "POST", body: body)
+
+        let body = TimeEntryRequest(
+            taskTemplateId: taskTemplateId,
+            serviceDate: serviceDate,
+            minutes: minutes,
+            workMinutes: workMinutes,
+            waitingMinutes: waitingMinutes,
+            materialMinutes: materialMinutes,
+            travelMinutes: travelMinutes,
+            documentationMinutes: documentationMinutes,
+            extraMinutes: extraMinutes,
+            deviationReason: deviationReason,
+            note: note
+        )
+
+        let response: ItemResponse<TimeEntry> = try await send(
+            path: "/api/commissions/\(commissionId)/time",
+            method: "POST",
+            body: body
+        )
+
         return response.item
     }
-    
-    func updateTimeEntry(commissionId: Int, entryId: Int, taskTemplateId: Int?, minutes: Int?, workMinutes: Int?, waitingMinutes: Int?, materialMinutes: Int?, travelMinutes: Int?, documentationMinutes: Int?, extraMinutes: Int?, deviationReason: String?, note: String?) async throws -> TimeEntry {
+
+    func updateTimeEntry(
+        commissionId: Int,
+        entryId: Int,
+        taskTemplateId: Int?,
+        serviceDate: String,
+        minutes: Int?,
+        workMinutes: Int?,
+        waitingMinutes: Int?,
+        materialMinutes: Int?,
+        travelMinutes: Int?,
+        documentationMinutes: Int?,
+        extraMinutes: Int?,
+        deviationReason: String?,
+        note: String?
+    ) async throws -> TimeEntry {
         try requireToken()
-        let body = TimeEntryRequest(taskTemplateId: taskTemplateId, minutes: minutes, workMinutes: workMinutes, waitingMinutes: waitingMinutes, materialMinutes: materialMinutes, travelMinutes: travelMinutes, documentationMinutes: documentationMinutes, extraMinutes: extraMinutes, deviationReason: deviationReason, note: note)
-        let response: ItemResponse<TimeEntry> = try await send(path: "/api/commissions/\(commissionId)/time/\(entryId)", method: "PATCH", body: body)
+
+        let body = TimeEntryRequest(
+            taskTemplateId: taskTemplateId,
+            serviceDate: serviceDate,
+            minutes: minutes,
+            workMinutes: workMinutes,
+            waitingMinutes: waitingMinutes,
+            materialMinutes: materialMinutes,
+            travelMinutes: travelMinutes,
+            documentationMinutes: documentationMinutes,
+            extraMinutes: extraMinutes,
+            deviationReason: deviationReason,
+            note: note
+        )
+
+        let response: ItemResponse<TimeEntry> = try await send(
+            path: "/api/commissions/\(commissionId)/time/\(entryId)",
+            method: "PATCH",
+            body: body
+        )
+
         return response.item
     }
 

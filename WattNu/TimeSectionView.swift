@@ -18,6 +18,7 @@ struct TimeSectionView: View {
     @State private var extraMinutesText = ""
     @State private var deviationReason = ""
     @State private var note = ""
+    @State private var serviceDate = Date()
     @State private var editingEntry: TimeEntry?
     @State private var entryToDelete: TimeEntry?
     @State private var isLoading = false
@@ -79,6 +80,15 @@ struct TimeSectionView: View {
                     Text("Zeiten sind für Kollegenaufträge nur lesend verfügbar.")
                         .foregroundStyle(.secondary)
                 }
+                
+                DatePicker(
+                    "Leistungsdatum",
+                    selection: $serviceDate,
+                    displayedComponents: .date
+                )
+                .disabled(
+                    commission.canEditValue == false
+                )
 
                 TextField("Position eintippen", text: $taskSearchText)
                     .textInputAutocapitalization(.never)
@@ -272,8 +282,9 @@ struct TimeSectionView: View {
                     Text("· \(reviewLevel)")
                 }
                 Spacer()
-                Text(Formatters.dateTimeText(entry.createdAt))
-            }
+                Text(
+                    "Leistung: \(Formatters.dateText(entry.serviceDate))"
+                )            }
             .font(.caption)
             .foregroundStyle(entry.reviewStatus == "needs_review" ? .orange : .secondary)
 
@@ -388,6 +399,12 @@ struct TimeSectionView: View {
 
     private func beginEditing(_ entry: TimeEntry) {
         editingEntry = entry
+        serviceDate = (
+            Formatters.dateFromApiDate(
+                entry.serviceDate
+            )
+            ?? Date()
+        )
         suggestionTask?.cancel()
         selectedTask = entry.taskTemplate
         taskSuggestions = []
@@ -449,6 +466,9 @@ struct TimeSectionView: View {
                     commissionId: commission.id,
                     entryId: editingEntry.id,
                     taskTemplateId: selectedTask?.id,
+                    serviceDate: Formatters.apiDateText(
+                        serviceDate
+                    ),
                     minutes: values.hasComponentInput ? nil : values.totalMinutes,
                     workMinutes: values.hasComponentInput ? values.workMinutes : nil,
                     waitingMinutes: values.hasComponentInput ? values.waitingMinutes : nil,
@@ -463,6 +483,9 @@ struct TimeSectionView: View {
                 _ = try await session.apiClient.addTimeEntry(
                     commissionId: commission.id,
                     taskTemplateId: selectedTask?.id,
+                    serviceDate: Formatters.apiDateText(
+                        serviceDate
+                    ),
                     minutes: values.hasComponentInput ? nil : values.totalMinutes,
                     workMinutes: values.hasComponentInput ? values.workMinutes : nil,
                     waitingMinutes: values.hasComponentInput ? values.waitingMinutes : nil,
@@ -586,6 +609,7 @@ struct TimeSectionView: View {
         deviationReason = ""
         note = ""
         editingEntry = nil
+        serviceDate = Date()
         clearSelectedTask()
     }
 }

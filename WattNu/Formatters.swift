@@ -117,4 +117,60 @@ enum Formatters {
     static func percentText(_ value: Double) -> String {
         "\(String(format: "%.1f", value)) %"
     }
+    
+    static func apiDateText(
+        _ value: Date
+    ) -> String {
+        let formatter = DateFormatter()
+        formatter.calendar = Calendar(
+            identifier: .gregorian
+        )
+        formatter.locale = Locale(
+            identifier: "en_US_POSIX"
+        )
+        formatter.timeZone = .current
+        formatter.dateFormat = "yyyy-MM-dd"
+
+        return formatter.string(
+            from: value
+        )
+    }
+
+    static func dateFromApiDate(
+        _ value: String?
+    ) -> Date? {
+        guard let value, !value.isEmpty else {
+            return nil
+        }
+
+        let formatter = DateFormatter()
+        formatter.calendar = Calendar(
+            identifier: .gregorian
+        )
+        formatter.locale = Locale(
+            identifier: "en_US_POSIX"
+        )
+        formatter.timeZone = .current
+        formatter.dateFormat = "yyyy-MM-dd"
+
+        return formatter.date(
+            from: value
+        )
+    }
+
+    static func dateText(
+        _ value: String?
+    ) -> String {
+        guard let date = dateFromApiDate(
+            value
+        ) else {
+            return value ?? "-"
+        }
+
+        return DateFormatter.localizedString(
+            from: date,
+            dateStyle: .medium,
+            timeStyle: .none
+        )
+    }
 }

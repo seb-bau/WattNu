@@ -667,6 +667,7 @@ struct TimeEntry: Codable, Identifiable, Equatable {
     let deviationPercent: Double
     let reviewStatus: String
     let reviewLevel: String?
+    let serviceDate: String?
     let createdAt: String?
     let canEdit: Bool?
 
@@ -688,6 +689,7 @@ struct TimeEntry: Codable, Identifiable, Equatable {
         case deviationPercent = "deviation_percent"
         case reviewStatus = "review_status"
         case reviewLevel = "review_level"
+        case serviceDate = "service_date"
         case createdAt = "created_at"
         case canEdit = "can_edit"
     }
@@ -930,6 +932,7 @@ struct MaterialResponse: Decodable {
 
 struct TimeEntryRequest: Encodable {
     let taskTemplateId: Int?
+    let serviceDate: String
     let minutes: Int?
     let workMinutes: Int?
     let waitingMinutes: Int?
@@ -942,6 +945,7 @@ struct TimeEntryRequest: Encodable {
 
     enum CodingKeys: String, CodingKey {
         case taskTemplateId = "task_template_id"
+        case serviceDate = "service_date"
         case minutes
         case workMinutes = "work_minutes"
         case waitingMinutes = "waiting_minutes"
