@@ -425,9 +425,9 @@
 				GENERATE_INFOPLIST_FILE = YES;
 				INFOPLIST_FILE = WattNu/Info.plist;
 				INFOPLIST_KEY_ITSAppUsesNonExemptEncryption = NO;
-				INFOPLIST_KEY_NSCameraUsageDescription = "Bli Bla Blop";
+				INFOPLIST_KEY_NSCameraUsageDescription = "Die App benötigt die Kamera, um Fotos zu Aufträgen und Prüfungen aufzunehmen.";
 				INFOPLIST_KEY_NSLocationWhenInUseUsageDescription = "Die App nutzt deinen Standort, um die Entfernung zu Aufträgen anzuzeigen und Aufträge nach Entfernung zu sortieren.";
-				INFOPLIST_KEY_NSPhotoLibraryUsageDescription = "Fotos zu Aufträgen auswählen.";
+				INFOPLIST_KEY_NSPhotoLibraryUsageDescription = "Fotos zu Aufträgen und Prüfungen auswählen.";
 				INFOPLIST_KEY_UIApplicationSceneManifest_Generation = YES;
 				INFOPLIST_KEY_UIApplicationSupportsIndirectInputEvents = YES;
 				INFOPLIST_KEY_UILaunchScreen_Generation = YES;
@@ -463,9 +463,9 @@
 				GENERATE_INFOPLIST_FILE = YES;
 				INFOPLIST_FILE = WattNu/Info.plist;
 				INFOPLIST_KEY_ITSAppUsesNonExemptEncryption = NO;
-				INFOPLIST_KEY_NSCameraUsageDescription = "Bli Bla Blop";
+				INFOPLIST_KEY_NSCameraUsageDescription = "Die App benötigt die Kamera, um Fotos zu Aufträgen und Prüfungen aufzunehmen.";
 				INFOPLIST_KEY_NSLocationWhenInUseUsageDescription = "Die App nutzt deinen Standort, um die Entfernung zu Aufträgen anzuzeigen und Aufträge nach Entfernung zu sortieren.";
-				INFOPLIST_KEY_NSPhotoLibraryUsageDescription = "Fotos zu Aufträgen auswählen.";
+				INFOPLIST_KEY_NSPhotoLibraryUsageDescription = "Fotos zu Aufträgen und Prüfungen auswählen.";
 				INFOPLIST_KEY_UIApplicationSceneManifest_Generation = YES;
 				INFOPLIST_KEY_UIApplicationSupportsIndirectInputEvents = YES;
 				INFOPLIST_KEY_UILaunchScreen_Generation = YES;

@@ -725,6 +725,224 @@ final class APIClient {
         try requireToken()
         let _: EmptyResponse = try await send(path: "/api/commissions/\(commissionId)/time/\(entryId)", method: "DELETE", body: EmptyRequest())
     }
+    
+    func fetchSafetyInspections(
+        status: String = "active",
+        scope: String = "mine",
+        overdueOnly: Bool = false
+    ) async throws -> [SafetyInspectionJob] {
+        try requireToken()
+
+        var queryItems = [
+            URLQueryItem(
+                name: "status",
+                value: status
+            ),
+            URLQueryItem(
+                name: "scope",
+                value: scope
+            )
+        ]
+
+        if overdueOnly {
+            queryItems.append(
+                URLQueryItem(
+                    name: "overdue",
+                    value: "1"
+                )
+            )
+        }
+
+        let response: ListResponse<SafetyInspectionJob> =
+            try await request(
+                path: "/api/safety-inspections",
+                queryItems: queryItems
+            )
+
+        return response.items
+    }
+
+    func fetchSafetyInspection(
+        id: Int
+    ) async throws -> SafetyInspectionJob {
+        try requireToken()
+
+        let response: ItemResponse<SafetyInspectionJob> =
+            try await request(
+                path: "/api/safety-inspections/\(id)"
+            )
+
+        return response.item
+    }
+
+    func updateSafetyInspectionResult(
+        jobId: Int,
+        resultId: Int,
+        state: String,
+        note: String?,
+        immediateAction: String?,
+        version: Int
+    ) async throws -> SafetyInspectionResult {
+        try requireToken()
+
+        let body = SafetyInspectionResultUpdateRequest(
+            state: state,
+            note: note,
+            immediateAction: immediateAction,
+            version: version
+        )
+
+        let response: ItemResponse<SafetyInspectionResult> =
+            try await send(
+                path: (
+                    "/api/safety-inspections/"
+                    + "\(jobId)/results/\(resultId)"
+                ),
+                method: "PATCH",
+                body: body
+            )
+
+        return response.item
+    }
+
+    func completeSafetyInspection(
+        jobId: Int,
+        overallNote: String?
+    ) async throws -> SafetyInspectionJob {
+        try requireToken()
+
+        let body = SafetyInspectionCompletionRequest(
+            overallNote: overallNote
+        )
+
+        let response: ItemResponse<SafetyInspectionJob> =
+            try await send(
+                path: (
+                    "/api/safety-inspections/"
+                    + "\(jobId)/complete"
+                ),
+                method: "POST",
+                body: body
+            )
+
+        return response.item
+    }
+
+    func uploadSafetyInspectionPhoto(
+        jobId: Int,
+        resultId: Int,
+        imageData: Data,
+        source: String,
+        caption: String? = nil,
+        capturedAt: Date = Date()
+    ) async throws -> SafetyInspectionPhotoUploadResponse {
+        try requireToken()
+
+        let boundary = "WattNu-\(UUID().uuidString)"
+        let dateFormatter = ISO8601DateFormatter()
+
+        dateFormatter.formatOptions = [
+            .withInternetDateTime,
+            .withFractionalSeconds
+        ]
+
+        var body = Data()
+
+        body.appendUTF8("--\(boundary)\r\n")
+        body.appendUTF8(
+            "Content-Disposition: form-data; "
+            + "name=\"source\"\r\n\r\n"
+        )
+        body.appendUTF8(source)
+        body.appendUTF8("\r\n")
+
+        body.appendUTF8("--\(boundary)\r\n")
+        body.appendUTF8(
+            "Content-Disposition: form-data; "
+            + "name=\"captured_at\"\r\n\r\n"
+        )
+        body.appendUTF8(
+            dateFormatter.string(from: capturedAt)
+        )
+        body.appendUTF8("\r\n")
+
+        if let caption,
+           !caption.isEmpty {
+            body.appendUTF8("--\(boundary)\r\n")
+            body.appendUTF8(
+                "Content-Disposition: form-data; "
+                + "name=\"caption\"\r\n\r\n"
+            )
+            body.appendUTF8(caption)
+            body.appendUTF8("\r\n")
+        }
+
+        body.appendUTF8("--\(boundary)\r\n")
+        body.appendUTF8(
+            "Content-Disposition: form-data; "
+            + "name=\"photo\"; "
+            + "filename=\"prueffoto.jpg\"\r\n"
+        )
+        body.appendUTF8(
+            "Content-Type: image/jpeg\r\n\r\n"
+        )
+        body.append(imageData)
+        body.appendUTF8("\r\n")
+        body.appendUTF8("--\(boundary)--\r\n")
+
+        let data = try await performRaw(
+            path: (
+                "/api/safety-inspections/"
+                + "\(jobId)/results/\(resultId)/photos"
+            ),
+            method: "POST",
+            contentType: (
+                "multipart/form-data; "
+                + "boundary=\(boundary)"
+            ),
+            accept: "application/json",
+            bodyData: body
+        )
+
+        return try decoder.decode(
+            SafetyInspectionPhotoUploadResponse.self,
+            from: data
+        )
+    }
+
+    func deleteSafetyInspectionPhoto(
+        jobId: Int,
+        resultId: Int,
+        photoId: Int
+    ) async throws {
+        try requireToken()
+
+        _ = try await performRaw(
+            path: (
+                "/api/safety-inspections/"
+                + "\(jobId)/results/\(resultId)"
+                + "/photos/\(photoId)"
+            ),
+            method: "DELETE",
+            contentType: nil,
+            accept: "application/json",
+            bodyData: nil
+        )
+    }
+
+    func downloadSafetyInspectionPhoto(
+        path: String
+    ) async throws -> Data {
+        try requireToken()
+
+        return try await performRaw(
+            path: path,
+            method: "GET",
+            contentType: nil,
+            accept: "image/jpeg",
+            bodyData: nil
+        )
+    }
 
     private func request<Response: Decodable>(path: String, queryItems: [URLQueryItem] = []) async throws -> Response {
         try await perform(path: path, method: "GET", queryItems: queryItems, bodyData: nil)

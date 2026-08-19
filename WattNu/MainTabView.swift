@@ -15,6 +15,15 @@ struct MainTabView: View {
                 }
                 .tag(MainTab.commissions)
 
+            SafetyInspectionListView()
+                .tabItem {
+                    Label(
+                        "Prüfungen",
+                        systemImage: "checklist"
+                    )
+                }
+                .tag(MainTab.safetyInspections)
+
             InventoryView()
                 .tabItem {
                     Label(
@@ -34,18 +43,40 @@ struct MainTabView: View {
                 .tag(MainTab.settings)
         }
         .task {
-            openPendingCommission()
+            openPendingDestination()
         }
-        .onChange(of: pushNotifications.pendingCommissionId) { _, _ in
-            openPendingCommission()
+        .onChange(
+            of: pushNotifications
+                .pendingCommissionId
+        ) { _, _ in
+            openPendingDestination()
+        }
+        .onChange(
+            of: pushNotifications
+                .pendingSafetyInspectionId
+        ) { _, _ in
+            openPendingDestination()
         }
     }
 
-    private func openPendingCommission() {
-        guard let commissionId = pushNotifications.consumePendingCommission() else {
+    private func openPendingDestination() {
+        if let inspectionId = pushNotifications
+            .consumePendingSafetyInspection()
+        {
+            navigation.openSafetyInspection(
+                id: inspectionId
+            )
             return
         }
 
-        navigation.openCommission(id: commissionId)
+        guard let commissionId = pushNotifications
+            .consumePendingCommission()
+        else {
+            return
+        }
+
+        navigation.openCommission(
+            id: commissionId
+        )
     }
 }

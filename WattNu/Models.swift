@@ -1348,3 +1348,365 @@ struct InventoryReceiptRequest: Encodable {
         case note
     }
 }
+
+struct SafetyInspectionJob: Codable, Identifiable, Hashable {
+    let id: Int
+    let publicId: String
+    var status: String
+    let periodKey: String
+    let periodStart: String
+    let periodEnd: String
+    let dueFrom: String
+    let dueTo: String
+    let warningOn: String
+    let missedOn: String
+    let isDue: Bool
+    let isOverdue: Bool
+    let isTerminal: Bool
+    let canEdit: Bool
+    let group: SafetyInspectionGroupSummary
+    let template: SafetyInspectionTemplateSummary
+    let department: SafetyInspectionDepartmentSummary
+    let assignedUser: AppUser?
+    let object: SafetyInspectionObjectSummary
+    var progress: SafetyInspectionProgress
+    let overallNote: String?
+    let startedAt: String?
+    let completedAt: String?
+    let completedBy: AppUser?
+    let createdAt: String?
+    let updatedAt: String?
+    var results: [SafetyInspectionResult]?
+
+    enum CodingKeys: String, CodingKey {
+        case id
+        case publicId = "public_id"
+        case status
+        case periodKey = "period_key"
+        case periodStart = "period_start"
+        case periodEnd = "period_end"
+        case dueFrom = "due_from"
+        case dueTo = "due_to"
+        case warningOn = "warning_on"
+        case missedOn = "missed_on"
+        case isDue = "is_due"
+        case isOverdue = "is_overdue"
+        case isTerminal = "is_terminal"
+        case canEdit = "can_edit"
+        case group
+        case template
+        case department
+        case assignedUser = "assigned_user"
+        case object
+        case progress
+        case overallNote = "overall_note"
+        case startedAt = "started_at"
+        case completedAt = "completed_at"
+        case completedBy = "completed_by"
+        case createdAt = "created_at"
+        case updatedAt = "updated_at"
+        case results
+    }
+
+    var statusLabel: String {
+        switch status {
+        case "planned":
+            return "Geplant"
+        case "in_progress":
+            return "In Bearbeitung"
+        case "completed":
+            return "Abgeschlossen"
+        case "completed_with_defects":
+            return "Abgeschlossen mit Mängeln"
+        case "missed":
+            return "Abgelaufen"
+        case "canceled":
+            return "Abgebrochen"
+        default:
+            return status
+        }
+    }
+
+    var objectTitle: String {
+        if let address = object.address,
+           !address.isEmpty {
+            return address
+        }
+
+        if let location = object.location,
+           !location.isEmpty {
+            return location
+        }
+
+        return group.name
+    }
+
+    var coordinate: CLLocationCoordinate2D? {
+        guard let latitude = object.latitude,
+              let longitude = object.longitude else {
+            return nil
+        }
+
+        return CLLocationCoordinate2D(
+            latitude: latitude,
+            longitude: longitude
+        )
+    }
+}
+
+struct SafetyInspectionGroupSummary: Codable, Hashable {
+    let id: Int
+    let name: String
+}
+
+struct SafetyInspectionTemplateSummary: Codable, Hashable {
+    let id: Int
+    let name: String
+    let version: Int
+}
+
+struct SafetyInspectionDepartmentSummary: Codable, Hashable {
+    let id: Int
+    let erpId: Int
+    let name: String
+
+    enum CodingKeys: String, CodingKey {
+        case id
+        case erpId = "erp_id"
+        case name
+    }
+}
+
+struct SafetyInspectionObjectSummary: Codable, Hashable {
+    let level: String
+    let erpId: Int
+    let address: String?
+    let location: String?
+    let companyCodeErpId: Int?
+    let companyCodeCode: String?
+    let economicUnitErpId: Int
+    let economicUnitIdnum: String?
+    let economicUnitName: String?
+    let buildingErpId: Int?
+    let buildingIdnum: String?
+    let useUnitErpId: Int?
+    let useUnitIdnum: String?
+    let latitude: Double?
+    let longitude: Double?
+    let hasCoordinates: Bool
+
+    enum CodingKeys: String, CodingKey {
+        case level
+        case erpId = "erp_id"
+        case address
+        case location
+        case companyCodeErpId = "company_code_erp_id"
+        case companyCodeCode = "company_code_code"
+        case economicUnitErpId = "economic_unit_erp_id"
+        case economicUnitIdnum = "economic_unit_idnum"
+        case economicUnitName = "economic_unit_name"
+        case buildingErpId = "building_erp_id"
+        case buildingIdnum = "building_idnum"
+        case useUnitErpId = "use_unit_erp_id"
+        case useUnitIdnum = "use_unit_idnum"
+        case latitude
+        case longitude
+        case hasCoordinates = "has_coordinates"
+    }
+
+    var levelLabel: String {
+        switch level {
+        case "economic_unit":
+            return "Wirtschaftseinheit"
+        case "building":
+            return "Gebäude"
+        case "use_unit":
+            return "Nutzungseinheit"
+        default:
+            return level
+        }
+    }
+}
+
+struct SafetyInspectionProgress: Codable, Hashable {
+    let resultCount: Int
+    var checkedCount: Int
+    let defectCount: Int
+    var photoCount: Int
+
+    enum CodingKeys: String, CodingKey {
+        case resultCount = "result_count"
+        case checkedCount = "checked_count"
+        case defectCount = "defect_count"
+        case photoCount = "photo_count"
+    }
+}
+
+struct SafetyInspectionResult: Codable, Identifiable, Hashable {
+    let id: Int
+    let publicId: String
+    let positionIndex: Int
+    let title: String
+    let description: String?
+    let helpText: String?
+    let required: Bool
+    let allowNotPresent: Bool
+    let photoRequirements: SafetyInspectionPhotoRequirements
+    var state: String
+    var note: String?
+    var immediateAction: String?
+    var version: Int
+    let checkedAt: String?
+    let checkedBy: AppUser?
+    var photos: [SafetyInspectionPhoto]
+    let defect: SafetyInspectionDefect?
+    let updatedAt: String?
+
+    enum CodingKeys: String, CodingKey {
+        case id
+        case publicId = "public_id"
+        case positionIndex = "position_index"
+        case title
+        case description
+        case helpText = "help_text"
+        case required
+        case allowNotPresent = "allow_not_present"
+        case photoRequirements = "photo_requirements"
+        case state
+        case note
+        case immediateAction = "immediate_action"
+        case version
+        case checkedAt = "checked_at"
+        case checkedBy = "checked_by"
+        case photos
+        case defect
+        case updatedAt = "updated_at"
+    }
+
+    var stateLabel: String {
+        switch state {
+        case "not_checked":
+            return "Nicht geprüft"
+        case "no_defect":
+            return "Ohne Mangel"
+        case "not_present":
+            return "Nicht vorhanden"
+        case "defect_info":
+            return "Mangel (Info)"
+        case "defect_urgent":
+            return "Mangel (dringend)"
+        default:
+            return state
+        }
+    }
+}
+
+struct SafetyInspectionPhotoRequirements: Codable, Hashable {
+    let noDefect: Bool
+    let notPresent: Bool
+    let defectInfo: Bool
+    let defectUrgent: Bool
+
+    enum CodingKeys: String, CodingKey {
+        case noDefect = "no_defect"
+        case notPresent = "not_present"
+        case defectInfo = "defect_info"
+        case defectUrgent = "defect_urgent"
+    }
+}
+
+struct SafetyInspectionPhoto: Codable, Identifiable, Hashable {
+    let id: Int
+    let publicId: String
+    let source: String
+    let originalFilename: String
+    let mimeType: String
+    let sizeBytes: Int
+    let caption: String?
+    let capturedAt: String?
+    let createdAt: String?
+    let updatedAt: String?
+    let uploadedBy: AppUser
+    let contentPath: String
+    let thumbnailPath: String
+
+    enum CodingKeys: String, CodingKey {
+        case id
+        case publicId = "public_id"
+        case source
+        case originalFilename = "original_filename"
+        case mimeType = "mime_type"
+        case sizeBytes = "size_bytes"
+        case caption
+        case capturedAt = "captured_at"
+        case createdAt = "created_at"
+        case updatedAt = "updated_at"
+        case uploadedBy = "uploaded_by"
+        case contentPath = "content_path"
+        case thumbnailPath = "thumbnail_path"
+    }
+
+    var sourceLabel: String {
+        switch source {
+        case "camera":
+            return "Kamera"
+        case "gallery":
+            return "Fotomediathek"
+        case "web":
+            return "Web"
+        default:
+            return source
+        }
+    }
+}
+
+struct SafetyInspectionDefect: Codable, Identifiable, Hashable {
+    let id: Int
+    let publicId: String
+    let severity: String
+    let status: String
+    let description: String
+    let immediateAction: String?
+    let reviewNote: String?
+    let createdAt: String?
+    let commissionIds: [Int]
+
+    enum CodingKeys: String, CodingKey {
+        case id
+        case publicId = "public_id"
+        case severity
+        case status
+        case description
+        case immediateAction = "immediate_action"
+        case reviewNote = "review_note"
+        case createdAt = "created_at"
+        case commissionIds = "commission_ids"
+    }
+}
+
+struct SafetyInspectionResultUpdateRequest: Encodable {
+    let state: String
+    let note: String?
+    let immediateAction: String?
+    let version: Int
+
+    enum CodingKeys: String, CodingKey {
+        case state
+        case note
+        case immediateAction = "immediate_action"
+        case version
+    }
+}
+
+struct SafetyInspectionCompletionRequest: Encodable {
+    let overallNote: String?
+
+    enum CodingKeys: String, CodingKey {
+        case overallNote = "overall_note"
+    }
+}
+
+struct SafetyInspectionPhotoUploadResponse: Decodable {
+    let item: SafetyInspectionPhoto
+    let duplicate: Bool
+}

@@ -11,6 +11,8 @@ final class PushNotificationManager: NSObject, ObservableObject, UNUserNotificat
     @Published private(set) var deviceToken: String?
     @Published private(set) var registrationErrorMessage: String?
     @Published private(set) var pendingCommissionId: Int?
+    @Published private(set)
+    var pendingSafetyInspectionId: Int?
 
     let installationId: String
 
@@ -125,6 +127,12 @@ final class PushNotificationManager: NSObject, ObservableObject, UNUserNotificat
         pendingCommissionId = nil
         return value
     }
+    
+    func consumePendingSafetyInspection() -> Int? {
+        let value = pendingSafetyInspectionId
+        pendingSafetyInspectionId = nil
+        return value
+    }
 
     nonisolated func userNotificationCenter(
         _ center: UNUserNotificationCenter,
@@ -139,31 +147,47 @@ final class PushNotificationManager: NSObject, ObservableObject, UNUserNotificat
         didReceive response: UNNotificationResponse,
         withCompletionHandler completionHandler: @escaping () -> Void
     ) {
-        let commissionId = Self.commissionId(
-            from: response.notification.request.content.userInfo
+        let userInfo = response
+            .notification
+            .request
+            .content
+            .userInfo
+
+        let safetyInspectionId = Self.integerValue(
+            forKey: "safety_inspection_job_id",
+            in: userInfo
+        )
+        let commissionId = Self.integerValue(
+            forKey: "commission_id",
+            in: userInfo
         )
 
-        if let commissionId {
-            Task { @MainActor [weak self] in
-                self?.pendingCommissionId = commissionId
+        Task { @MainActor [weak self] in
+            if let safetyInspectionId {
+                self?.pendingSafetyInspectionId =
+                    safetyInspectionId
+            } else if let commissionId {
+                self?.pendingCommissionId =
+                    commissionId
             }
         }
 
         completionHandler()
     }
 
-    nonisolated private static func commissionId(
-        from userInfo: [AnyHashable: Any]
+    nonisolated private static func integerValue(
+        forKey key: String,
+        in userInfo: [AnyHashable: Any]
     ) -> Int? {
-        if let value = userInfo["commission_id"] as? Int {
+        if let value = userInfo[key] as? Int {
             return value
         }
 
-        if let value = userInfo["commission_id"] as? NSNumber {
+        if let value = userInfo[key] as? NSNumber {
             return value.intValue
         }
 
-        if let value = userInfo["commission_id"] as? String {
+        if let value = userInfo[key] as? String {
             return Int(value)
         }
 
