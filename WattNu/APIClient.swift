@@ -1020,7 +1020,7 @@ final class APIClient {
         accept: String,
         bodyData: Data?
     ) async throws -> Data {
-        guard var components = URLComponents(
+        guard let components = URLComponents(
             url: baseURL.appendingPathComponent(
                 path.trimmingCharacters(
                     in: CharacterSet(
