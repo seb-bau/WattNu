@@ -2,6 +2,7 @@ import Combine
 import Foundation
 import UIKit
 import UserNotifications
+import MSAL
 
 @MainActor
 final class PushNotificationManager: NSObject, ObservableObject, UNUserNotificationCenterDelegate {
@@ -221,5 +222,18 @@ final class AppDelegate: NSObject, UIApplicationDelegate {
         didFailToRegisterForRemoteNotificationsWithError error: Error
     ) {
         PushNotificationManager.shared.handleRegistrationError(error)
+    }
+    
+    func application(
+        _ app: UIApplication,
+        open url: URL,
+        options: [UIApplication.OpenURLOptionsKey: Any] = [:]
+    ) -> Bool {
+        MSALPublicClientApplication.handleMSALResponse(
+            url,
+            sourceApplication: options[
+                UIApplication.OpenURLOptionsKey.sourceApplication
+            ] as? String
+        )
     }
 }
