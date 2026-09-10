@@ -1,5 +1,6 @@
 import SwiftUI
 import UIKit
+import MSAL
 
 @main
 struct DatLaeuftApp: App {
@@ -18,6 +19,12 @@ struct DatLaeuftApp: App {
                 .environmentObject(locationStore)
                 .environmentObject(navigation)
                 .environmentObject(pushNotifications)
+                .onOpenURL { url in
+                    _ = MSALPublicClientApplication.handleMSALResponse(
+                        url,
+                        sourceApplication: nil
+                    )
+                }
                 .task {
                     async let sessionTask: Void = session.bootstrap()
                     async let notificationTask: Void = pushNotifications.prepareAtLaunch()
