@@ -15,80 +15,63 @@ struct CommissionAttachmentsSectionView: View {
     @State private var errorMessage: String?
 
     var body: some View {
-        VStack(
-            alignment: .leading,
-            spacing: 12
-        ) {
-            HStack {
-                Text("Dateien")
-                    .font(.headline)
+        VStack(alignment: .leading, spacing: 0) {
+            if isLoading || !attachments.isEmpty {
+                VStack(alignment: .leading, spacing: 12) {
+                    HStack {
+                        Text("Dateien")
+                            .font(.headline)
 
-                Spacer()
+                        Spacer()
 
-                if isLoading {
-                    ProgressView()
-                }
-            }
-
-            if isLoading && attachments.isEmpty {
-                HStack {
-                    Spacer()
-                    ProgressView(
-                        "Dateien werden geladen …"
-                    )
-                    Spacer()
-                }
-                .padding(.vertical, 20)
-            } else if attachments.isEmpty {
-                ContentUnavailableView(
-                    "Keine Dateien",
-                    systemImage: "doc",
-                    description: Text(
-                        "Zu diesem Auftrag wurden keine Dateien gefunden."
-                    )
-                )
-                .frame(minHeight: 120)
-            } else {
-                VStack(spacing: 0) {
-                    ForEach(
-                        Array(attachments.enumerated()),
-                        id: \.element.id
-                    ) { index, attachment in
-                        Button {
-                            Task {
-                                await openAttachment(
-                                    attachment
-                                )
-                            }
-                        } label: {
-                            attachmentRow(
-                                attachment
-                            )
+                        if isLoading {
+                            ProgressView()
                         }
-                        .buttonStyle(.plain)
-                        .disabled(
-                            loadingAttachmentId != nil
-                        )
+                    }
 
-                        if index < attachments.count - 1 {
-                            Divider()
-                                .padding(.leading, 70)
+                    if isLoading && attachments.isEmpty {
+                        HStack {
+                            Spacer()
+                            ProgressView("Dateien werden geladen …")
+                            Spacer()
+                        }
+                        .padding(.vertical, 20)
+                    } else if !attachments.isEmpty {
+                        VStack(spacing: 0) {
+                            ForEach(
+                                Array(attachments.enumerated()),
+                                id: \.element.id
+                            ) { index, attachment in
+                                Button {
+                                    Task {
+                                        await openAttachment(attachment)
+                                    }
+                                } label: {
+                                    attachmentRow(attachment)
+                                }
+                                .buttonStyle(.plain)
+                                .disabled(loadingAttachmentId != nil)
+
+                                if index < attachments.count - 1 {
+                                    Divider()
+                                        .padding(.leading, 70)
+                                }
+                            }
                         }
                     }
                 }
+                .frame(
+                    maxWidth: .infinity,
+                    alignment: .leading
+                )
+                .padding()
+                .background(.thinMaterial)
+                .clipShape(
+                    RoundedRectangle(cornerRadius: 18)
+                )
+                .padding(.top, 18)
             }
         }
-        .frame(
-            maxWidth: .infinity,
-            alignment: .leading
-        )
-        .padding()
-        .background(.thinMaterial)
-        .clipShape(
-            RoundedRectangle(
-                cornerRadius: 18
-            )
-        )
         .task(id: commission.id) {
             await loadAttachments()
         }

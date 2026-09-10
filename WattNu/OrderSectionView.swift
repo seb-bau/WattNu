@@ -20,6 +20,14 @@ struct OrderSectionView: View {
                 ) {
                     Text(commission.displayTitle)
                         .font(.title2.bold())
+                    if commission.isHighPriorityValue {
+                        Label(
+                            "Hohe Priorität",
+                            systemImage: "exclamationmark.triangle.fill"
+                        )
+                        .font(.subheadline.weight(.semibold))
+                        .foregroundStyle(.red)
+                    }
 
                     Text(
                         "Auftrag \(commission.displayNumber)"
@@ -27,76 +35,70 @@ struct OrderSectionView: View {
                     .foregroundStyle(.secondary)
                 }
 
-                VStack(spacing: 12) {
-                    DetailRowView(
-                        title: "Adresse",
-                        value: commission.apartmentAddress ?? "-"
-                    )
-                    DetailRowView(
-                        title: "Lage",
-                        value: commission.apartmentLocation ?? "-"
-                    )
-                    DetailRowView(
-                        title: "Mieter",
-                        value: commission.tenantName ?? "-"
-                    )
-                    DetailRowView(
-                        title: "Status",
-                        value: commission.localStatusLabel
-                    )
-                    DetailRowView(
-                        title: "ERP-Status",
-                        value: commission.statusCode
-                        ?? commission.statusId.map(String.init)
-                        ?? "-"
-                    )
-                    DetailRowView(
-                        title: "Ausführung von",
-                        value: Formatters.dateTimeText(
-                            commission.executionFrom
+                VStack(alignment: .leading, spacing: 0) {
+                    VStack(spacing: 12) {
+                        DetailRowView(
+                            title: "Adresse",
+                            value: commission.apartmentAddress ?? "-"
                         )
-                    )
-                    DetailRowView(
-                        title: "Ausführung bis",
-                        value: Formatters.dateTimeText(
-                            commission.executionTo
+
+                        DetailRowView(
+                            title: "Lage",
+                            value: commission.apartmentLocation ?? "-"
                         )
-                    )
-                    DetailRowView(
-                        title: "Freigabe",
-                        value: Formatters.dateTimeText(
-                            commission.releaseDate
+
+                        DetailRowView(
+                            title: "Mieter",
+                            value: commission.tenantName ?? "-"
                         )
+
+                        DetailRowView(
+                            title: "Status",
+                            value: commission.localStatusLabel
+                        )
+
+                        if let executionFrom = commission.executionFrom?
+                            .trimmingCharacters(in: .whitespacesAndNewlines),
+                           !executionFrom.isEmpty {
+                            DetailRowView(
+                                title: "Ausführung von",
+                                value: Formatters.dateTimeText(executionFrom)
+                            )
+                        }
+
+                        if let executionTo = commission.executionTo?
+                            .trimmingCharacters(in: .whitespacesAndNewlines),
+                           !executionTo.isEmpty {
+                            DetailRowView(
+                                title: "Ausführung bis",
+                                value: Formatters.dateTimeText(executionTo)
+                            )
+                        }
+
+                        DetailRowView(
+                            title: "Monteur",
+                            value: commission.assigneeName
+                        )
+
+                        DetailRowView(
+                            title: "Kontakt Auftrag",
+                            value: commission.contactPerson ?? "-"
+                        )
+                    }
+                    .padding()
+                    .background(.thinMaterial)
+                    .clipShape(
+                        RoundedRectangle(cornerRadius: 18)
                     )
-                    DetailRowView(
-                        title: "Handwerker-ID",
-                        value: commission.craftsmanErpId
-                            .map(String.init) ?? "-"
+
+                    CommissionPhotosSectionView(
+                        commission: commission
                     )
-                    DetailRowView(
-                        title: "Monteur",
-                        value: commission.assigneeName
-                    )
-                    DetailRowView(
-                        title: "Kontakt Auftrag",
-                        value: commission.contactPerson ?? "-"
+
+                    CommissionAttachmentsSectionView(
+                        commission: commission
                     )
                 }
-                .padding()
-                .background(.thinMaterial)
-                .clipShape(
-                    RoundedRectangle(
-                        cornerRadius: 18
-                    )
-                )
-                
-                CommissionPhotosSectionView(
-                    commission: commission
-                )
-
-                CommissionAttachmentsSectionView(
-                    commission: commission
-                )
 
                 CommissionAppointmentSectionView(
                     commission: commission,

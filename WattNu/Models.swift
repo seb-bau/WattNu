@@ -152,6 +152,7 @@ struct Commission: Codable, Identifiable, Hashable {
     let statusId: Int?
     let statusCode: String?
     let localStatus: String
+    let isHighPriority: Bool?
     let craftsmanErpId: Int?
     let useUnitId: Int?
     let licenseAgreementId: Int?
@@ -196,6 +197,7 @@ struct Commission: Codable, Identifiable, Hashable {
         case statusId = "status_id"
         case statusCode = "status_code"
         case localStatus = "local_status"
+        case isHighPriority = "is_high_priority"
         case craftsmanErpId = "craftsman_erp_id"
         case useUnitId = "use_unit_id"
         case licenseAgreementId = "license_agreement_id"
@@ -227,6 +229,10 @@ struct Commission: Codable, Identifiable, Hashable {
         case acceptedAppointmentFrom = "accepted_appointment_from"
         case acceptedAppointmentTo = "accepted_appointment_to"
         case acceptedAppointmentComment = "accepted_appointment_comment"
+    }
+    
+    var isHighPriorityValue: Bool {
+        isHighPriority ?? false
     }
 
     var coordinate: CLLocationCoordinate2D? {

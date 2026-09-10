@@ -3,6 +3,7 @@ import SwiftUI
 struct LocalConnectionSettingsView: View {
     @EnvironmentObject private var session: SessionStore
     @Environment(\.dismiss) private var dismiss
+    @State private var isLoadingBackendSettings = false
 
     var body: some View {
         Form {
@@ -17,12 +18,41 @@ struct LocalConnectionSettingsView: View {
                 .textInputAutocapitalization(.never)
                 .autocorrectionDisabled()
                 .keyboardType(.URL)
+                .disabled(isLoadingBackendSettings)
 
-                Button("Backend-Einstellungen laden") {
+                Button {
+                    guard !isLoadingBackendSettings else {
+                        return
+                    }
+
+                    isLoadingBackendSettings = true
+
                     Task {
+                        defer {
+                            isLoadingBackendSettings = false
+                        }
+
                         await session.loadMobileConfig()
                     }
+                } label: {
+                    HStack(spacing: 10) {
+                        if isLoadingBackendSettings {
+                            ProgressView()
+                        } else {
+                            Image(systemName: "arrow.down.circle")
+                        }
+
+                        Text(
+                            isLoadingBackendSettings
+                                ? "Wird geladen …"
+                                : "Backend-Einstellungen laden"
+                        )
+                    }
+                    .frame(maxWidth: .infinity)
                 }
+                .buttonStyle(.borderedProminent)
+                .controlSize(.large)
+                .disabled(isLoadingBackendSettings)
             }
 
             Section("Anmeldung") {
@@ -45,6 +75,7 @@ struct LocalConnectionSettingsView: View {
                     }
                     dismiss()
                 }
+                .disabled(isLoadingBackendSettings)
             }
         }
         .navigationTitle("Verbindung")

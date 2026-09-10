@@ -48,6 +48,14 @@ struct CommissionRowView: View {
             Divider()
 
             VStack(alignment: .leading, spacing: 7) {
+                if commission.isHighPriorityValue {
+                    Label(
+                        "Hohe Priorität",
+                        systemImage: "exclamationmark.triangle.fill"
+                    )
+                    .font(.caption.weight(.semibold))
+                    .foregroundStyle(.red)
+                }
                 Text(commission.displayTitle)
                     .font(.subheadline)
                     .fontWeight(.medium)

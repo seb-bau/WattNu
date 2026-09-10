@@ -29,108 +29,94 @@ struct CommissionPhotosSectionView: View {
     ]
 
     var body: some View {
-        VStack(
-            alignment: .leading,
-            spacing: 12
-        ) {
-            HStack {
-                Text("Auftragsfotos")
-                    .font(.headline)
+        VStack(alignment: .leading, spacing: 0) {
+            if isLoading || !photos.isEmpty {
+                VStack(alignment: .leading, spacing: 12) {
+                    HStack {
+                        Text("Auftragsfotos")
+                            .font(.headline)
 
-                Spacer()
+                        Spacer()
 
-                if isUploading {
-                    ProgressView()
-                }
-
-                if commission.canEditValue {
-                    Button {
-                        sourceDialogPresented = true
-                    } label: {
-                        Label(
-                            "Hinzufügen",
-                            systemImage: "camera.fill"
-                        )
-                    }
-                    .buttonStyle(.bordered)
-                    .disabled(isUploading)
-                }
-            }
-
-            if isLoading && photos.isEmpty {
-                HStack {
-                    Spacer()
-                    ProgressView()
-                    Spacer()
-                }
-            } else if photos.isEmpty {
-                ContentUnavailableView(
-                    "Keine Fotos",
-                    systemImage: "photo.on.rectangle",
-                    description: Text(
-                        "Zu diesem Auftrag wurden noch keine Fotos gespeichert."
-                    )
-                )
-                .frame(minHeight: 130)
-            } else {
-                LazyVGrid(
-                    columns: columns,
-                    spacing: 10
-                ) {
-                    ForEach(photos) { photo in
-                        Button {
-                            selectedPhoto = photo
-                        } label: {
-                            ZStack {
-                                RoundedRectangle(
-                                    cornerRadius: 12
-                                )
-                                .fill(
-                                    Color.secondary.opacity(
-                                        0.12
-                                    )
-                                )
-
-                                if let image = thumbnails[
-                                    photo.id
-                                ] {
-                                    Image(
-                                        uiImage: image
-                                    )
-                                    .resizable()
-                                    .scaledToFill()
-                                } else {
-                                    ProgressView()
-                                }
-                            }
-                            .frame(height: 110)
-                            .clipShape(
-                                RoundedRectangle(
-                                    cornerRadius: 12
-                                )
-                            )
+                        if isLoading {
+                            ProgressView()
                         }
-                        .buttonStyle(.plain)
+                    }
+
+                    if isLoading && photos.isEmpty {
+                        HStack {
+                            Spacer()
+                            ProgressView()
+                            Spacer()
+                        }
+                    } else if !photos.isEmpty {
+                        LazyVGrid(
+                            columns: columns,
+                            spacing: 10
+                        ) {
+                            ForEach(photos) { photo in
+                                Button {
+                                    selectedPhoto = photo
+                                } label: {
+                                    ZStack {
+                                        RoundedRectangle(cornerRadius: 12)
+                                            .fill(
+                                                Color.secondary.opacity(0.12)
+                                            )
+
+                                        if let image = thumbnails[photo.id] {
+                                            Image(uiImage: image)
+                                                .resizable()
+                                                .scaledToFill()
+                                        } else {
+                                            ProgressView()
+                                        }
+                                    }
+                                    .frame(height: 110)
+                                    .clipShape(
+                                        RoundedRectangle(cornerRadius: 12)
+                                    )
+                                }
+                                .buttonStyle(.plain)
+                            }
+                        }
                     }
                 }
+                .frame(
+                    maxWidth: .infinity,
+                    alignment: .leading
+                )
+                .padding()
+                .background(.thinMaterial)
+                .clipShape(
+                    RoundedRectangle(cornerRadius: 18)
+                )
+                .padding(.top, 18)
             }
         }
-        .frame(
-            maxWidth: .infinity,
-            alignment: .leading
-        )
-        .padding()
-        .background(.thinMaterial)
-        .clipShape(
-            RoundedRectangle(
-                cornerRadius: 18
-            )
-        )
-        .task {
+        .task(id: commission.id) {
             await loadPhotos()
         }
         .refreshable {
             await loadPhotos()
+        }
+        .toolbar {
+            if commission.canEditValue {
+                ToolbarItem(placement: .topBarTrailing) {
+                    Button {
+                        sourceDialogPresented = true
+                    } label: {
+                        if isUploading {
+                            ProgressView()
+                                .accessibilityLabel("Foto wird hochgeladen")
+                        } else {
+                            Label("Foto hinzufügen", systemImage: "camera")
+                                .labelStyle(.iconOnly)
+                        }
+                    }
+                    .disabled(isUploading || isLoading)
+                }
+            }
         }
         .confirmationDialog(
             "Foto hinzufügen",

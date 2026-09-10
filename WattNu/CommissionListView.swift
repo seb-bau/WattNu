@@ -53,22 +53,31 @@ struct CommissionListView: View {
     }
 
     private var sortedCommissions: [Commission] {
+        let ordered: [Commission]
+
         switch sortMode {
         case .distance:
-            return searchedCommissions.sorted {
-                let left = locationStore.distanceMeters(to: $0) ?? Double.greatestFiniteMagnitude
-                let right = locationStore.distanceMeters(to: $1) ?? Double.greatestFiniteMagnitude
+            ordered = searchedCommissions.sorted {
+                let left = locationStore.distanceMeters(to: $0)
+                    ?? Double.greatestFiniteMagnitude
+                let right = locationStore.distanceMeters(to: $1)
+                    ?? Double.greatestFiniteMagnitude
                 return left < right
             }
 
         case .title:
-            return searchedCommissions.sorted {
-                $0.displayTitle.localizedCaseInsensitiveCompare($1.displayTitle) == .orderedAscending
+            ordered = searchedCommissions.sorted {
+                $0.displayTitle.localizedCaseInsensitiveCompare(
+                    $1.displayTitle
+                ) == .orderedAscending
             }
 
         case .defaultOrder:
-            return searchedCommissions
+            ordered = searchedCommissions
         }
+
+        return ordered.filter { $0.isHighPriorityValue }
+            + ordered.filter { !$0.isHighPriorityValue }
     }
 
     var body: some View {

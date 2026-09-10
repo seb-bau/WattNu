@@ -5,6 +5,7 @@ struct AppSettingsView: View {
     @EnvironmentObject private var session: SessionStore
     @EnvironmentObject private var localSettings: LocalAppSettings
     @EnvironmentObject private var pushNotifications: PushNotificationManager
+    @State private var isRefreshingBackendSettings = false
 
     var body: some View {
         NavigationStack {
@@ -103,13 +104,41 @@ struct AppSettingsView: View {
                         value: localSettings.baseURLString
                     )
 
-                    Button("Backend-Einstellungen aktualisieren") {
+                    Button {
+                        guard !isRefreshingBackendSettings else {
+                            return
+                        }
+
+                        isRefreshingBackendSettings = true
+
                         Task {
+                            defer {
+                                isRefreshingBackendSettings = false
+                            }
+
                             await session.loadMobileConfig()
                             await session.loadPushPreferences()
                             await synchronizePushDevice()
                         }
+                    } label: {
+                        HStack(spacing: 10) {
+                            if isRefreshingBackendSettings {
+                                ProgressView()
+                            } else {
+                                Image(systemName: "arrow.clockwise")
+                            }
+
+                            Text(
+                                isRefreshingBackendSettings
+                                    ? "Wird aktualisiert …"
+                                    : "Backend-Einstellungen aktualisieren"
+                            )
+                        }
+                        .frame(maxWidth: .infinity)
                     }
+                    .buttonStyle(.borderedProminent)
+                    .controlSize(.large)
+                    .disabled(isRefreshingBackendSettings)
                 }
 
                 Section("Anmeldung") {
