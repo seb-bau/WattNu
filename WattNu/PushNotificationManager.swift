@@ -14,6 +14,11 @@ final class PushNotificationManager: NSObject, ObservableObject, UNUserNotificat
     @Published private(set) var pendingCommissionId: Int?
     @Published private(set)
     var pendingSafetyInspectionId: Int?
+    @Published private(set)
+    var pendingProcessInfoCommissionId: Int?
+
+    @Published private(set)
+    var notificationRevision = 0
 
     let installationId: String
 
@@ -129,6 +134,15 @@ final class PushNotificationManager: NSObject, ObservableObject, UNUserNotificat
         return value
     }
     
+    func consumePendingProcessInfoCommission()
+    -> Int? {
+        let value =
+            pendingProcessInfoCommissionId
+
+        pendingProcessInfoCommissionId = nil
+        return value
+    }
+    
     func consumePendingSafetyInspection() -> Int? {
         let value = pendingSafetyInspectionId
         pendingSafetyInspectionId = nil
@@ -140,6 +154,9 @@ final class PushNotificationManager: NSObject, ObservableObject, UNUserNotificat
         willPresent notification: UNNotification,
         withCompletionHandler completionHandler: @escaping (UNNotificationPresentationOptions) -> Void
     ) {
+        Task { @MainActor [weak self] in
+            self?.notificationRevision += 1
+        }
         completionHandler([.banner, .list, .sound])
     }
 
@@ -162,11 +179,19 @@ final class PushNotificationManager: NSObject, ObservableObject, UNUserNotificat
             forKey: "commission_id",
             in: userInfo
         )
+        let openInfos = Self.booleanValue(
+            forKey: "open_infos",
+            in: userInfo
+        )
 
         Task { @MainActor [weak self] in
             if let safetyInspectionId {
                 self?.pendingSafetyInspectionId =
                     safetyInspectionId
+            } else if let commissionId,
+                      openInfos {
+                self?.pendingProcessInfoCommissionId =
+                    commissionId
             } else if let commissionId {
                 self?.pendingCommissionId =
                     commissionId
@@ -198,6 +223,32 @@ final class PushNotificationManager: NSObject, ObservableObject, UNUserNotificat
     private enum Keys {
         static let installationId = "pushInstallationId"
     }
+}
+
+nonisolated private static func booleanValue(
+    forKey key: String,
+    in userInfo: [AnyHashable: Any]
+) -> Bool {
+    if let value = userInfo[key] as? Bool {
+        return value
+    }
+
+    if let value =
+        userInfo[key] as? NSNumber {
+        return value.boolValue
+    }
+
+    if let value =
+        userInfo[key] as? String {
+        return [
+            "true",
+            "1",
+        ].contains(
+            value.lowercased()
+        )
+    }
+
+    return false
 }
 
 @MainActor

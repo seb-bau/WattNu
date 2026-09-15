@@ -8,6 +8,7 @@ enum CommissionDetailSection:
     case order = "Auftrag"
     case photos = "Fotos"
     case materials = "Lager"
+    case infos = "Infos"
     case time = "Zeit"
     case history = "Verlauf"
 
@@ -18,6 +19,8 @@ enum CommissionDetailSection:
 
 struct CommissionDetailView: View {
     @EnvironmentObject private var session: SessionStore
+    @ObservedObject private var processInfos =
+        ProcessInfoStore.shared
 
     let commissionId: Int
 
@@ -33,12 +36,41 @@ struct CommissionDetailView: View {
                 ProgressView("Auftrag wird geladen …")
             } else if let commission {
                 VStack(spacing: 0) {
-                    Picker("Bereich", selection: $selectedSection) {
-                        ForEach(CommissionDetailSection.allCases) { section in
-                            Text(section.rawValue).tag(section)
+                    ScrollView(
+                        .horizontal,
+                        showsIndicators: false
+                    ) {
+                        HStack(spacing: 8) {
+                            ForEach(
+                                CommissionDetailSection.allCases
+                            ) { section in
+                                Button(section.rawValue) {
+                                    selectedSection = section
+                                }
+                                .buttonStyle(.plain)
+                                .font(
+                                    .subheadline.weight(
+                                        .semibold
+                                    )
+                                )
+                                .foregroundStyle(
+                                    selectedSection == section
+                                    ? Color.white
+                                    : Color.primary
+                                )
+                                .padding(.horizontal, 12)
+                                .padding(.vertical, 8)
+                                .background(
+                                    selectedSection == section
+                                    ? Color.accentColor
+                                    : Color(
+                                        .secondarySystemGroupedBackground
+                                    )
+                                )
+                                .clipShape(Capsule())
+                            }
                         }
                     }
-                    .pickerStyle(.segmented)
                     .padding()
 
                     Divider()
@@ -92,6 +124,10 @@ struct CommissionDetailView: View {
                                 )
                             )
                         }
+                    case .infos:
+                        ProcessInfoView(
+                            commissionId: commission.id
+                        )
                     case .history:
                         CommissionHistoryView(
                             commission: commission
@@ -105,7 +141,22 @@ struct CommissionDetailView: View {
         .navigationTitle(commission?.displayNumber ?? "Auftrag")
         .navigationBarTitleDisplayMode(.inline)
         .task {
+            if processInfos.consumeInfoRequest(
+                commissionId: commissionId
+            ) {
+                selectedSection = .infos
+            }
+
             await loadCommission()
+        }
+        .onChange(
+            of: processInfos.requestedCommissionId
+        ) { _, _ in
+            if processInfos.consumeInfoRequest(
+                commissionId: commissionId
+            ) {
+                selectedSection = .infos
+            }
         }
         .refreshable {
             await loadCommission()

@@ -225,6 +225,69 @@ final class APIClient {
         return response.item
     }
     
+    func fetchProcessInfos(
+        commissionId: Int
+    ) async throws -> ProcessInfoListResponse {
+        try requireToken()
+
+        return try await request(
+            path:
+                "/api/commissions/"
+                + "\(commissionId)/infos"
+        )
+    }
+
+    func createProcessInfo(
+        commissionId: Int,
+        requestId: String,
+        body: String
+    ) async throws -> ProcessInfoMessage {
+        try requireToken()
+
+        let response:
+            ItemResponse<ProcessInfoMessage> =
+                try await send(
+                    path:
+                        "/api/commissions/"
+                        + "\(commissionId)/infos",
+                    method: "POST",
+                    body:
+                        ProcessInfoCreateRequest(
+                            requestId: requestId,
+                            body: body
+                        )
+                )
+
+        return response.item
+    }
+
+    func markProcessInfosRead(
+        commissionId: Int,
+        infoIds: [String]
+    ) async throws -> ProcessInfoUnreadSummary {
+        try requireToken()
+
+        return try await send(
+            path:
+                "/api/commissions/"
+                + "\(commissionId)/infos/read",
+            method: "POST",
+            body:
+                ProcessInfoReadRequest(
+                    infoIds: infoIds
+                )
+        )
+    }
+
+    func fetchProcessInfoUnreadSummary()
+    async throws -> ProcessInfoUnreadSummary {
+        try requireToken()
+
+        return try await request(
+            path: "/api/process-infos/unread"
+        )
+    }
+    
     func fetchCommissionContacts(commissionId: Int) async throws -> [CommissionContactItem] {
         try requireToken()
         let response: CommissionContactsResponse = try await request(path: "/api/commissions/\(commissionId)/contacts")

@@ -5,6 +5,10 @@ struct CommissionListView: View {
     @EnvironmentObject private var locationStore: LocationStore
     @EnvironmentObject private var navigation: AppNavigationStore
     @EnvironmentObject private var pushNotifications: PushNotificationManager
+    @ObservedObject private var processInfos =
+        ProcessInfoStore.shared
+
+    @State private var onlyUnreadInfos = false
 
     @State private var commissions: [Commission] = []
     @State private var commissionUsers: [AppUser] = []
@@ -18,15 +22,26 @@ struct CommissionListView: View {
     @State private var errorMessage: String?
     @State private var isCreatePresented = false
     
-    private var statusFilteredCommissions: [Commission] {
+    private var statusFilteredCommissions:
+        [Commission] {
+        let infoFiltered = (
+            onlyUnreadInfos
+            ? commissions.filter {
+                processInfos.unreadCount(
+                    commissionId: $0.id
+                ) > 0
+            }
+            : commissions
+        )
+
         guard statusFilter == .active else {
-            return commissions
+            return infoFiltered
         }
 
-        return commissions.filter {
-            CommissionStatusFilter.activeLocalStatuses.contains(
-                $0.localStatus
-            )
+        return infoFiltered.filter {
+            CommissionStatusFilter
+                .activeLocalStatuses
+                .contains($0.localStatus)
         }
     }
 
@@ -123,6 +138,11 @@ struct CommissionListView: View {
                         }
                     }
                     .pickerStyle(.segmented)
+                    
+                    Toggle(
+                        "Nur Aufträge mit ungelesenen Infos",
+                        isOn: $onlyUnreadInfos
+                    )
 
                     if isSearchVisible {
                         HStack(spacing: 8) {
@@ -164,7 +184,34 @@ struct CommissionListView: View {
                     } else {
                         List(sortedCommissions) { commission in
                             NavigationLink(value: commission) {
-                                CommissionRowView(commission: commission)
+                                VStack(
+                                    alignment: .leading,
+                                    spacing: 5
+                                ) {
+                                    CommissionRowView(
+                                        commission: commission
+                                    )
+
+                                    let unreadCount =
+                                        processInfos.unreadCount(
+                                            commissionId:
+                                                commission.id
+                                        )
+
+                                    if unreadCount > 0 {
+                                        Label(
+                                            "\(unreadCount) ungelesene Infos",
+                                            systemImage:
+                                                "text.bubble.fill"
+                                        )
+                                        .font(
+                                            .caption.weight(
+                                                .semibold
+                                            )
+                                        )
+                                        .foregroundStyle(.red)
+                                    }
+                                }
                             }
                             .buttonStyle(.plain)
                             .listRowSeparator(.hidden)
@@ -260,6 +307,19 @@ struct CommissionListView: View {
                     await loadCommissions()
                 }
             }
+            .onChange(
+                of: onlyUnreadInfos
+            ) { _, enabled in
+                if enabled {
+                    scopeFilter = .mine
+                    selectedUserId = nil
+                    statusFilter = .all
+                }
+
+                Task {
+                    await loadCommissions()
+                }
+            }
             .alert("Fehler", isPresented: Binding(
                 get: { errorMessage != nil },
                 set: { newValue in
@@ -306,6 +366,9 @@ struct CommissionListView: View {
                 scope: scopeFilter,
                 status: statusFilter,
                 userId: selectedUserId
+            )
+            await processInfos.refresh(
+                apiClient: session.apiClient
             )
         } catch {
             errorMessage = error.localizedDescription
