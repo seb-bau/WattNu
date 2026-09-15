@@ -10,6 +10,8 @@ struct DatLaeuftApp: App {
     @StateObject private var locationStore = LocationStore()
     @StateObject private var navigation = AppNavigationStore()
     @StateObject private var pushNotifications = PushNotificationManager.shared
+    @StateObject private var processInfos =
+        ProcessInfoStore.shared
 
     var body: some Scene {
         WindowGroup {
@@ -19,6 +21,7 @@ struct DatLaeuftApp: App {
                 .environmentObject(locationStore)
                 .environmentObject(navigation)
                 .environmentObject(pushNotifications)
+                .environmentObject(processInfos)
                 .onOpenURL { url in
                     _ = MSALPublicClientApplication.handleMSALResponse(
                         url,
@@ -30,10 +33,12 @@ struct DatLaeuftApp: App {
                     async let notificationTask: Void = pushNotifications.prepareAtLaunch()
                     _ = await (sessionTask, notificationTask)
                     await synchronizePushDevice()
+                    await synchronizeProcessInfoBadge()
                 }
                 .onChange(of: session.user?.id) { _, _ in
                     Task {
                         await synchronizePushDevice()
+                        await synchronizeProcessInfoBadge()
                     }
                 }
                 .onChange(of: pushNotifications.deviceToken) { _, _ in
@@ -51,7 +56,15 @@ struct DatLaeuftApp: App {
                         Task {
                             await pushNotifications.refreshAuthorizationStatus()
                             await synchronizePushDevice()
+                            await synchronizeProcessInfoBadge()
                         }
+                    }
+                }
+                .onChange(
+                    of: pushNotifications.notificationRevision
+                ) { _, _ in
+                    Task {
+                        await synchronizeProcessInfoBadge()
                     }
                 }
         }
@@ -68,6 +81,18 @@ struct DatLaeuftApp: App {
             installationId: pushNotifications.installationId,
             appVersion: appVersion,
             deviceName: UIDevice.current.model
+        )
+    }
+    
+    private func synchronizeProcessInfoBadge()
+    async {
+        if session.user == nil {
+            processInfos.reset()
+            return
+        }
+
+        await processInfos.refresh(
+            apiClient: session.apiClient
         )
     }
 }

@@ -3,6 +3,9 @@ import SwiftUI
 struct MainTabView: View {
     @EnvironmentObject private var navigation: AppNavigationStore
     @EnvironmentObject private var pushNotifications: PushNotificationManager
+    
+    @ObservedObject private var processInfos =
+        ProcessInfoStore.shared
 
     var body: some View {
         TabView(selection: $navigation.selectedTab) {
@@ -14,6 +17,7 @@ struct MainTabView: View {
                     )
                 }
                 .tag(MainTab.commissions)
+                .badge(processInfos.unreadTotal)
 
             SafetyInspectionListView()
                 .tabItem {
@@ -57,9 +61,29 @@ struct MainTabView: View {
         ) { _, _ in
             openPendingDestination()
         }
+        .onChange(
+            of: pushNotifications
+                .pendingProcessInfoCommissionId
+        ) { _, _ in
+            openPendingDestination()
+        }
     }
 
     private func openPendingDestination() {
+        if let commissionId =
+            pushNotifications
+                .consumePendingProcessInfoCommission()
+        {
+            processInfos.requestInfos(
+                commissionId: commissionId
+            )
+
+            navigation.openCommission(
+                id: commissionId
+            )
+            return
+        }
+        
         if let inspectionId = pushNotifications
             .consumePendingSafetyInspection()
         {
