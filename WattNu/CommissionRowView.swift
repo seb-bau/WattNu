@@ -6,44 +6,34 @@ struct CommissionRowView: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: 12) {
-            HStack(alignment: .top, spacing: 10) {
-                Image(systemName: "house.fill")
-                    .font(.title3)
-                    .foregroundStyle(.blue)
-                    .frame(width: 26)
-
-                VStack(alignment: .leading, spacing: 8) {
+            VStack(alignment: .leading, spacing: 8) {
+                Label {
                     Text(primaryAddressText)
                         .font(.headline)
                         .foregroundStyle(.primary)
                         .lineLimit(3)
+                } icon: {
+                    Image(systemName: "house.fill")
+                        .font(.title3)
+                        .foregroundStyle(.blue)
+                }
+                .padding(.trailing, 115)
 
-                    if let tenantName = commission.tenantName, !tenantName.isEmpty {
-                        Label(tenantName, systemImage: "person.text.rectangle")
-                            .font(.subheadline)
-                            .foregroundStyle(.secondary)
-                            .lineLimit(2)
-                    }
-
-                    if let location = commission.apartmentLocation, !location.isEmpty {
-                        Label(location, systemImage: "rectangle.split.2x1")
-                            .font(.subheadline)
-                            .foregroundStyle(.secondary)
-                            .lineLimit(2)
-                    }
+                if let tenantName = commission.tenantName, !tenantName.isEmpty {
+                    Label(tenantName, systemImage: "person.text.rectangle")
+                        .font(.subheadline)
+                        .foregroundStyle(.secondary)
+                        .lineLimit(2)
                 }
 
-                Spacer(minLength: 8)
-
-                Text(commission.localStatusLabel)
-                    .font(.caption)
-                    .fontWeight(.semibold)
-                    .padding(.horizontal, 9)
-                    .padding(.vertical, 5)
-                    .background(statusColor.opacity(0.15))
-                    .foregroundStyle(statusColor)
-                    .clipShape(Capsule())
+                if let location = commission.apartmentLocation, !location.isEmpty {
+                    Label(location, systemImage: "rectangle.split.2x1")
+                        .font(.subheadline)
+                        .foregroundStyle(.secondary)
+                        .lineLimit(2)
+                }
             }
+            .frame(maxWidth: .infinity, alignment: .leading)
 
             Divider()
 
@@ -93,6 +83,20 @@ struct CommissionRowView: View {
             RoundedRectangle(cornerRadius: 16, style: .continuous)
                 .fill(Color(.secondarySystemGroupedBackground))
         )
+        .overlay(alignment: .topTrailing) {
+            Text(commission.localStatusLabel)
+                .font(.caption)
+                .fontWeight(.semibold)
+                .lineLimit(1)
+                .fixedSize()
+                .padding(.horizontal, 9)
+                .padding(.vertical, 5)
+                .background(statusColor.opacity(0.15))
+                .foregroundStyle(statusColor)
+                .clipShape(Capsule())
+                .padding(.top, 14)
+                .padding(.trailing, 14)
+        }
         .overlay(
             RoundedRectangle(cornerRadius: 16, style: .continuous)
                 .stroke(Color(.separator).opacity(0.35), lineWidth: 1)

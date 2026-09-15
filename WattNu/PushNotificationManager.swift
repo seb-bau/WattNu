@@ -220,35 +220,33 @@ final class PushNotificationManager: NSObject, ObservableObject, UNUserNotificat
         return nil
     }
 
+    nonisolated private static func booleanValue(
+        forKey key: String,
+        in userInfo: [AnyHashable: Any]
+    ) -> Bool {
+        if let value = userInfo[key] as? Bool {
+            return value
+        }
+
+        if let value = userInfo[key] as? NSNumber {
+            return value.boolValue
+        }
+
+        if let value = userInfo[key] as? String {
+            return [
+                "true",
+                "1",
+            ].contains(
+                value.lowercased()
+            )
+        }
+
+        return false
+    }
+
     private enum Keys {
         static let installationId = "pushInstallationId"
     }
-}
-
-nonisolated private static func booleanValue(
-    forKey key: String,
-    in userInfo: [AnyHashable: Any]
-) -> Bool {
-    if let value = userInfo[key] as? Bool {
-        return value
-    }
-
-    if let value =
-        userInfo[key] as? NSNumber {
-        return value.boolValue
-    }
-
-    if let value =
-        userInfo[key] as? String {
-        return [
-            "true",
-            "1",
-        ].contains(
-            value.lowercased()
-        )
-    }
-
-    return false
 }
 
 @MainActor
