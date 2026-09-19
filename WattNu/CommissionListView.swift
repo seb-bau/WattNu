@@ -183,7 +183,11 @@ struct CommissionListView: View {
                             .frame(maxWidth: .infinity, maxHeight: .infinity)
                     } else {
                         List(sortedCommissions) { commission in
-                            NavigationLink(value: commission) {
+                            Button {
+                                navigation.commissionPath.append(
+                                    commission.id
+                                )
+                            } label: {
                                 VStack(
                                     alignment: .leading,
                                     spacing: 5
@@ -212,10 +216,22 @@ struct CommissionListView: View {
                                         .foregroundStyle(.red)
                                     }
                                 }
+                                .frame(
+                                    maxWidth: .infinity,
+                                    alignment: .leading
+                                )
+                                .contentShape(Rectangle())
                             }
                             .buttonStyle(.plain)
                             .listRowSeparator(.hidden)
-                            .listRowInsets(EdgeInsets(top: 7, leading: 16, bottom: 7, trailing: 16))
+                            .listRowInsets(
+                                EdgeInsets(
+                                    top: 7,
+                                    leading: 16,
+                                    bottom: 7,
+                                    trailing: 16
+                                )
+                            )
                             .listRowBackground(Color.clear)
                         }
                         .listStyle(.plain)
@@ -339,22 +355,41 @@ struct CommissionListView: View {
 
     private func loadInitialData() async {
         await loadCommissionUsers()
+
+        guard !Task.isCancelled else {
+            return
+        }
+
         await loadCommissions()
     }
 
     private func loadCommissionUsers() async {
+        guard !Task.isCancelled else {
+            return
+        }
+
         do {
             if scopeFilter == .all {
-                commissionUsers = try await session.apiClient.fetchCommissionUsers()
+                commissionUsers =
+                    try await session.apiClient
+                        .fetchCommissionUsers()
             } else if let user = session.user {
                 commissionUsers = [user]
             }
         } catch {
+            if error.isRequestCancellation {
+                return
+            }
+
             errorMessage = error.localizedDescription
         }
     }
 
     private func loadCommissions() async {
+        guard !Task.isCancelled else {
+            return
+        }
+
         isLoading = true
 
         defer {
@@ -362,15 +397,22 @@ struct CommissionListView: View {
         }
 
         do {
-            commissions = try await session.apiClient.fetchCommissions(
-                scope: scopeFilter,
-                status: statusFilter,
-                userId: selectedUserId
-            )
+            commissions =
+                try await session.apiClient
+                    .fetchCommissions(
+                        scope: scopeFilter,
+                        status: statusFilter,
+                        userId: selectedUserId
+                    )
+
             await processInfos.refresh(
                 apiClient: session.apiClient
             )
         } catch {
+            if error.isRequestCancellation {
+                return
+            }
+
             errorMessage = error.localizedDescription
         }
     }
