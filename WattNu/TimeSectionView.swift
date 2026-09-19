@@ -470,8 +470,8 @@ struct TimeSectionView: View {
     }
 
     private func saveTimeEntry() async {
-        if editingEntry == nil && selectedTask == nil {
-            errorMessage = "Bitte zuerst eine Position auswählen."
+        guard let selectedTask else {
+            errorMessage = "Bitte zuerst eine Leistungsposition auswählen."
             return
         }
 
@@ -502,7 +502,7 @@ struct TimeSectionView: View {
                 _ = try await session.apiClient.updateTimeEntry(
                     commissionId: commission.id,
                     entryId: editingEntry.id,
-                    taskTemplateId: selectedTask?.id,
+                    taskTemplateId: selectedTask.id,
                     serviceDate: Formatters.apiDateText(
                         serviceDate
                     ),
@@ -519,7 +519,7 @@ struct TimeSectionView: View {
             } else {
                 _ = try await session.apiClient.addTimeEntry(
                     commissionId: commission.id,
-                    taskTemplateId: selectedTask?.id,
+                    taskTemplateId: selectedTask.id,
                     serviceDate: Formatters.apiDateText(
                         serviceDate
                     ),

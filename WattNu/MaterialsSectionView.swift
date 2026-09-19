@@ -8,6 +8,7 @@ struct MaterialsSectionView: View {
     @State private var movements: [InventoryMovement] = []
     @State private var taskSearchText = ""
     @State private var selectedTask: TimeTask?
+    @State private var commissionTasks: [TimeTask] = []
     @State private var taskSuggestions: [TimeTask] = []
     @State private var code = ""
     @State private var quantityText = "1"
@@ -532,19 +533,46 @@ struct MaterialsSectionView: View {
                 )
 
             async let loadedLocations =
-                session.apiClient.fetchInventoryLocations()
+                session.apiClient
+                    .fetchInventoryLocations()
+
+            async let loadedTasks =
+                session.apiClient.fetchTimeTasks()
 
             let result = try await (
                 loadedMovements,
-                loadedLocations
+                loadedLocations,
+                loadedTasks
             )
 
             movements = result.0
             inventoryLocations = result.1
-            configureInventoryLocation()
+            commissionTasks =
+                commission.matchingTimeTasks(
+                    in: result.2
+                )
 
+            configureInventoryLocation()
+            restoreTaskSelection()
         } catch {
+            if error.isRequestCancellation {
+                return
+            }
+
             errorMessage = error.localizedDescription
+        }
+    }
+
+    private func restoreTaskSelection() {
+        guard selectedTask == nil else {
+            return
+        }
+
+        if commissionTasks.count == 1,
+           let task = commissionTasks.first {
+            selectTask(task)
+        } else if taskSearchText.isEmpty {
+            taskSuggestions = commissionTasks
         }
     }
 
@@ -750,12 +778,21 @@ struct MaterialsSectionView: View {
     }
 
     private func addMaterial() async {
+        guard let selectedTask else {
+            errorMessage = "Bitte zuerst eine Leistungsposition auswählen."
+            return
+        }
+
         guard let selectedItem else {
             errorMessage = "Bitte zuerst einen Artikel auswählen."
             return
         }
 
-        let normalizedQuantity = quantityText.replacingOccurrences(of: ",", with: ".")
+        let normalizedQuantity =
+            quantityText.replacingOccurrences(
+                of: ",",
+                with: "."
+            )
 
         guard let quantity = Double(normalizedQuantity), quantity > 0 else {
             errorMessage = "Bitte eine gültige Menge eingeben."
@@ -795,7 +832,7 @@ struct MaterialsSectionView: View {
                 commissionId: commission.id,
                 code: selectedItem.itemNumber,
                 quantity: quantity,
-                taskTemplateId: selectedTask?.id,
+                taskTemplateId: selectedTask.id,
                 usageStatus: usageStatus,
                 source: materialSource,
                 locationId: locationId,
