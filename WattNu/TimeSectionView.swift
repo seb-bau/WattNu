@@ -24,6 +24,7 @@ struct TimeSectionView: View {
     @State private var isLoading = false
     @State private var errorMessage: String?
     @State private var suggestionTask: Task<Void, Never>?
+    @State private var commissionTasks: [TimeTask] = []
 
     private let deviationReasons = [
         ("", "Keine Besonderheit"),
@@ -218,10 +219,10 @@ struct TimeSectionView: View {
             }
         }
         .task {
-            await loadEntries()
+            await loadData()
         }
         .refreshable {
-            await loadEntries()
+            await loadData()
         }
         .onChange(of: taskSearchText) { _, newValue in
             handleTaskSearchTextChange(newValue)
@@ -276,17 +277,11 @@ struct TimeSectionView: View {
                     .font(.subheadline.bold())
             }
 
-            HStack {
-                Text(entry.reviewStatusLabel)
-                if let reviewLevel = entry.reviewLevel, !reviewLevel.isEmpty {
-                    Text("· \(reviewLevel)")
-                }
-                Spacer()
-                Text(
-                    "Leistung: \(Formatters.dateText(entry.serviceDate))"
-                )            }
+            Text(
+                "Leistung: \(Formatters.dateText(entry.serviceDate))"
+            )
             .font(.caption)
-            .foregroundStyle(entry.reviewStatus == "needs_review" ? .orange : .secondary)
+            .foregroundStyle(.secondary)
 
             Text(entry.user.displayName)
                 .font(.caption)
@@ -329,6 +324,48 @@ struct TimeSectionView: View {
         TextField(title, text: text)
             .keyboardType(.numberPad)
             .disabled(commission.canEditValue == false)
+    }
+    
+    private func loadData() async {
+        do {
+            async let loadedEntries =
+                session.apiClient.fetchTimeEntries(
+                    commissionId: commission.id
+                )
+            async let loadedTasks =
+                session.apiClient.fetchTimeTasks()
+
+            let result = try await (
+                loadedEntries,
+                loadedTasks
+            )
+
+            entries = result.0
+            commissionTasks = (
+                commission.matchingTimeTasks(
+                    in: result.1
+                )
+            )
+            restoreTaskSelection()
+        } catch {
+            errorMessage = error.localizedDescription
+        }
+    }
+
+    private func restoreTaskSelection() {
+        guard editingEntry == nil else {
+            return
+        }
+
+        if commissionTasks.count == 1,
+           let task = commissionTasks.first {
+            selectTask(task)
+        } else if (
+            selectedTask == nil
+            && taskSearchText.isEmpty
+        ) {
+            taskSuggestions = commissionTasks
+        }
     }
 
     private func loadEntries() async {
@@ -611,6 +648,7 @@ struct TimeSectionView: View {
         editingEntry = nil
         serviceDate = Date()
         clearSelectedTask()
+        restoreTaskSelection()
     }
 }
 

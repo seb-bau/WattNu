@@ -12,6 +12,8 @@ struct CommissionCompletionView: View {
     @State private var reason = ""
     @State private var isSaving = false
     @State private var errorMessage: String?
+    @State private var materialWarningMessage = ""
+    @State private var isMaterialWarningPresented = false
 
     private var normalizedReason: String? {
         let value = reason.trimmingCharacters(
@@ -117,7 +119,9 @@ struct CommissionCompletionView: View {
             ) {
                 Button("Übermitteln") {
                     Task {
-                        await submit()
+                        await submit(
+                            confirmMissingMaterial: false
+                        )
                     }
                 }
                 .disabled(!canSubmit)
@@ -144,6 +148,31 @@ struct CommissionCompletionView: View {
                 tenantCharge = false
             }
         }
+        .confirmationDialog(
+            "Materialbuchung vorgesehen",
+            isPresented: $isMaterialWarningPresented,
+            titleVisibility: .visible
+        ) {
+            Button(
+                "Trotzdem abschließen",
+                role: .destructive
+            ) {
+                Task {
+                    await submit(
+                        confirmMissingMaterial: true
+                    )
+                }
+            }
+
+            Button(
+                "Abbrechen",
+                role: .cancel
+            ) {
+                isMaterialWarningPresented = false
+            }
+        } message: {
+            Text(materialWarningMessage)
+        }
         .alert(
             "Fehler",
             isPresented: Binding(
@@ -168,7 +197,9 @@ struct CommissionCompletionView: View {
         }
     }
 
-    private func submit() async {
+    private func submit(
+        confirmMissingMaterial: Bool
+    ) async {
         guard canSubmit else {
             errorMessage = (
                 "Bitte einen Grund angeben."
@@ -183,6 +214,31 @@ struct CommissionCompletionView: View {
         }
 
         do {
+            if (
+                completed
+                && !confirmMissingMaterial
+            ) {
+                let check = try await session
+                    .apiClient
+                    .fetchCommissionCompletionCheck(
+                        id: commission.id
+                    )
+
+                if check.requiresConfirmation {
+                    materialWarningMessage = (
+                        check.message
+                        ?? (
+                            "Für diesen Auftrag ist "
+                            + "eine Materialbuchung "
+                            + "vorgesehen. Auftrag "
+                            + "trotzdem abschließen?"
+                        )
+                    )
+                    isMaterialWarningPresented = true
+                    return
+                }
+            }
+
             let updatedCommission = try await session
                 .apiClient
                 .completeCommission(
@@ -192,7 +248,9 @@ struct CommissionCompletionView: View {
                         completed
                         && tenantCharge
                     ),
-                    reason: normalizedReason
+                    reason: normalizedReason,
+                    confirmMissingMaterial:
+                        confirmMissingMaterial
                 )
 
             completionAction(

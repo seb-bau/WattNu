@@ -406,12 +406,6 @@ struct MaterialsSectionView: View {
                                     .foregroundStyle(.secondary)
                             }
 
-                            if !movement.reviewLabel.isEmpty {
-                                Text(movement.reviewLabel)
-                                    .font(.caption)
-                                    .foregroundStyle(movement.reviewStatus == "needs_review" ? .orange : .secondary)
-                            }
-
                             if let user = movement.user {
                                 Text(user.displayName)
                                     .font(.caption)

@@ -298,6 +298,49 @@ struct Commission: Codable, Identifiable, Hashable {
     var isActionableValue: Bool {
         isActionable ?? (erpId != nil)
     }
+    
+    func matchingTimeTasks(
+        in tasks: [TimeTask]
+    ) -> [TimeTask] {
+        let serviceCatalogIds = Set(
+            positions.compactMap {
+                $0.serviceCatalogId
+            }
+        )
+        let positionCodes = Set(
+            positions.compactMap {
+                $0.code?
+                    .trimmingCharacters(
+                        in: .whitespacesAndNewlines
+                    )
+                    .lowercased()
+            }
+        )
+
+        return tasks.filter { task in
+            if let serviceCatalogId =
+                task.serviceCatalogId,
+               serviceCatalogIds.contains(
+                serviceCatalogId
+               ) {
+                return true
+            }
+
+            let values = [
+                task.code,
+                task.erpIdNum ?? ""
+            ].map {
+                $0.trimmingCharacters(
+                    in: .whitespacesAndNewlines
+                )
+                .lowercased()
+            }
+
+            return values.contains {
+                positionCodes.contains($0)
+            }
+        }
+    }
 
     var localStatusLabel: String {
         switch localStatus {
@@ -1313,15 +1356,29 @@ struct CommissionHistoryEntry: Codable, Identifiable, Hashable {
     }
 }
 
+struct CommissionCompletionCheck: Decodable {
+    let requiresConfirmation: Bool
+    let message: String?
+
+    enum CodingKeys: String, CodingKey {
+        case requiresConfirmation =
+            "requires_confirmation"
+        case message
+    }
+}
+
 struct CommissionCompletionRequest: Encodable {
     let completed: Bool
     let tenantCharge: Bool
     let reason: String?
+    let confirmMissingMaterial: Bool
 
     enum CodingKeys: String, CodingKey {
         case completed
         case tenantCharge = "tenant_charge"
         case reason
+        case confirmMissingMaterial =
+            "confirm_missing_material"
     }
 }
 

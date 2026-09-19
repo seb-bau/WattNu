@@ -360,26 +360,40 @@ final class APIClient {
         let response: ItemResponse<Commission> = try await send(path: "/api/commissions/\(id)/start", method: "POST", body: EmptyRequest())
         return response.item
     }
+    
+    func fetchCommissionCompletionCheck(
+        id: Int
+    ) async throws -> CommissionCompletionCheck {
+        try requireToken()
+
+        return try await request(
+            path: "/api/commissions/\(id)/completion-check"
+        )
+    }
 
     func completeCommission(
         id: Int,
         completed: Bool,
         tenantCharge: Bool,
-        reason: String?
+        reason: String?,
+        confirmMissingMaterial: Bool
     ) async throws -> Commission {
         try requireToken()
 
         let body = CommissionCompletionRequest(
             completed: completed,
             tenantCharge: tenantCharge,
-            reason: reason
+            reason: reason,
+            confirmMissingMaterial:
+                confirmMissingMaterial
         )
 
-        let response: ItemResponse<Commission> = try await send(
-            path: "/api/commissions/\(id)/complete",
-            method: "POST",
-            body: body
-        )
+        let response: ItemResponse<Commission> =
+            try await send(
+                path: "/api/commissions/\(id)/complete",
+                method: "POST",
+                body: body
+            )
 
         return response.item
     }
