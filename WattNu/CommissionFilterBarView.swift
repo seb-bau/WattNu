@@ -1,49 +1,123 @@
 import SwiftUI
 
 struct CommissionFilterBarView: View {
-    @Binding var scopeFilter: CommissionScopeFilter
+    @Binding var ownerFilter: CommissionOwnerFilter
     @Binding var statusFilter: CommissionStatusFilter
-    @Binding var selectedUserId: Int?
+    @Binding var sortMode: CommissionSortMode
 
     let users: [AppUser]
+    let currentUserId: Int?
     let resultCount: Int
 
-    var body: some View {
-        VStack(alignment: .leading, spacing: 12) {
-            Picker("Umfang", selection: $scopeFilter) {
-                ForEach(CommissionScopeFilter.allCases) { item in
-                    Text(item.label).tag(item)
-                }
+    private var colleagueUsers: [AppUser] {
+        users
+            .filter {
+                $0.id != currentUserId
             }
-            .pickerStyle(.segmented)
+            .sorted {
+                $0.displayName
+                    .localizedCaseInsensitiveCompare(
+                        $1.displayName
+                    )
+                == .orderedAscending
+            }
+    }
 
-            HStack(spacing: 12) {
-                Picker("Status", selection: $statusFilter) {
-                    ForEach(CommissionStatusFilter.allCases) { item in
-                        Text(item.label).tag(item)
+    private var ownerFilterLabel: String {
+        switch ownerFilter {
+        case .mine:
+            return "Meine"
+        case .all:
+            return "Alle"
+        case .user(let userId):
+            return users.first {
+                $0.id == userId
+            }?.displayName ?? "Kollege"
+        }
+    }
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 6) {
+            HStack(spacing: 8) {
+                Picker(
+                    selection: $ownerFilter
+                ) {
+                    Text("Meine")
+                        .tag(
+                            CommissionOwnerFilter.mine
+                        )
+
+                    ForEach(colleagueUsers) { user in
+                        Text(user.displayName)
+                            .tag(
+                                CommissionOwnerFilter
+                                    .user(user.id)
+                            )
                     }
+
+                    Text("Alle")
+                        .tag(
+                            CommissionOwnerFilter.all
+                        )
+                } label: {
+                    Text(ownerFilterLabel)
+                        .lineLimit(1)
                 }
                 .pickerStyle(.menu)
+                .frame(
+                    maxWidth: .infinity,
+                    alignment: .leading
+                )
 
-                if scopeFilter == .all {
-                    Picker("Kollege", selection: $selectedUserId) {
-                        Text("Alle Kollegen").tag(Optional<Int>.none)
-
-                        ForEach(users) { user in
-                            Text(user.displayName).tag(Optional(user.id))
-                        }
+                Picker(
+                    selection: $statusFilter
+                ) {
+                    ForEach(
+                        CommissionStatusFilter.allCases
+                    ) { item in
+                        Text(item.label)
+                            .tag(item)
                     }
-                    .pickerStyle(.menu)
+                } label: {
+                    Text(statusFilter.label)
+                        .lineLimit(1)
                 }
+                .pickerStyle(.menu)
+                .frame(
+                    maxWidth: .infinity,
+                    alignment: .center
+                )
 
-                Spacer()
-
-                Text("\(resultCount) Aufträge")
-                    .font(.caption)
-                    .foregroundStyle(.secondary)
+                Picker(
+                    selection: $sortMode
+                ) {
+                    ForEach(
+                        CommissionSortMode.allCases
+                    ) { mode in
+                        Text(mode.label)
+                            .tag(mode)
+                    }
+                } label: {
+                    Text(sortMode.label)
+                        .lineLimit(1)
+                }
+                .pickerStyle(.menu)
+                .frame(
+                    maxWidth: .infinity,
+                    alignment: .trailing
+                )
             }
+
+            Text("\(resultCount) Aufträge")
+                .font(.caption)
+                .foregroundStyle(.secondary)
+                .frame(
+                    maxWidth: .infinity,
+                    alignment: .trailing
+                )
         }
-        .padding()
+        .padding(.horizontal)
+        .padding(.vertical, 8)
         .background(.background)
     }
 }

@@ -7,6 +7,30 @@
 
 import Foundation
 
+enum CommissionOwnerFilter: Hashable {
+    case mine
+    case user(Int)
+    case all
+
+    var scope: CommissionScopeFilter {
+        switch self {
+        case .mine:
+            return .mine
+        case .user, .all:
+            return .all
+        }
+    }
+
+    var userId: Int? {
+        switch self {
+        case .user(let userId):
+            return userId
+        case .mine, .all:
+            return nil
+        }
+    }
+}
+
 enum CommissionScopeFilter: String, CaseIterable, Identifiable {
     case mine
     case all

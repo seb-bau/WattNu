@@ -13,10 +13,12 @@ struct CommissionListView: View {
     @State private var commissions: [Commission] = []
     @State private var commissionUsers: [AppUser] = []
     @State private var searchText = ""
-    @State private var scopeFilter: CommissionScopeFilter = .mine
-    @State private var statusFilter: CommissionStatusFilter = .active
-    @State private var selectedUserId: Int?
-    @State private var sortMode: CommissionSortMode = .defaultOrder
+    @State private var ownerFilter:
+        CommissionOwnerFilter = .mine
+    @State private var statusFilter:
+        CommissionStatusFilter = .active
+    @State private var sortMode:
+        CommissionSortMode = .defaultOrder
     @State private var isSearchVisible = false
     @State private var isLoading = false
     @State private var errorMessage: String?
@@ -124,21 +126,15 @@ struct CommissionListView: View {
                     .background(.thinMaterial)
                 }
                 CommissionFilterBarView(
-                    scopeFilter: $scopeFilter,
+                    ownerFilter: $ownerFilter,
                     statusFilter: $statusFilter,
-                    selectedUserId: $selectedUserId,
+                    sortMode: $sortMode,
                     users: commissionUsers,
+                    currentUserId: session.user?.id,
                     resultCount: sortedCommissions.count
                 )
 
                 VStack(spacing: 8) {
-                    Picker("Sortierung", selection: $sortMode) {
-                        ForEach(CommissionSortMode.allCases) { mode in
-                            Text(mode.label).tag(mode)
-                        }
-                    }
-                    .pickerStyle(.segmented)
-                    
                     Toggle(
                         "Nur Aufträge mit ungelesenen Infos",
                         isOn: $onlyUnreadInfos
@@ -243,7 +239,6 @@ struct CommissionListView: View {
                     }
                 }
             }
-            .navigationTitle("Aufträge")
             .toolbar {
                 ToolbarItemGroup(placement: .topBarTrailing) {
                     Button {
@@ -304,21 +299,12 @@ struct CommissionListView: View {
                 locationStore.requestLocation()
                 await loadInitialData()
             }
-            .onChange(of: scopeFilter) { _, newValue in
-                if newValue == .mine {
-                    selectedUserId = nil
-                }
-
-                Task {
-                    await loadInitialData()
-                }
-            }
-            .onChange(of: statusFilter) { _, _ in
+            .onChange(of: ownerFilter) { _, _ in
                 Task {
                     await loadCommissions()
                 }
             }
-            .onChange(of: selectedUserId) { _, _ in
+            .onChange(of: statusFilter) { _, _ in
                 Task {
                     await loadCommissions()
                 }
@@ -327,8 +313,7 @@ struct CommissionListView: View {
                 of: onlyUnreadInfos
             ) { _, enabled in
                 if enabled {
-                    scopeFilter = .mine
-                    selectedUserId = nil
+                    ownerFilter = .mine
                     statusFilter = .all
                 }
 
@@ -369,13 +354,9 @@ struct CommissionListView: View {
         }
 
         do {
-            if scopeFilter == .all {
-                commissionUsers =
-                    try await session.apiClient
-                        .fetchCommissionUsers()
-            } else if let user = session.user {
-                commissionUsers = [user]
-            }
+            commissionUsers =
+                try await session.apiClient
+                    .fetchCommissionUsers()
         } catch {
             if error.isRequestCancellation {
                 return
@@ -400,9 +381,9 @@ struct CommissionListView: View {
             commissions =
                 try await session.apiClient
                     .fetchCommissions(
-                        scope: scopeFilter,
+                        scope: ownerFilter.scope,
                         status: statusFilter,
-                        userId: selectedUserId
+                        userId: ownerFilter.userId
                     )
 
             await processInfos.refresh(
@@ -428,7 +409,7 @@ enum CommissionSortMode: String, CaseIterable, Identifiable {
     var label: String {
         switch self {
         case .defaultOrder:
-            return "Standard"
+            return "Sortierung"
         case .distance:
             return "Entfernung"
         case .title:

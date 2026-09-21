@@ -169,7 +169,7 @@ struct CommissionRowView: View {
 
     private var priorityPill: some View {
         Label(
-            "Hohe Priorität",
+            "Priorität",
             systemImage:
                 "exclamationmark.triangle.fill"
         )
