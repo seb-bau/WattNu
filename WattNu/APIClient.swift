@@ -587,12 +587,39 @@ final class APIClient {
         return response.item
     }
     
-    func searchInventory(query: String, limit: Int = 12) async throws -> [InventoryItem] {
+    func searchInventory(
+        query: String,
+        itemTypeId: Int? = nil,
+        limit: Int = 12
+    ) async throws -> [InventoryItem] {
         try requireToken()
-        let response: ListResponse<InventoryItem> = try await request(path: "/api/inventory/search", queryItems: [
-            URLQueryItem(name: "q", value: query),
-            URLQueryItem(name: "limit", value: "\(limit)")
-        ])
+
+        var queryItems = [
+            URLQueryItem(
+                name: "q",
+                value: query
+            ),
+            URLQueryItem(
+                name: "limit",
+                value: "\(limit)"
+            )
+        ]
+
+        if let itemTypeId {
+            queryItems.append(
+                URLQueryItem(
+                    name: "item_type_id",
+                    value: "\(itemTypeId)"
+                )
+            )
+        }
+
+        let response: ListResponse<InventoryItem> =
+            try await request(
+                path: "/api/inventory/search",
+                queryItems: queryItems
+            )
+
         return response.items
     }
     
@@ -685,7 +712,8 @@ final class APIClient {
         source: String?,
         locationId: Int?,
         deviationReason: String?,
-        note: String?
+        note: String?,
+        serialNumber: String?,
     ) async throws -> MaterialResponse {
         try requireToken()
 
@@ -696,6 +724,7 @@ final class APIClient {
             usageStatus: usageStatus,
             source: source,
             locationId: locationId,
+            serialNumber: serialNumber,
             deviationReason: deviationReason,
             note: note
         )

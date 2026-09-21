@@ -476,6 +476,31 @@ struct InventoryLocation: Codable, Identifiable, Equatable, Hashable {
     }
 }
 
+struct InventoryItemGroup: Codable, Identifiable, Equatable, Hashable {
+    let id: Int
+    let code: String
+    let name: String
+    let serialNumberRequired: Bool
+    let active: Bool
+
+    enum CodingKeys: String, CodingKey {
+        case id
+        case code
+        case name
+        case serialNumberRequired = "serial_number_required"
+        case active
+    }
+}
+
+struct InventoryItemType: Codable, Identifiable, Equatable, Hashable {
+    let id: Int
+    let code: String
+    let name: String
+    let unit: String
+    let active: Bool
+    let group: InventoryItemGroup
+}
+
 struct InventoryStock: Codable, Identifiable, Equatable, Hashable {
     let id: Int
     let quantity: Double
@@ -484,6 +509,7 @@ struct InventoryStock: Codable, Identifiable, Equatable, Hashable {
 
 struct InventoryItem: Codable, Identifiable, Equatable, Hashable {
     let id: Int
+    let itemType: InventoryItemType?
     let itemNumber: String
     let name: String
     let unit: String
@@ -493,9 +519,11 @@ struct InventoryItem: Codable, Identifiable, Equatable, Hashable {
     let reorderLevel: Double
     let barcodes: [String]?
     let stocks: [InventoryStock]?
+    let serialNumberRequired: Bool?
 
     enum CodingKeys: String, CodingKey {
         case id
+        case itemType = "item_type"
         case itemNumber = "item_number"
         case name
         case unit
@@ -505,10 +533,15 @@ struct InventoryItem: Codable, Identifiable, Equatable, Hashable {
         case reorderLevel = "reorder_level"
         case barcodes
         case stocks
+        case serialNumberRequired = "serial_number_required"
     }
 
     var stocksValue: [InventoryStock] {
         stocks ?? []
+    }
+
+    var serialNumberRequiredValue: Bool {
+        serialNumberRequired ?? false
     }
 
     func stockQuantity(
@@ -543,6 +576,7 @@ struct InventoryMovement: Codable, Identifiable, Equatable {
     let occurredAt: String?
     let isCancelled: Bool?
     let canCancel: Bool?
+    let serialNumber: String?
 
     enum CodingKeys: String, CodingKey {
         case id
@@ -563,6 +597,7 @@ struct InventoryMovement: Codable, Identifiable, Equatable {
         case occurredAt = "occurred_at"
         case isCancelled = "is_cancelled"
         case canCancel = "can_cancel"
+        case serialNumber = "serial_number"
     }
 
     var movementTypeLabel: String {
@@ -683,7 +718,8 @@ struct CraftActivity: Codable, Identifiable, Hashable {
 struct ExpectedMaterial: Codable, Identifiable, Hashable {
     let id: Int
     let taskTemplateId: Int
-    let item: InventoryItem
+    let item: InventoryItem?
+    let itemType: InventoryItemType?
     let quantity: Double
     let required: Bool
     let note: String?
@@ -692,9 +728,34 @@ struct ExpectedMaterial: Codable, Identifiable, Hashable {
         case id
         case taskTemplateId = "task_template_id"
         case item
+        case itemType = "item_type"
         case quantity
         case required
         case note
+    }
+
+    var displayName: String {
+        itemType?.name
+        ?? item?.name
+        ?? "Unbekanntes Material"
+    }
+
+    var unit: String {
+        itemType?.unit
+        ?? item?.unit
+        ?? ""
+    }
+
+    var detailText: String {
+        if let item {
+            return item.itemNumber
+        }
+
+        if let itemType {
+            return "\(itemType.group.name) · beliebiges Modell"
+        }
+
+        return ""
     }
 }
 
@@ -954,6 +1015,7 @@ struct MaterialRequest: Encodable {
     let usageStatus: String?
     let source: String?
     let locationId: Int?
+    let serialNumber: String?
     let deviationReason: String?
     let note: String?
 
@@ -964,6 +1026,7 @@ struct MaterialRequest: Encodable {
         case usageStatus = "usage_status"
         case source
         case locationId = "location_id"
+        case serialNumber = "serial_number"
         case deviationReason = "deviation_reason"
         case note
     }

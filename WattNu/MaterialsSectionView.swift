@@ -29,6 +29,8 @@ struct MaterialsSectionView: View {
     @State private var movementToCancel: InventoryMovement?
     @State private var suppressNextSuggestionSearch = false
     @State private var isCancelDialogPresented = false
+    @State private var serialNumber = ""
+    @State private var itemTypeFilterId: Int?
 
     private let materialSources = [
         ("warehouse", "Lager"),
@@ -122,23 +124,39 @@ struct MaterialsSectionView: View {
                                 .font(.caption)
                                 .foregroundStyle(.secondary)
 
-                            ForEach(selectedTask.expectedMaterialsValue) { expectedMaterial in
+                            ForEach(
+                                selectedTask.expectedMaterialsValue
+                            ) { expectedMaterial in
                                 Button {
-                                    selectExpectedMaterial(expectedMaterial)
+                                    selectExpectedMaterial(
+                                        expectedMaterial
+                                    )
                                 } label: {
                                     HStack(alignment: .top) {
-                                        VStack(alignment: .leading, spacing: 4) {
-                                            Text(expectedMaterial.item.name)
-                                                .foregroundStyle(.primary)
-                                            Text("\(quantityText(for: expectedMaterial.quantity)) \(expectedMaterial.item.unit) · \(expectedMaterial.item.itemNumber)")
-                                                .font(.caption)
-                                                .foregroundStyle(.secondary)
+                                        VStack(
+                                            alignment: .leading,
+                                            spacing: 4
+                                        ) {
+                                            Text(
+                                                expectedMaterial.displayName
+                                            )
+                                            .foregroundStyle(.primary)
+
+                                            Text(
+                                                "\(quantityText(for: expectedMaterial.quantity)) "
+                                                + "\(expectedMaterial.unit) "
+                                                + "· \(expectedMaterial.detailText)"
+                                            )
+                                            .font(.caption)
+                                            .foregroundStyle(.secondary)
                                         }
 
                                         Spacer()
 
-                                        Image(systemName: "plus.circle")
-                                            .foregroundStyle(.blue)
+                                        Image(
+                                            systemName: "plus.circle"
+                                        )
+                                        .foregroundStyle(.blue)
                                     }
                                 }
                                 .buttonStyle(.plain)
@@ -259,9 +277,35 @@ struct MaterialsSectionView: View {
                     .padding(.vertical, 4)
                 }
 
-                TextField("Menge", text: $quantityText)
-                    .keyboardType(.decimalPad)
-                    .disabled(commission.canEditValue == false)
+                TextField(
+                    "Menge",
+                    text: $quantityText
+                )
+                .keyboardType(.decimalPad)
+                .disabled(
+                    commission.canEditValue == false
+                    || selectedItem?
+                        .serialNumberRequiredValue == true
+                )
+
+                if selectedItem?
+                    .serialNumberRequiredValue == true {
+                    TextField(
+                        "Seriennummer",
+                        text: $serialNumber
+                    )
+                    .textInputAutocapitalization(.never)
+                    .autocorrectionDisabled()
+                    .disabled(
+                        commission.canEditValue == false
+                    )
+
+                    Text(
+                        "Dieser Artikel muss einzeln mit Menge 1 gebucht werden."
+                    )
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+                }
 
                 Picker("Quelle", selection: $materialSource) {
                     ForEach(materialSources, id: \.0) { source in
@@ -347,7 +391,20 @@ struct MaterialsSectionView: View {
                         Label("Material buchen", systemImage: "minus.circle")
                     }
                 }
-                .disabled(selectedItem == nil || isLoading || commission.canEditValue == false)
+                .disabled(
+                    selectedItem == nil
+                    || isLoading
+                    || commission.canEditValue == false
+                    || (
+                        selectedItem?
+                            .serialNumberRequiredValue == true
+                        && serialNumber
+                            .trimmingCharacters(
+                                in: .whitespacesAndNewlines
+                            )
+                            .isEmpty
+                    )
+                )
             }
 
             Section("Logbuch zum Auftrag") {
@@ -405,6 +462,15 @@ struct MaterialsSectionView: View {
                                 Text("Zurückgebucht nach: \(targetLocation.name)")
                                     .font(.caption)
                                     .foregroundStyle(.secondary)
+                            }
+                            
+                            if let serialNumber = movement.serialNumber,
+                               !serialNumber.isEmpty {
+                                Text(
+                                    "Seriennummer: \(serialNumber)"
+                                )
+                                .font(.caption)
+                                .foregroundStyle(.secondary)
                             }
 
                             if let user = movement.user {
@@ -471,6 +537,8 @@ struct MaterialsSectionView: View {
                 CodeScannerView { scannedCode in
                     itemSuggestionTask?.cancel()
                     selectedItem = nil
+                    itemTypeFilterId = nil
+                    serialNumber = ""
                     searchSuggestions = []
                     suppressNextSuggestionSearch = true
                     code = scannedCode
@@ -665,28 +733,72 @@ struct MaterialsSectionView: View {
         taskSuggestions = []
     }
 
-    private func selectExpectedMaterial(_ expectedMaterial: ExpectedMaterial) {
-        selectedItem = expectedMaterial.item
+    private func selectExpectedMaterial(
+        _ expectedMaterial: ExpectedMaterial
+    ) {
         searchSuggestions = []
-        code = expectedMaterial.item.itemNumber
-        quantityText = quantityText(for: expectedMaterial.quantity)
+        quantityText = quantityText(
+            for: expectedMaterial.quantity
+        )
         usageStatus = "installed"
         materialSource = "warehouse"
         deviationReason = ""
+        serialNumber = ""
+
+        if let item = expectedMaterial.item {
+            selectItem(
+                item
+            )
+
+            if !item.serialNumberRequiredValue {
+                quantityText = quantityText(
+                    for: expectedMaterial.quantity
+                )
+            }
+
+            return
+        }
+
+        guard let itemType = (
+            expectedMaterial.itemType
+        ) else {
+            return
+        }
+
+        itemSuggestionTask?.cancel()
+        selectedItem = nil
+        itemTypeFilterId = itemType.id
+        suppressNextSuggestionSearch = true
+        code = itemType.name
+
+        scheduleSuggestionSearch(
+            for: itemType.name
+        )
     }
 
-    private func handleCodeChange(_ value: String) {
+    private func handleCodeChange(
+        _ value: String
+    ) {
         if suppressNextSuggestionSearch {
             suppressNextSuggestionSearch = false
             return
         }
 
-        if selectedItem?.itemNumber == value || selectedItem?.ean == value || selectedItem?.qrCodePayload == value {
+        if (
+            selectedItem?.itemNumber == value
+            || selectedItem?.ean == value
+            || selectedItem?.qrCodePayload == value
+        ) {
             return
         }
 
         selectedItem = nil
-        scheduleSuggestionSearch(for: value)
+        itemTypeFilterId = nil
+        serialNumber = ""
+
+        scheduleSuggestionSearch(
+            for: value
+        )
     }
 
     private func scheduleSuggestionSearch(for value: String) {
@@ -698,6 +810,10 @@ struct MaterialsSectionView: View {
             searchSuggestions = []
             return
         }
+        
+        let filteredItemTypeId = (
+            itemTypeFilterId
+        )
 
         itemSuggestionTask = Task {
             try? await Task.sleep(nanoseconds: 300_000_000)
@@ -707,7 +823,12 @@ struct MaterialsSectionView: View {
             }
 
             do {
-                let items = try await session.apiClient.searchInventory(query: searchText)
+                let items =
+                    try await session.apiClient
+                        .searchInventory(
+                            query: searchText,
+                            itemTypeId: filteredItemTypeId
+                        )
 
                 if Task.isCancelled {
                     return
@@ -736,7 +857,15 @@ struct MaterialsSectionView: View {
         }
 
         do {
-            selectedItem = try await session.apiClient.lookupInventory(code: searchText)
+            let item =
+                try await session.apiClient
+                    .lookupInventory(
+                        code: searchText
+                    )
+
+            selectItem(
+                item
+            )
             searchSuggestions = []
         } catch {
             await searchItems(showErrorWhenEmpty: true)
@@ -752,7 +881,12 @@ struct MaterialsSectionView: View {
         }
 
         do {
-            let items = try await session.apiClient.searchInventory(query: searchText)
+            let items =
+                try await session.apiClient
+                    .searchInventory(
+                        query: searchText,
+                        itemTypeId: itemTypeFilterId
+                    )
 
             if items.count == 1, let item = items.first {
                 selectItem(item)
@@ -770,11 +904,19 @@ struct MaterialsSectionView: View {
         }
     }
 
-    private func selectItem(_ item: InventoryItem) {
+    private func selectItem(
+        _ item: InventoryItem
+    ) {
         itemSuggestionTask?.cancel()
         selectedItem = item
+        itemTypeFilterId = nil
         searchSuggestions = []
         code = item.itemNumber
+        serialNumber = ""
+
+        if item.serialNumberRequiredValue {
+            quantityText = "1"
+        }
     }
 
     private func addMaterial() async {
@@ -797,6 +939,28 @@ struct MaterialsSectionView: View {
         guard let quantity = Double(normalizedQuantity), quantity > 0 else {
             errorMessage = "Bitte eine gültige Menge eingeben."
             return
+        }
+        
+        let normalizedSerialNumber =
+            serialNumber.trimmingCharacters(
+                in: .whitespacesAndNewlines
+            )
+
+        if selectedItem.serialNumberRequiredValue {
+            guard abs(quantity - 1.0) < 0.0001 else {
+                errorMessage = (
+                    "Seriennummernpflichtige Artikel "
+                    + "müssen einzeln gebucht werden."
+                )
+                return
+            }
+
+            guard !normalizedSerialNumber.isEmpty else {
+                errorMessage = (
+                    "Bitte die Seriennummer eingeben."
+                )
+                return
+            }
         }
         
         let locationId: Int?
@@ -847,7 +1011,12 @@ struct MaterialsSectionView: View {
                     ).isEmpty
                     ? nil
                     : note
-                )
+                ),
+                serialNumber: (
+                    normalizedSerialNumber.isEmpty
+                    ? nil
+                    : normalizedSerialNumber
+                ),
             )
 
             clearMaterialInput()
@@ -896,5 +1065,7 @@ struct MaterialsSectionView: View {
         deviationReason = ""
         note = ""
         configureInventoryLocation()
+        itemTypeFilterId = nil
+        serialNumber = ""
     }
 }
