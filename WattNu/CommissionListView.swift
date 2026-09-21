@@ -8,8 +8,6 @@ struct CommissionListView: View {
     @ObservedObject private var processInfos =
         ProcessInfoStore.shared
 
-    @State private var onlyUnreadInfos = false
-
     @State private var commissions: [Commission] = []
     @State private var commissionUsers: [AppUser] = []
     @State private var searchText = ""
@@ -24,23 +22,20 @@ struct CommissionListView: View {
     @State private var errorMessage: String?
     @State private var isCreatePresented = false
     
-    private var statusFilteredCommissions:
-        [Commission] {
-        let infoFiltered = (
-            onlyUnreadInfos
-            ? commissions.filter {
+    private var statusFilteredCommissions: [Commission] {
+        if statusFilter == .unreadInfos {
+            return commissions.filter {
                 processInfos.unreadCount(
                     commissionId: $0.id
                 ) > 0
             }
-            : commissions
-        )
-
-        guard statusFilter == .active else {
-            return infoFiltered
         }
 
-        return infoFiltered.filter {
+        guard statusFilter == .active else {
+            return commissions
+        }
+
+        return commissions.filter {
             CommissionStatusFilter
                 .activeLocalStatuses
                 .contains($0.localStatus)
@@ -134,41 +129,35 @@ struct CommissionListView: View {
                     resultCount: sortedCommissions.count
                 )
 
-                VStack(spacing: 8) {
-                    Toggle(
-                        "Nur Aufträge mit ungelesenen Infos",
-                        isOn: $onlyUnreadInfos
-                    )
+                if isSearchVisible {
+                    HStack(spacing: 8) {
+                        Image(systemName: "magnifyingglass")
+                            .foregroundStyle(.secondary)
 
-                    if isSearchVisible {
-                        HStack(spacing: 8) {
-                            Image(systemName: "magnifyingglass")
-                                .foregroundStyle(.secondary)
+                        TextField(
+                            "Aufträge durchsuchen",
+                            text: $searchText
+                        )
 
-                            TextField("Aufträge suchen", text: $searchText)
-                                .textInputAutocapitalization(.never)
-                                .autocorrectionDisabled()
-
-                            if !searchText.isEmpty {
-                                Button {
-                                    searchText = ""
-                                } label: {
-                                    Image(systemName: "xmark.circle.fill")
-                                        .foregroundStyle(.secondary)
-                                }
-                                .buttonStyle(.plain)
+                        if !searchText.isEmpty {
+                            Button {
+                                searchText = ""
+                            } label: {
+                                Image(systemName: "xmark.circle.fill")
+                                    .foregroundStyle(.secondary)
                             }
+                            .buttonStyle(.plain)
                         }
-                        .padding(.horizontal, 10)
-                        .frame(height: 36)
-                        .background(Color(.secondarySystemGroupedBackground))
-                        .clipShape(RoundedRectangle(cornerRadius: 10, style: .continuous))
                     }
+                    .padding(.horizontal, 10)
+                    .frame(height: 36)
+                    .background(Color(.secondarySystemGroupedBackground))
+                    .clipShape(RoundedRectangle(cornerRadius: 10))
+                    .padding(.horizontal)
+                    .padding(.top, 8)
+                    .padding(.bottom, 10)
+                    .background(Color(.systemGroupedBackground))
                 }
-                .padding(.horizontal)
-                .padding(.top, 8)
-                .padding(.bottom, 10)
-                .background(Color(.systemGroupedBackground))
 
                 Group {
                     if isLoading && commissions.isEmpty {
@@ -309,18 +298,6 @@ struct CommissionListView: View {
                     await loadCommissions()
                 }
             }
-            .onChange(
-                of: onlyUnreadInfos
-            ) { _, enabled in
-                if enabled {
-                    ownerFilter = .mine
-                    statusFilter = .all
-                }
-
-                Task {
-                    await loadCommissions()
-                }
-            }
             .alert("Fehler", isPresented: Binding(
                 get: { errorMessage != nil },
                 set: { newValue in
@@ -382,7 +359,7 @@ struct CommissionListView: View {
                 try await session.apiClient
                     .fetchCommissions(
                         scope: ownerFilter.scope,
-                        status: statusFilter,
+                        status: statusFilter.apiFilter,
                         userId: ownerFilter.userId
                     )
 

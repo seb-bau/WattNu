@@ -51,6 +51,7 @@ enum CommissionScopeFilter: String, CaseIterable, Identifiable {
 
 enum CommissionStatusFilter: String, CaseIterable, Identifiable {
     case active
+    case unreadInfos = "unread_infos"
     case all
     case recorded
     case waitingForAcceptance = "waiting_for_acceptance"
@@ -68,6 +69,8 @@ enum CommissionStatusFilter: String, CaseIterable, Identifiable {
         switch self {
         case .active:
             return "Aktive"
+        case .unreadInfos:
+            return "Ungelesene Infos"
         case .all:
             return "Alle Status"
         case .recorded:
@@ -86,7 +89,11 @@ enum CommissionStatusFilter: String, CaseIterable, Identifiable {
             return "Abgeschlossen"
         }
     }
-    
+
+    var apiFilter: CommissionStatusFilter {
+        self == .unreadInfos ? .all : self
+    }
+
     static let activeLocalStatuses: Set<String> = [
         "waiting_for_acceptance",
         "open",
