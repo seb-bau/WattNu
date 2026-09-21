@@ -3,8 +3,10 @@ import SwiftUI
 struct OrderSectionView: View {
     let commission: Commission
     let startAction: () -> Void
+    let rejectAction: () -> Void
     let completeAction: () -> Void
     let commissionUpdatedAction: (Commission) -> Void
+    
 
     @State private var showContacts = false
 
@@ -259,6 +261,23 @@ struct OrderSectionView: View {
                         .frame(maxWidth: .infinity)
                     }
                     .buttonStyle(.borderedProminent)
+                    .disabled(
+                        commission.localStatus
+                            != "waiting_for_acceptance"
+                        || !commission.isActionableValue
+                        || !commission.canEditValue
+                    )
+                    
+                    Button(role: .destructive) {
+                        rejectAction()
+                    } label: {
+                        Label(
+                            "Auftrag ablehnen",
+                            systemImage: "xmark.circle.fill"
+                        )
+                        .frame(maxWidth: .infinity)
+                    }
+                    .buttonStyle(.bordered)
                     .disabled(
                         commission.localStatus
                             != "waiting_for_acceptance"

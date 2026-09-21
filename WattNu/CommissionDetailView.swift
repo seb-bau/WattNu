@@ -30,6 +30,7 @@ struct CommissionDetailView: View {
     @State private var isLoading = false
     @State private var errorMessage: String?
     @State private var isCompletionPresented = false
+    @State private var isRejectionPresented = false
 
     var body: some View {
         Group {
@@ -84,6 +85,9 @@ struct CommissionDetailView: View {
                                 Task {
                                     await startCommission()
                                 }
+                            },
+                            rejectAction: {
+                                isRejectionPresented = true
                             },
                             completeAction: {
                                 isCompletionPresented = true
@@ -161,6 +165,20 @@ struct CommissionDetailView: View {
         }
         .refreshable {
             await loadCommission()
+        }
+        .sheet(
+            isPresented: $isRejectionPresented
+        ) {
+            NavigationStack {
+                if let commission {
+                    CommissionRejectionView(
+                        commission: commission
+                    ) { _ in
+                        navigation.returnToCommissionList()
+                    }
+                }
+            }
+            .environmentObject(session)
         }
         .sheet(
             isPresented: $isCompletionPresented

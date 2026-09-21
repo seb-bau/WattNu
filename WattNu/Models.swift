@@ -1382,6 +1382,10 @@ struct CommissionCompletionRequest: Encodable {
     }
 }
 
+struct CommissionRejectionRequest: Encodable {
+    let reason: String
+}
+
 struct InventoryTransferRequest: Encodable {
     let code: String
     let quantity: Double

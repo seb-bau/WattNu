@@ -361,6 +361,24 @@ final class APIClient {
         return response.item
     }
     
+    func rejectCommission(
+        id: Int,
+        reason: String
+    ) async throws -> Commission {
+        try requireToken()
+
+        let response: ItemResponse<Commission> =
+            try await send(
+                path: "/api/commissions/\(id)/reject",
+                method: "POST",
+                body: CommissionRejectionRequest(
+                    reason: reason
+                )
+            )
+
+        return response.item
+    }
+    
     func fetchCommissionCompletionCheck(
         id: Int
     ) async throws -> CommissionCompletionCheck {
