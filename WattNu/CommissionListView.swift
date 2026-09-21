@@ -298,6 +298,20 @@ struct CommissionListView: View {
                     await loadCommissions()
                 }
             }
+            .onChange(
+                of: navigation.commissionListRevision
+            ) { _, _ in
+                Task {
+                    await loadCommissions()
+                }
+            }
+            .onChange(
+                of: pushNotifications.notificationRevision
+            ) { _, _ in
+                Task {
+                    await loadCommissions()
+                }
+            }
             .alert("Fehler", isPresented: Binding(
                 get: { errorMessage != nil },
                 set: { newValue in

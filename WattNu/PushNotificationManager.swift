@@ -185,6 +185,8 @@ final class PushNotificationManager: NSObject, ObservableObject, UNUserNotificat
         )
 
         Task { @MainActor [weak self] in
+            self?.notificationRevision += 1
+
             if let safetyInspectionId {
                 self?.pendingSafetyInspectionId =
                     safetyInspectionId

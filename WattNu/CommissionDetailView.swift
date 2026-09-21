@@ -19,6 +19,7 @@ enum CommissionDetailSection:
 
 struct CommissionDetailView: View {
     @EnvironmentObject private var session: SessionStore
+    @EnvironmentObject private var navigation: AppNavigationStore
     @ObservedObject private var processInfos =
         ProcessInfoStore.shared
 
@@ -168,8 +169,8 @@ struct CommissionDetailView: View {
                 if let commission {
                     CommissionCompletionView(
                         commission: commission
-                    ) { updatedCommission in
-                        self.commission = updatedCommission
+                    ) { _ in
+                        navigation.returnToCommissionList()
                     }
                 }
             }
