@@ -850,6 +850,60 @@ final class APIClient {
         let _: EmptyResponse = try await send(path: "/api/commissions/\(commissionId)/time/\(entryId)", method: "DELETE", body: EmptyRequest())
     }
     
+    func fetchMyTime(
+        date: Date
+    ) async throws -> MyTimeDay {
+        try requireToken()
+
+        return try await request(
+            path: "/api/my-time",
+            queryItems: [
+                URLQueryItem(
+                    name: "date",
+                    value: Formatters.apiDateText(date)
+                )
+            ]
+        )
+    }
+
+    func fetchFreeTimeTasks() async throws -> [TimeTask] {
+        try requireToken()
+
+        let response: ListResponse<TimeTask> =
+            try await request(
+                path: "/api/free-time-tasks"
+            )
+
+        return response.items
+    }
+
+    func addFreeTimeEntry(
+        taskTemplateId: Int,
+        serviceDate: Date,
+        minutes: Int,
+        note: String?
+    ) async throws -> MyTimeEntry {
+        try requireToken()
+
+        let response: ItemResponse<MyTimeEntry> =
+            try await send(
+                path: "/api/my-time/free",
+                method: "POST",
+                body: FreeTimeEntryRequest(
+                    taskTemplateId: taskTemplateId,
+                    serviceDate: Formatters.apiDateText(
+                        serviceDate
+                    ),
+                    minutes: minutes,
+                    note: note?.trimmingCharacters(
+                        in: .whitespacesAndNewlines
+                    )
+                )
+            )
+
+        return response.item
+    }
+    
     func fetchSafetyInspections(
         status: String = "active",
         scope: String = "mine",

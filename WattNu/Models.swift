@@ -1070,6 +1070,85 @@ struct TimeEntryRequest: Encodable {
     }
 }
 
+struct MyTimeDay: Decodable {
+    let date: String
+    let expectedMinutes: Int?
+    let recordedMinutes: Int
+    let differenceMinutes: Int?
+    let status: String
+    let profile: WorkTimeProfileSummary?
+    let targetOverride: WorkTimeTargetOverrideSummary?
+    let items: [MyTimeEntry]
+
+    enum CodingKeys: String, CodingKey {
+        case date
+        case expectedMinutes = "expected_minutes"
+        case recordedMinutes = "recorded_minutes"
+        case differenceMinutes = "difference_minutes"
+        case status
+        case profile
+        case targetOverride = "target_override"
+        case items
+    }
+}
+
+struct WorkTimeProfileSummary: Decodable, Hashable {
+    let id: Int
+    let name: String
+}
+
+struct WorkTimeTargetOverrideSummary: Decodable {
+    let targetMinutes: Int
+    let reason: String
+
+    enum CodingKeys: String, CodingKey {
+        case targetMinutes = "target_minutes"
+        case reason
+    }
+}
+
+struct MyTimeEntry: Decodable, Identifiable {
+    let id: Int
+    let taskTemplate: TimeTask?
+    let minutes: Int
+    let note: String?
+    let serviceDate: String
+    let commission: MyTimeCommission?
+    let isFreeTime: Bool
+    let canEdit: Bool?
+
+    enum CodingKeys: String, CodingKey {
+        case id
+        case taskTemplate = "task_template"
+        case minutes
+        case note
+        case serviceDate = "service_date"
+        case commission
+        case isFreeTime = "is_free_time"
+        case canEdit = "can_edit"
+    }
+}
+
+struct MyTimeCommission: Decodable, Hashable {
+    let id: Int
+    let number: String
+    let title: String
+}
+
+struct FreeTimeEntryRequest: Encodable {
+    let taskTemplateId: Int
+    let serviceDate: String
+    let minutes: Int
+    let note: String?
+
+    enum CodingKeys: String, CodingKey {
+        case taskTemplateId = "task_template_id"
+        case serviceDate = "service_date"
+        case minutes
+        case note
+    }
+}
+
 struct EmptyRequest: Encodable {
 }
 

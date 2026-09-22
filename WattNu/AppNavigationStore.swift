@@ -5,6 +5,7 @@ enum MainTab: Hashable {
     case commissions
     case safetyInspections
     case inventory
+    case times
     case settings
 }
 

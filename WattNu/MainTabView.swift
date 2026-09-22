@@ -36,6 +36,15 @@ struct MainTabView: View {
                     )
                 }
                 .tag(MainTab.inventory)
+            
+            MyTimeView()
+                .tabItem {
+                    Label(
+                        "Zeiten",
+                        systemImage: "clock"
+                    )
+                }
+                .tag(MainTab.times)
 
             AppSettingsView()
                 .tabItem {
