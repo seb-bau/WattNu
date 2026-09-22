@@ -345,9 +345,33 @@ struct CommissionListView: View {
         }
 
         do {
-            commissionUsers =
-                try await session.apiClient
-                    .fetchCommissionUsers()
+            let users = try await session.apiClient
+                .fetchCommissionUsers()
+
+            commissionUsers = users
+
+            let colleagueUserIds = Set(
+                users
+                    .filter {
+                        $0.id != session.user?.id
+                    }
+                    .map(\.id)
+            )
+
+            switch ownerFilter {
+            case .user(let userId)
+                where !colleagueUserIds.contains(
+                    userId
+                ):
+                ownerFilter = .mine
+
+            case .all
+                where colleagueUserIds.isEmpty:
+                ownerFilter = .mine
+
+            default:
+                break
+            }
         } catch {
             if error.isRequestCancellation {
                 return

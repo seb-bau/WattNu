@@ -55,10 +55,12 @@ struct CommissionFilterBarView: View {
                             )
                     }
 
-                    Text("Alle")
-                        .tag(
-                            CommissionOwnerFilter.all
-                        )
+                    if !colleagueUsers.isEmpty {
+                        Text("Alle")
+                            .tag(
+                                CommissionOwnerFilter.all
+                            )
+                    }
                 } label: {
                     Text(ownerFilterLabel)
                         .lineLimit(1)
