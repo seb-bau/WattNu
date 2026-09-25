@@ -1,9 +1,28 @@
 import SwiftUI
 
+private enum AppointmentProposalMode: String, CaseIterable, Identifiable {
+    case window
+    case custom
+
+    var id: String {
+        rawValue
+    }
+
+    var title: String {
+        switch self {
+        case .window:
+            return "Zeitprofile"
+        case .custom:
+            return "Uhrzeiten"
+        }
+    }
+}
+
 private struct AppointmentProposalDraft: Identifiable {
     let id = UUID()
     var date: Date
     var windowId: Int?
+    var startTime: Date
 }
 
 struct AppointmentProposalComposerView: View {
@@ -15,6 +34,9 @@ struct AppointmentProposalComposerView: View {
 
     @State private var contacts: [CommissionContactItem] = []
     @State private var windows: [AppointmentWindow] = []
+    @State private var customTimesEnabled = false
+    @State private var customTimeDurationMinutes = 60
+    @State private var proposalMode = AppointmentProposalMode.window
     @State private var recipientName = ""
     @State private var recipientEmail = ""
     @State private var message = ""
@@ -32,6 +54,18 @@ struct AppointmentProposalComposerView: View {
             return !email.trimmingCharacters(
                 in: .whitespacesAndNewlines
             ).isEmpty
+        }
+    }
+
+    private var proposalsAreIncomplete: Bool {
+        switch proposalMode {
+        case .window:
+            return windows.isEmpty
+                || proposals.contains {
+                    $0.windowId == nil
+                }
+        case .custom:
+            return false
         }
     }
 
@@ -85,15 +119,39 @@ struct AppointmentProposalComposerView: View {
                     text: $recipientEmail
                 )
                 .keyboardType(.emailAddress)
-                .textInputAutocapitalization(.never)
+                .textInputAutapitalization(.never)
                 .autocorrectionDisabled()
             }
 
             Section("Terminvorschläge") {
-                if windows.isEmpty {
+                if customTimesEnabled {
+                    Picker(
+                        "Art der Vorschläge",
+                        selection: $proposalMode
+                    ) {
+                        ForEach(
+                            AppointmentProposalMode.allCases
+                        ) { mode in
+                            Text(mode.title)
+                                .tag(mode)
+                        }
+                    }
+                    .pickerStyle(.segmented)
+                }
+
+                if proposalMode == .window
+                    && windows.isEmpty {
                     Text(
                         "Es sind keine aktiven Zeitfenster vorhanden."
                     )
+                    .foregroundStyle(.secondary)
+                }
+
+                if proposalMode == .custom {
+                    Text(
+                        "Für den Kalendereintrag werden ab dem gewählten Beginn \(customTimeDurationMinutes) Minuten reserviert. Die tatsächliche Arbeitsdauer kann davon abweichen."
+                    )
+                    .font(.caption)
                     .foregroundStyle(.secondary)
                 }
 
@@ -113,19 +171,27 @@ struct AppointmentProposalComposerView: View {
                             displayedComponents: .date
                         )
 
-                        Picker(
-                            "Zeitraum",
-                            selection: $proposal.windowId
-                        ) {
-                            Text("Bitte auswählen")
-                                .tag(Int?.none)
+                        if proposalMode == .window {
+                            Picker(
+                                "Zeitraum",
+                                selection: $proposal.windowId
+                            ) {
+                                Text("Bitte auswählen")
+                                    .tag(Int?.none)
 
-                            ForEach(windows) { window in
-                                Text(window.displayName)
-                                    .tag(
-                                        Optional(window.id)
-                                    )
+                                ForEach(windows) { window in
+                                    Text(window.displayName)
+                                        .tag(
+                                            Optional(window.id)
+                                        )
+                                }
                             }
+                        } else {
+                            DatePicker(
+                                "Beginn",
+                                selection: $proposal.startTime,
+                                displayedComponents: .hourAndMinute
+                            )
                         }
 
                         if proposals.count > 1 {
@@ -151,8 +217,11 @@ struct AppointmentProposalComposerView: View {
                     )
                 }
                 .disabled(
-                    windows.isEmpty
-                    || proposals.count >= 50
+                    proposals.count >= 12
+                    || (
+                        proposalMode == .window
+                        && windows.isEmpty
+                    )
                 )
             }
 
@@ -192,9 +261,7 @@ struct AppointmentProposalComposerView: View {
                         in: .whitespacesAndNewlines
                     ).isEmpty
                     || proposals.isEmpty
-                    || proposals.contains {
-                        $0.windowId == nil
-                    }
+                    || proposalsAreIncomplete
                 )
             }
         }
@@ -249,12 +316,12 @@ struct AppointmentProposalComposerView: View {
                     commissionId: commission.id
                 )
 
-            async let loadedWindows =
+            async let loadedConfiguration =
                 session.apiClient.fetchAppointmentWindows()
 
             let result = try await (
                 loadedContacts,
-                loadedWindows
+                loadedConfiguration
             )
 
             let availableContacts = result.0.filter { contact in
@@ -268,7 +335,19 @@ struct AppointmentProposalComposerView: View {
             }
 
             contacts = result.0
-            windows = result.1
+            windows = result.1.items
+            customTimesEnabled = (
+                result.1.customTimesEnabled
+            )
+            customTimeDurationMinutes = (
+                result.1.customTimeDurationMinutes
+            )
+
+            if !customTimesEnabled {
+                proposalMode = .window
+            } else if windows.isEmpty {
+                proposalMode = .custom
+            }
 
             if recipientEmail.isEmpty {
                 let tenantName = commission.tenantName?
@@ -321,11 +400,18 @@ struct AppointmentProposalComposerView: View {
             value: proposals.count + 1,
             to: Date()
         ) ?? Date()
+        let startTime = calendar.date(
+            bySettingHour: 8,
+            minute: 0,
+            second: 0,
+            of: nextDate
+        ) ?? nextDate
 
         proposals.append(
             AppointmentProposalDraft(
                 date: nextDate,
-                windowId: windows.first?.id
+                windowId: windows.first?.id,
+                startTime: startTime
             )
         )
     }
@@ -348,31 +434,114 @@ struct AppointmentProposalComposerView: View {
         dateFormatter.calendar = Calendar(
             identifier: .gregorian
         )
+        dateFormatter.timeZone = .current
         dateFormatter.dateFormat = "yyyy-MM-dd"
 
+        let timeFormatter = DateFormatter()
+        timeFormatter.locale = Locale(
+            identifier: "en_US_POSIX"
+        )
+        timeFormatter.calendar = Calendar(
+            identifier: .gregorian
+        )
+        timeFormatter.timeZone = .current
+        timeFormatter.dateFormat = "HH:mm"
+
+        let calendar = Calendar.current
         var seenValues = Set<String>()
         var payloads: [AppointmentProposalCreatePayload] = []
 
         for proposal in proposals {
-            guard let windowId = proposal.windowId else {
-                errorMessage = "Bitte für jeden Vorschlag ein Zeitfenster auswählen."
-                return
-            }
-
             let dateValue = dateFormatter.string(
                 from: proposal.date
             )
-            let uniqueValue = "\(dateValue)-\(windowId)"
 
-            if seenValues.insert(
-                uniqueValue
-            ).inserted {
-                payloads.append(
-                    AppointmentProposalCreatePayload(
-                        date: dateValue,
-                        windowId: windowId
-                    )
+            switch proposalMode {
+            case .window:
+                guard let windowId = proposal.windowId else {
+                    errorMessage = "Bitte für jeden Vorschlag ein Zeitfenster auswählen."
+                    return
+                }
+
+                let uniqueValue = (
+                    "\(dateValue)-window-\(windowId)"
                 )
+
+                if seenValues.insert(
+                    uniqueValue
+                ).inserted {
+                    payloads.append(
+                        AppointmentProposalCreatePayload(
+                            date: dateValue,
+                            windowId: windowId,
+                            startTime: nil
+                        )
+                    )
+                }
+
+            case .custom:
+                var dateComponents = calendar.dateComponents(
+                    [
+                        .year,
+                        .month,
+                        .day
+                    ],
+                    from: proposal.date
+                )
+                let timeComponents = calendar.dateComponents(
+                    [
+                        .hour,
+                        .minute
+                    ],
+                    from: proposal.startTime
+                )
+                dateComponents.hour = timeComponents.hour
+                dateComponents.minute = timeComponents.minute
+                dateComponents.second = 0
+
+                guard let startDate = calendar.date(
+                    from: dateComponents
+                ) else {
+                    errorMessage = "Der Beginn eines Vorschlags ist ungültig."
+                    return
+                }
+
+                guard startDate > Date() else {
+                    errorMessage = "Konkrete Termine müssen in der Zukunft liegen."
+                    return
+                }
+
+                guard let endDate = calendar.date(
+                    byAdding: .minute,
+                    value: customTimeDurationMinutes,
+                    to: startDate
+                ),
+                      calendar.isDate(
+                        startDate,
+                        inSameDayAs: endDate
+                      ) else {
+                    errorMessage = "Die konfigurierte Kalenderdauer darf nicht bis in den Folgetag reichen."
+                    return
+                }
+
+                let startTimeValue = timeFormatter.string(
+                    from: startDate
+                )
+                let uniqueValue = (
+                    "\(dateValue)-custom-\(startTimeValue)"
+                )
+
+                if seenValues.insert(
+                    uniqueValue
+                ).inserted {
+                    payloads.append(
+                        AppointmentProposalCreatePayload(
+                            date: dateValue,
+                            windowId: nil,
+                            startTime: startTimeValue
+                        )
+                    )
+                }
             }
         }
 

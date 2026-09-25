@@ -294,14 +294,12 @@ final class APIClient {
         return response.contactItems
     }
     
-    func fetchAppointmentWindows() async throws -> [AppointmentWindow] {
+    func fetchAppointmentWindows() async throws -> AppointmentWindowConfiguration {
         try requireToken()
 
-        let response: ListResponse<AppointmentWindow> = try await request(
+        return try await request(
             path: "/api/appointment-windows"
         )
-
-        return response.items
     }
 
     func fetchCommissionAppointments(

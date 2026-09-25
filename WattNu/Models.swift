@@ -1340,6 +1340,43 @@ struct AppointmentWindow: Codable, Identifiable, Hashable {
     }
 }
 
+struct AppointmentWindowConfiguration: Decodable {
+    let items: [AppointmentWindow]
+    let customTimesEnabled: Bool
+    let customTimeDurationMinutes: Int
+
+    enum CodingKeys: String, CodingKey {
+        case items
+        case customTimesEnabled = "custom_times_enabled"
+        case customTimeDurationMinutes = "custom_time_duration_minutes"
+    }
+
+    init(from decoder: Decoder) throws {
+        let container = try decoder.container(
+            keyedBy: CodingKeys.self
+        )
+
+        items = try container.decode(
+            [AppointmentWindow].self,
+            forKey: .items
+        )
+        customTimesEnabled = try container.decodeIfPresent(
+            Bool.self,
+            forKey: .customTimesEnabled
+        ) ?? false
+
+        let durationMinutes = try container.decodeIfPresent(
+            Int.self,
+            forKey: .customTimeDurationMinutes
+        ) ?? 60
+
+        customTimeDurationMinutes = max(
+            durationMinutes,
+            1
+        )
+    }
+}
+
 struct CommissionAppointmentProposal: Codable, Identifiable, Hashable {
     let id: Int
     let windowId: Int?
@@ -1382,6 +1419,10 @@ struct CommissionAppointmentProposal: Codable, Identifiable, Hashable {
             )
         } else {
             dateText = proposedDate
+        }
+
+        if windowId == nil {
+            return "\(dateText) · Beginn \(startTime) Uhr"
         }
 
         return "\(dateText) · \(startTime)–\(endTime) Uhr"
@@ -1456,11 +1497,13 @@ struct CommissionAppointmentRequest: Codable, Identifiable {
 
 struct AppointmentProposalCreatePayload: Encodable {
     let date: String
-    let windowId: Int
+    let windowId: Int?
+    let startTime: String?
 
     enum CodingKeys: String, CodingKey {
         case date
         case windowId = "window_id"
+        case startTime = "start_time"
     }
 }
 
