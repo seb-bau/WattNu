@@ -228,9 +228,8 @@ struct CommissionDetailView: View {
     @MainActor
     private func openTeBe(useUnitId: Int) {
         var components = URLComponents()
-        components.scheme = "https"
-        components.host = "app.technischer-bestand.de"
-        components.path = "/"
+        components.scheme = "de.bytewish.tebe"
+        components.host = "unit"
         components.queryItems = [
             URLQueryItem(name: "useUnitId", value: String(useUnitId))
         ]
@@ -240,14 +239,11 @@ struct CommissionDetailView: View {
             return
         }
 
-        UIApplication.shared.open(
-            url,
-            options: [.universalLinksOnly: true]
-        ) { opened in
+        UIApplication.shared.open(url, options: [:]) { opened in
             guard !opened else { return }
 
             Task { @MainActor in
-                errorMessage = "TeBe konnte nicht geöffnet werden. Prüfe, ob die aktuelle TeBe-App installiert ist."
+                errorMessage = "TeBe konnte nicht geöffnet werden. Prüfe, ob die aktualisierte TeBe-App installiert ist."
             }
         }
     }
