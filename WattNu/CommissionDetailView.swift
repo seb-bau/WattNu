@@ -94,6 +94,7 @@ struct CommissionDetailView: View {
                             },
                             commissionUpdatedAction: { updatedCommission in
                                 self.commission = updatedCommission
+                                navigation.commissionListRevision += 1
                             }
                         )
                     case .photos:

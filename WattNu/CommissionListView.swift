@@ -89,7 +89,14 @@ struct CommissionListView: View {
         }
 
         return ordered.filter { $0.isHighPriorityValue }
-            + ordered.filter { !$0.isHighPriorityValue }
+            + ordered.filter {
+                !$0.isHighPriorityValue
+                    && $0.acceptedAppointmentFrom != nil
+            }
+            + ordered.filter {
+                !$0.isHighPriorityValue
+                    && $0.acceptedAppointmentFrom == nil
+            }
     }
 
     var body: some View {

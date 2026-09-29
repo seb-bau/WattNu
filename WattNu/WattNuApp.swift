@@ -53,6 +53,8 @@ struct DatLaeuftApp: App {
                 }
                 .onChange(of: scenePhase) { _, newValue in
                     if newValue == .active {
+                        navigation.commissionListRevision += 1
+
                         Task {
                             await pushNotifications.refreshAuthorizationStatus()
                             await synchronizePushDevice()

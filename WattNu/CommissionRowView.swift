@@ -70,64 +70,54 @@ struct CommissionRowView: View {
 
             VStack(alignment: .leading, spacing: 7) {
                 if let appointmentText = acceptedAppointmentText {
-                    HStack(
-                        alignment: .center,
-                        spacing: 10
-                    ) {
-                        Image(
-                            systemName: "calendar.badge.checkmark"
+                    TimelineView(.periodic(from: .now, by: 60)) { context in
+                        let isToday = Formatters.isAppointmentToday(
+                            commission.acceptedAppointmentFrom,
+                            at: context.date
                         )
-                        .font(.title3)
-                        .foregroundStyle(.green)
 
-                        VStack(
-                            alignment: .leading,
-                            spacing: 2
-                        ) {
-                            Text("Vereinbarter Termin")
-                                .font(
-                                    .caption.weight(
-                                        .semibold
-                                    )
+                        HStack(alignment: .center, spacing: 10) {
+                            Image(systemName: "calendar.badge.checkmark")
+                                .font(.title3)
+                                .foregroundStyle(
+                                    isToday ? Color.green : Color.secondary
                                 )
-                                .foregroundStyle(.green)
 
-                            Text(appointmentText)
-                                .font(
-                                    .subheadline.weight(
-                                        .semibold
+                            VStack(alignment: .leading, spacing: 2) {
+                                Text("Vereinbarter Termin")
+                                    .font(.caption.weight(.semibold))
+                                    .foregroundStyle(
+                                        isToday ? Color.green : Color.secondary
                                     )
-                                )
-                                .foregroundStyle(.primary)
+
+                                Text(appointmentText)
+                                    .font(.subheadline.weight(.semibold))
+                                    .foregroundStyle(.primary)
+                            }
+
+                            Spacer(minLength: 0)
                         }
-
-                        Spacer(minLength: 0)
+                        .padding(.horizontal, 10)
+                        .padding(.vertical, 8)
+                        .frame(maxWidth: .infinity, alignment: .leading)
+                        .background(
+                            RoundedRectangle(cornerRadius: 10, style: .continuous)
+                                .fill(
+                                    isToday
+                                        ? Color.green.opacity(0.12)
+                                        : Color.secondary.opacity(0.08)
+                                )
+                        )
+                        .overlay(
+                            RoundedRectangle(cornerRadius: 10, style: .continuous)
+                                .stroke(
+                                    isToday
+                                        ? Color.green.opacity(0.3)
+                                        : Color.secondary.opacity(0.15),
+                                    lineWidth: 1
+                                )
+                        )
                     }
-                    .padding(.horizontal, 10)
-                    .padding(.vertical, 8)
-                    .frame(
-                        maxWidth: .infinity,
-                        alignment: .leading
-                    )
-                    .background(
-                        RoundedRectangle(
-                            cornerRadius: 10,
-                            style: .continuous
-                        )
-                        .fill(
-                            Color.green.opacity(0.12)
-                        )
-                    )
-                    .overlay(
-                        RoundedRectangle(
-                            cornerRadius: 10,
-                            style: .continuous
-                        )
-                        .stroke(
-                            Color.green.opacity(0.3),
-                            lineWidth: 1
-                        )
-                    )
                 }
                 Text(commission.displayTitle)
                     .font(.subheadline)
@@ -257,8 +247,9 @@ struct CommissionRowView: View {
             return nil
         }
 
-        return Formatters.dateTimeText(
-            appointmentFrom
+        return Formatters.appointmentRangeText(
+            fromValue: appointmentFrom,
+            toValue: commission.acceptedAppointmentTo
         )
     }
 
