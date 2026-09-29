@@ -69,6 +69,66 @@ struct CommissionRowView: View {
             Divider()
 
             VStack(alignment: .leading, spacing: 7) {
+                if let appointmentText = acceptedAppointmentText {
+                    HStack(
+                        alignment: .center,
+                        spacing: 10
+                    ) {
+                        Image(
+                            systemName: "calendar.badge.checkmark"
+                        )
+                        .font(.title3)
+                        .foregroundStyle(.green)
+
+                        VStack(
+                            alignment: .leading,
+                            spacing: 2
+                        ) {
+                            Text("Vereinbarter Termin")
+                                .font(
+                                    .caption.weight(
+                                        .semibold
+                                    )
+                                )
+                                .foregroundStyle(.green)
+
+                            Text(appointmentText)
+                                .font(
+                                    .subheadline.weight(
+                                        .semibold
+                                    )
+                                )
+                                .foregroundStyle(.primary)
+                        }
+
+                        Spacer(minLength: 0)
+                    }
+                    .padding(.horizontal, 10)
+                    .padding(.vertical, 8)
+                    .frame(
+                        maxWidth: .infinity,
+                        alignment: .leading
+                    )
+                    .background(
+                        RoundedRectangle(
+                            cornerRadius: 10,
+                            style: .continuous
+                        )
+                        .fill(
+                            Color.green.opacity(0.12)
+                        )
+                    )
+                    .overlay(
+                        RoundedRectangle(
+                            cornerRadius: 10,
+                            style: .continuous
+                        )
+                        .stroke(
+                            Color.green.opacity(0.3),
+                            lineWidth: 1
+                        )
+                    )
+                }
                 Text(commission.displayTitle)
                     .font(.subheadline)
                     .fontWeight(.medium)
@@ -94,14 +154,24 @@ struct CommissionRowView: View {
                     .foregroundStyle(.secondary)
                 }
 
-                Label(
-                    Formatters.dateTimeText(
-                        commission.executionFrom
-                    ),
-                    systemImage: "calendar"
-                )
-                .font(.caption)
-                .foregroundStyle(.secondary)
+                if let commissionDateText {
+                    Label(
+                        commissionDateText,
+                        systemImage: "calendar.badge.clock"
+                    )
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+                }
+
+                if let executionFrom = commission.executionFrom,
+                   !executionFrom.isEmpty {
+                    Label(
+                        "Ausführung ab: \(Formatters.dateTimeText(executionFrom))",
+                        systemImage: "calendar"
+                    )
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+                }
 
                 Label(
                     commission.assigneeName,
@@ -151,6 +221,44 @@ struct CommissionRowView: View {
             radius: 5,
             x: 0,
             y: 2
+        )
+    }
+    
+    private var commissionDateText: String? {
+        if let releaseDate = commission.releaseDate,
+           !releaseDate.isEmpty {
+            return (
+                "Freigegeben: "
+                + Formatters.dateTimeText(
+                    releaseDate
+                )
+            )
+        }
+
+        if let recordingDate = commission.recordingDate,
+           !recordingDate.isEmpty {
+            return (
+                "Erstellt: "
+                + Formatters.dateTimeText(
+                    recordingDate
+                )
+            )
+        }
+
+        return nil
+    }
+
+    private var acceptedAppointmentText: String? {
+        guard
+            let appointmentFrom =
+                commission.acceptedAppointmentFrom,
+            !appointmentFrom.isEmpty
+        else {
+            return nil
+        }
+
+        return Formatters.dateTimeText(
+            appointmentFrom
         )
     }
 

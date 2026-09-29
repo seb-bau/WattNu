@@ -70,236 +70,261 @@ struct AppointmentProposalComposerView: View {
     }
 
     var body: some View {
+        appointmentForm
+            .navigationTitle("Terminvorschläge")
+            .navigationBarTitleDisplayMode(.inline)
+            .toolbar {
+                ToolbarItem(placement: .cancellationAction) {
+                    Button("Abbrechen") {
+                        dismiss()
+                    }
+                }
+            }
+            .task {
+                await loadData()
+            }
+            .alert(
+                "Fehler",
+                isPresented: Binding(
+                    get: {
+                        errorMessage != nil
+                    },
+                    set: { visible in
+                        if !visible {
+                            errorMessage = nil
+                        }
+                    }
+                )
+            ) {
+                Button("OK", role: .cancel) {
+                    errorMessage = nil
+                }
+            } message: {
+                Text(errorMessage ?? "")
+            }
+    }
+
+    private var appointmentForm: some View {
         Form {
-            Section("Empfänger") {
-                if !contactsWithEmail.isEmpty {
-                    Picker(
-                        "Bewohner",
-                        selection: $recipientEmail
-                    ) {
-                        Text("Bitte auswählen")
-                            .tag("")
+            recipientSection
+            proposalSection
+            messageSection
+            sendSection
+        }
+    }
 
-                        ForEach(
-                            contactsWithEmail
-                        ) { contact in
-                            Text(
-                                [
-                                    contact.name,
-                                    contact.email
-                                ]
-                                .compactMap { $0 }
-                                .joined(
-                                    separator: " · "
-                                )
-                            )
+    private var recipientSection: some View {
+        Section("Empfänger") {
+            if !contactsWithEmail.isEmpty {
+                Picker(
+                    "Bewohner",
+                    selection: $recipientEmail
+                ) {
+                    Text("Bitte auswählen")
+                        .tag("")
+
+                    ForEach(contactsWithEmail) { contact in
+                        Text(contactTitle(contact))
                             .tag(contact.email ?? "")
-                        }
-                    }
-                    .onChange(
-                        of: recipientEmail
-                    ) { _, email in
-                        if let contact = contactsWithEmail.first(
-                            where: {
-                                $0.email == email
-                            }
-                        ) {
-                            recipientName = contact.name ?? ""
-                        }
                     }
                 }
-
-                TextField(
-                    "Name",
-                    text: $recipientName
-                )
-
-                TextField(
-                    "E-Mail-Adresse",
-                    text: $recipientEmail
-                )
-                .keyboardType(.emailAddress)
-                .textInputAutapitalization(.never)
-                .autocorrectionDisabled()
+                .onChange(of: recipientEmail) { _, email in
+                    selectContact(email: email)
+                }
             }
 
-            Section("Terminvorschläge") {
-                if customTimesEnabled {
-                    Picker(
-                        "Art der Vorschläge",
-                        selection: $proposalMode
-                    ) {
-                        ForEach(
-                            AppointmentProposalMode.allCases
-                        ) { mode in
-                            Text(mode.title)
-                                .tag(mode)
-                        }
-                    }
-                    .pickerStyle(.segmented)
-                }
-
-                if proposalMode == .window
-                    && windows.isEmpty {
-                    Text(
-                        "Es sind keine aktiven Zeitfenster vorhanden."
-                    )
-                    .foregroundStyle(.secondary)
-                }
-
-                if proposalMode == .custom {
-                    Text(
-                        "Für den Kalendereintrag werden ab dem gewählten Beginn \(customTimeDurationMinutes) Minuten reserviert. Die tatsächliche Arbeitsdauer kann davon abweichen."
-                    )
-                    .font(.caption)
-                    .foregroundStyle(.secondary)
-                }
-
-                ForEach(
-                    $proposals
-                ) { $proposal in
-                    VStack(
-                        alignment: .leading,
-                        spacing: 10
-                    ) {
-                        DatePicker(
-                            "Datum",
-                            selection: $proposal.date,
-                            in: Calendar.current.startOfDay(
-                                for: Date()
-                            )...,
-                            displayedComponents: .date
-                        )
-
-                        if proposalMode == .window {
-                            Picker(
-                                "Zeitraum",
-                                selection: $proposal.windowId
-                            ) {
-                                Text("Bitte auswählen")
-                                    .tag(Int?.none)
-
-                                ForEach(windows) { window in
-                                    Text(window.displayName)
-                                        .tag(
-                                            Optional(window.id)
-                                        )
-                                }
-                            }
-                        } else {
-                            DatePicker(
-                                "Beginn",
-                                selection: $proposal.startTime,
-                                displayedComponents: .hourAndMinute
-                            )
-                        }
-
-                        if proposals.count > 1 {
-                            Button(
-                                "Vorschlag entfernen",
-                                role: .destructive
-                            ) {
-                                proposals.removeAll {
-                                    $0.id == proposal.id
-                                }
-                            }
-                        }
-                    }
-                    .padding(.vertical, 4)
-                }
-
-                Button {
-                    addProposal()
-                } label: {
-                    Label(
-                        "Weiteren Vorschlag hinzufügen",
-                        systemImage: "plus.circle"
-                    )
-                }
-                .disabled(
-                    proposals.count >= 12
-                    || (
-                        proposalMode == .window
-                        && windows.isEmpty
-                    )
-                )
-            }
-
-            Section("Nachricht") {
-                TextField(
-                    "Optionale Nachricht",
-                    text: $message,
-                    axis: .vertical
-                )
-                .lineLimit(3...8)
-            }
-
-            Section {
-                Button {
-                    Task {
-                        await sendProposals()
-                    }
-                } label: {
-                    HStack {
-                        Spacer()
-
-                        if isSending {
-                            ProgressView()
-                        } else {
-                            Label(
-                                "Terminvorschläge senden",
-                                systemImage: "paperplane.fill"
-                            )
-                        }
-
-                        Spacer()
-                    }
-                }
-                .disabled(
-                    isSending
-                    || recipientEmail.trimmingCharacters(
-                        in: .whitespacesAndNewlines
-                    ).isEmpty
-                    || proposals.isEmpty
-                    || proposalsAreIncomplete
-                )
-            }
-        }
-        .navigationTitle("Terminvorschläge")
-        .navigationBarTitleDisplayMode(.inline)
-        .toolbar {
-            ToolbarItem(
-                placement: .cancellationAction
-            ) {
-                Button("Abbrechen") {
-                    dismiss()
-                }
-            }
-        }
-        .task {
-            await loadData()
-        }
-        .alert(
-            "Fehler",
-            isPresented: Binding(
-                get: {
-                    errorMessage != nil
-                },
-                set: { visible in
-                    if !visible {
-                        errorMessage = nil
-                    }
-                }
+            TextField(
+                "Name",
+                text: $recipientName
             )
-        ) {
-            Button(
-                "OK",
-                role: .cancel
-            ) {
-                errorMessage = nil
+
+            TextField(
+                "E-Mail-Adresse",
+                text: $recipientEmail
+            )
+            .keyboardType(.emailAddress)
+            .textInputAutocapitalization(.never)
+            .autocorrectionDisabled()
+        }
+    }
+
+    private var proposalSection: some View {
+        Section("Terminvorschläge") {
+            if customTimesEnabled {
+                Picker(
+                    "Art der Vorschläge",
+                    selection: $proposalMode
+                ) {
+                    ForEach(AppointmentProposalMode.allCases) { mode in
+                        Text(mode.title)
+                            .tag(mode)
+                    }
+                }
+                .pickerStyle(.segmented)
             }
-        } message: {
-            Text(errorMessage ?? "")
+
+            if proposalMode == .window && windows.isEmpty {
+                Text("Es sind keine aktiven Zeitfenster vorhanden.")
+                    .foregroundStyle(.secondary)
+            }
+
+            if proposalMode == .custom {
+                Text(
+                    "Für den Kalendereintrag werden ab dem gewählten Beginn \(customTimeDurationMinutes) Minuten reserviert. Die tatsächliche Arbeitsdauer kann davon abweichen."
+                )
+                .font(.caption)
+                .foregroundStyle(.secondary)
+            }
+
+            ForEach($proposals) { proposal in
+                proposalRow(proposal)
+            }
+
+            Button {
+                addProposal()
+            } label: {
+                Label(
+                    "Weiteren Vorschlag hinzufügen",
+                    systemImage: "plus.circle"
+                )
+            }
+            .disabled(addProposalDisabled)
+        }
+    }
+
+    private var messageSection: some View {
+        Section("Nachricht") {
+            TextField(
+                "Optionale Nachricht",
+                text: $message,
+                axis: .vertical
+            )
+            .lineLimit(3...8)
+        }
+    }
+
+    private var sendSection: some View {
+        Section {
+            Button {
+                Task {
+                    await sendProposals()
+                }
+            } label: {
+                HStack {
+                    Spacer()
+
+                    if isSending {
+                        ProgressView()
+                    } else {
+                        Label(
+                            "Terminvorschläge senden",
+                            systemImage: "paperplane.fill"
+                        )
+                    }
+
+                    Spacer()
+                }
+            }
+            .disabled(sendDisabled)
+        }
+    }
+
+    private func proposalRow(
+        _ proposal: Binding<AppointmentProposalDraft>
+    ) -> some View {
+        VStack(
+            alignment: .leading,
+            spacing: 10
+        ) {
+            DatePicker(
+                "Datum",
+                selection: proposal.date,
+                in: Calendar.current.startOfDay(for: Date())...,
+                displayedComponents: .date
+            )
+
+            if proposalMode == .window {
+                Picker(
+                    "Zeitraum",
+                    selection: proposal.windowId
+                ) {
+                    Text("Bitte auswählen")
+                        .tag(Int?.none)
+
+                    ForEach(windows) { window in
+                        Text(window.displayName)
+                            .tag(Optional(window.id))
+                    }
+                }
+            } else {
+                DatePicker(
+                    "Beginn",
+                    selection: proposal.startTime,
+                    displayedComponents: .hourAndMinute
+                )
+            }
+
+            if proposals.count > 1 {
+                Button(
+                    "Vorschlag entfernen",
+                    role: .destructive
+                ) {
+                    removeProposal(
+                        id: proposal.wrappedValue.id
+                    )
+                }
+            }
+        }
+        .padding(.vertical, 4)
+    }
+
+    private var addProposalDisabled: Bool {
+        proposals.count >= 12
+            || (
+                proposalMode == .window
+                && windows.isEmpty
+            )
+    }
+
+    private var sendDisabled: Bool {
+        isSending
+            || recipientEmail.trimmingCharacters(
+                in: .whitespacesAndNewlines
+            ).isEmpty
+            || proposals.isEmpty
+            || proposalsAreIncomplete
+    }
+
+    private func contactTitle(
+        _ contact: CommissionContactItem
+    ) -> String {
+        [
+            contact.name,
+            contact.email
+        ]
+        .compactMap { $0 }
+        .joined(separator: " · ")
+    }
+
+    private func selectContact(
+        email: String
+    ) {
+        guard let contact = contactsWithEmail.first(
+            where: {
+                $0.email == email
+            }
+        ) else {
+            return
+        }
+
+        recipientName = contact.name ?? ""
+    }
+
+    private func removeProposal(
+        id: UUID
+    ) {
+        proposals.removeAll {
+            $0.id == id
         }
     }
 

@@ -71,6 +71,20 @@ enum Formatters {
 
         return "\(fromDateText), \(fromTimeText) Uhr bis \(toDateText), \(toTimeText) Uhr"
     }
+    
+    static func isAppointmentToday(
+        _ value: String?,
+        at currentDate: Date
+    ) -> Bool {
+        guard let appointmentDate = appointmentDate(from: value) else {
+            return false
+        }
+
+        return Calendar.autoupdatingCurrent.isDate(
+            appointmentDate,
+            inSameDayAs: currentDate
+        )
+    }
 
     private static func appointmentDate(from value: String?) -> Date? {
         guard let value, !value.isEmpty else {
