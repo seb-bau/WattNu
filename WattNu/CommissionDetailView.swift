@@ -1,4 +1,5 @@
 import SwiftUI
+import UIKit
 
 enum CommissionDetailSection:
     String,
@@ -146,6 +147,19 @@ struct CommissionDetailView: View {
         }
         .navigationTitle(commission?.displayNumber ?? "Auftrag")
         .navigationBarTitleDisplayMode(.inline)
+        .toolbar {
+            ToolbarItem(placement: .topBarTrailing) {
+                if let useUnitId = commission?.useUnitId, useUnitId > 0 {
+                    Button {
+                        openTeBe(useUnitId: useUnitId)
+                    } label: {
+                        Image(systemName: "hammer.fill")
+                            .font(.footnote)
+                    }
+                    .accessibilityLabel("Wohnung in TeBe öffnen")
+                }
+            }
+        }
         .task {
             if processInfos.consumeInfoRequest(
                 commissionId: commissionId
@@ -208,6 +222,33 @@ struct CommissionDetailView: View {
             }
         } message: {
             Text(errorMessage ?? "")
+        }
+    }
+    
+    @MainActor
+    private func openTeBe(useUnitId: Int) {
+        var components = URLComponents()
+        components.scheme = "https"
+        components.host = "app.technischer-bestand.de"
+        components.path = "/"
+        components.queryItems = [
+            URLQueryItem(name: "useUnitId", value: String(useUnitId))
+        ]
+
+        guard let url = components.url else {
+            errorMessage = "Der TeBe-Link konnte nicht erstellt werden."
+            return
+        }
+
+        UIApplication.shared.open(
+            url,
+            options: [.universalLinksOnly: true]
+        ) { opened in
+            guard !opened else { return }
+
+            Task { @MainActor in
+                errorMessage = "TeBe konnte nicht geöffnet werden. Prüfe, ob die aktuelle TeBe-App installiert ist."
+            }
         }
     }
 
