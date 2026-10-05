@@ -15,6 +15,8 @@ final class AppNavigationStore: ObservableObject {
     @Published var commissionPath = NavigationPath()
     @Published var safetyInspectionPath = NavigationPath()
     @Published var commissionListRevision = 0
+    @Published var safetyInspectionStatusFilter: SafetyInspectionListFilter = .active
+    @Published var safetyInspectionSearchText = ""
 
     func openCommission(id: Int) {
         selectedTab = .commissions

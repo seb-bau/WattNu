@@ -6,8 +6,13 @@ struct SafetyInspectionListView: View {
     @EnvironmentObject private var navigation: AppNavigationStore
 
     @State private var jobs: [SafetyInspectionJob] = []
-    @State private var searchText = ""
-    @State private var statusFilter: SafetyInspectionListFilter = .active
+    private var searchText: String {
+        navigation.safetyInspectionSearchText
+    }
+
+    private var statusFilter: SafetyInspectionListFilter {
+        navigation.safetyInspectionStatusFilter
+    }
     @State private var sortMode: SafetyInspectionSortMode = .dueDate
     @State private var isLoading = false
     @State private var errorMessage: String?
@@ -19,19 +24,8 @@ struct SafetyInspectionListView: View {
             )
             .lowercased()
 
-        let searchedJobs = jobs.filter { job in
-            query.isEmpty
-            || job.group.name.lowercased().contains(query)
-            || job.objectTitle.lowercased().contains(query)
-            || (job.object.location ?? "")
-                .lowercased()
-                .contains(query)
-            || (job.object.economicUnitIdnum ?? "")
-                .lowercased()
-                .contains(query)
-            || job.statusLabel
-                .lowercased()
-                .contains(query)
+        let searchedJobs = jobs.filter {
+            $0.matchesSearch(searchText)
         }
 
         switch sortMode {
@@ -74,11 +68,9 @@ struct SafetyInspectionListView: View {
                 VStack(spacing: 10) {
                     Picker(
                         "Status",
-                        selection: $statusFilter
+                        selection: $navigation.safetyInspectionStatusFilter
                     ) {
-                        ForEach(
-                            SafetyInspectionListFilter.allCases
-                        ) { filter in
+                        ForEach(SafetyInspectionListFilter.allCases) { filter in
                             Text(filter.label)
                                 .tag(filter)
                         }
@@ -157,7 +149,7 @@ struct SafetyInspectionListView: View {
             }
             .navigationTitle("Prüfaufträge")
             .searchable(
-                text: $searchText,
+                text: $navigation.safetyInspectionSearchText,
                 prompt: "Prüfaufträge suchen"
             )
             .toolbar {
@@ -220,19 +212,29 @@ struct SafetyInspectionListView: View {
     }
 
     private func loadJobs() async {
+        let requestedFilter = statusFilter
         isLoading = true
 
         defer {
-            isLoading = false
+            if requestedFilter == statusFilter {
+                isLoading = false
+            }
         }
 
         do {
-            jobs = try await session.apiClient
-                .fetchSafetyInspections(
-                    status: statusFilter.rawValue
-                )
+            let loadedJobs = try await session.apiClient.fetchSafetyInspections(
+                status: requestedFilter.rawValue
+            )
+
+            guard !Task.isCancelled, requestedFilter == statusFilter else {
+                return
+            }
+
+            jobs = loadedJobs
         } catch {
-            if error.isRequestCancellation {
+            if error.isRequestCancellation
+                || Task.isCancelled
+                || requestedFilter != statusFilter {
                 return
             }
 
@@ -286,5 +288,20 @@ enum SafetyInspectionSortMode: String,
         case .status:
             return "Status"
         }
+    }
+}
+
+extension SafetyInspectionJob {
+    func matchesSearch(_ searchText: String) -> Bool {
+        let query = searchText
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+            .lowercased()
+
+        return query.isEmpty
+            || group.name.lowercased().contains(query)
+            || objectTitle.lowercased().contains(query)
+            || (object.location ?? "").lowercased().contains(query)
+            || (object.economicUnitIdnum ?? "").lowercased().contains(query)
+            || statusLabel.lowercased().contains(query)
     }
 }
