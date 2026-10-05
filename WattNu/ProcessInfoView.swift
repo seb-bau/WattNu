@@ -437,7 +437,7 @@ struct ProcessInfoView: View {
             let items = messages.filter {
                 visibleMessageIds.contains($0.id)
                 && $0.direction == "office"
-                && $0.state == "synced"
+                && ["pending", "failed", "uncertain", "synced"].contains($0.state)
                 && !acknowledgedMessageVersions.contains(
                     "\($0.id):\($0.version)"
                 )
@@ -547,24 +547,15 @@ private struct ProcessInfoBubble: View {
             }
 
             VStack(
-                alignment:
-                    message.isMine
-                    ? .trailing
-                    : .leading,
+                alignment: message.isMine ? .trailing : .leading,
                 spacing: 5
             ) {
                 Text(
                     message.authorName
-                    ?? (
-                        message.isMine
-                        ? "Handwerker"
-                        : "Sachbearbeitung"
-                    )
+                    ?? (message.isMine ? "Handwerker" : "Sachbearbeitung")
                 )
                 .font(.caption)
-                .foregroundStyle(
-                    .secondary
-                )
+                .foregroundStyle(.secondary)
 
                 Text(message.body)
                     .frame(
@@ -575,60 +566,36 @@ private struct ProcessInfoBubble: View {
                 HStack(spacing: 5) {
                     Text(displayDate)
 
-                    if (
-                        message.state
-                        == "failed"
-                    ) {
-                        Text(
-                            "Nicht übertragen"
-                        )
-                        .foregroundStyle(.red)
-                    } else if (
-                        message.state
-                        == "uncertain"
-                    ) {
-                        Text(
-                            "Übertragung wird geprüft"
-                        )
-                        .foregroundStyle(
-                            .orange
-                        )
-                    } else if (
-                        message.isMine
-                        && message.mailState
-                        == "failed"
-                    ) {
-                        Text(
-                            "E-Mail ausstehend"
-                        )
-                        .foregroundStyle(
-                            .orange
-                        )
+                    if message.state == "failed" {
+                        Text("Nicht übertragen")
+                            .foregroundStyle(.red)
+                    } else if message.state == "uncertain" {
+                        Text("Übertragung wird geprüft")
+                            .foregroundStyle(.orange)
+                    } else if message.isMine && message.mailState == "failed" {
+                        Text("E-Mail ausstehend")
+                            .foregroundStyle(.orange)
                     }
                 }
                 .font(.caption2)
-                .foregroundStyle(
-                    .secondary
-                )
-            }
-            .padding(12)
-            if message.isMine {
-                ForEach(
-                    Array((message.readReceipts ?? []).enumerated()),
-                    id: \.offset
-                ) { entry in
-                    Text(receiptText(entry.element))
-                        .font(.caption2)
-                        .foregroundStyle(.secondary)
+                .foregroundStyle(.secondary)
+
+                if message.isMine {
+                    ForEach(
+                        Array((message.readReceipts ?? []).enumerated()),
+                        id: \.offset
+                    ) { entry in
+                        Text(receiptText(entry.element))
+                            .font(.caption2)
+                            .foregroundStyle(.secondary)
+                    }
                 }
             }
+            .padding(12)
             .background(
                 message.isMine
-                ? Color.accentColor
-                    .opacity(0.17)
-                : Color(
-                    .secondarySystemGroupedBackground
-                )
+                ? Color.accentColor.opacity(0.17)
+                : Color(.secondarySystemGroupedBackground)
             )
             .clipShape(
                 RoundedRectangle(
