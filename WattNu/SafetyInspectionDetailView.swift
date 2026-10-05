@@ -397,6 +397,7 @@ struct SafetyInspectionResultRowView: View {
 
 struct SafetyInspectionResultEditorView: View {
     @EnvironmentObject private var session: SessionStore
+    @Environment(\.dismiss) private var dismiss
 
     let jobId: Int
     let canEdit: Bool
@@ -787,7 +788,7 @@ struct SafetyInspectionResultEditorView: View {
                 updatedResult.immediateAction ?? ""
 
             onChanged(updatedResult)
-            await loadThumbnails()
+            dismiss()
         } catch {
             errorMessage = error.localizedDescription
         }
