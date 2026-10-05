@@ -263,19 +263,14 @@ final class APIClient {
 
     func markProcessInfosRead(
         commissionId: Int,
-        infoIds: [String]
+        items: [ProcessInfoVisibleItem]
     ) async throws -> ProcessInfoUnreadSummary {
         try requireToken()
 
         return try await send(
-            path:
-                "/api/commissions/"
-                + "\(commissionId)/infos/read",
+            path: "/api/commissions/\(commissionId)/infos/read",
             method: "POST",
-            body:
-                ProcessInfoReadRequest(
-                    infoIds: infoIds
-                )
+            body: ProcessInfoReadRequest(items: items)
         )
     }
 

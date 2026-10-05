@@ -15,6 +15,7 @@ struct ProcessInfoMessage: Decodable, Identifiable {
     let state: String
     let mailState: String
     var isUnread: Bool
+    let readReceipts: [ProcessInfoReadReceipt]?
 
     var isMine: Bool {
         direction == "craftsman"
@@ -32,6 +33,7 @@ struct ProcessInfoMessage: Decodable, Identifiable {
         case state
         case mailState = "mail_state"
         case isUnread = "is_unread"
+        case readReceipts = "read_receipts"
     }
 }
 
@@ -65,12 +67,29 @@ struct ProcessInfoCreateRequest: Encodable {
     }
 }
 
-struct ProcessInfoReadRequest: Encodable {
-    let infoIds: [String]
+struct ProcessInfoReadReceipt: Decodable {
+    let readerName: String
+    let readerKind: String
+    let readerId: Int?
+    let isRead: Bool
+    let readAt: String?
 
     enum CodingKeys: String, CodingKey {
-        case infoIds = "info_ids"
+        case readerName = "reader_name"
+        case readerKind = "reader_kind"
+        case readerId = "reader_id"
+        case isRead = "is_read"
+        case readAt = "read_at"
     }
+}
+
+struct ProcessInfoVisibleItem: Encodable {
+    let id: String
+    let version: Int
+}
+
+struct ProcessInfoReadRequest: Encodable {
+    let items: [ProcessInfoVisibleItem]
 }
 
 @MainActor
@@ -198,6 +217,9 @@ struct ProcessInfoView: View {
     @State private var isLoading = false
     @State private var isSending = false
     @State private var errorMessage: String?
+    @State private var visibleMessageIds: Set<String> = []
+    @State private var acknowledgedMessageVersions: Set<String> = []
+    @State private var isMarkingRead = false
 
     var body: some View {
         VStack(spacing: 0) {
@@ -237,6 +259,19 @@ struct ProcessInfoView: View {
                                     message: message
                                 )
                                 .id(message.id)
+                                .onScrollVisibilityChange(threshold: 0.01) { isVisible in
+                                    if isVisible {
+                                        visibleMessageIds.insert(message.id)
+                                        Task {
+                                            await markVisibleMessagesRead()
+                                        }
+                                    } else {
+                                        visibleMessageIds.remove(message.id)
+                                    }
+                                }
+                                .task(id: message.version) {
+                                    await markVisibleMessagesRead()
+                                }
                             }
                         }
                         .padding()
@@ -321,6 +356,13 @@ struct ProcessInfoView: View {
                 }
             }
         }
+        .onChange(of: scenePhase) { _, phase in
+            if phase == .active {
+                Task {
+                    await markVisibleMessagesRead()
+                }
+            }
+        }
         .alert(
             "Fehler",
             isPresented: Binding(
@@ -359,50 +401,16 @@ struct ProcessInfoView: View {
         }
 
         do {
-            let response =
-                try await session
-                    .apiClient
-                    .fetchProcessInfos(
-                        commissionId:
-                            commissionId
-                    )
+            let response = try await session.apiClient.fetchProcessInfos(
+                commissionId: commissionId
+            )
 
             messages = response.items
 
-            let unreadIds = messages
-                .filter { $0.isUnread }
-                .map(\.id)
+            await store.refresh(apiClient: session.apiClient)
+            await markVisibleMessagesRead()
 
-            if !unreadIds.isEmpty {
-                let summary =
-                    try await session
-                        .apiClient
-                        .markProcessInfosRead(
-                            commissionId:
-                                commissionId,
-                            infoIds:
-                                unreadIds
-                        )
-
-                for index
-                in messages.indices
-                where unreadIds.contains(
-                    messages[index].id
-                ) {
-                    messages[index]
-                        .isUnread = false
-                }
-
-                store.apply(summary)
-            } else {
-                await store.refresh(
-                    apiClient:
-                        session.apiClient
-                )
-            }
-
-            if let syncError =
-                response.syncError,
+            if let syncError = response.syncError,
                messages.isEmpty {
                 errorMessage = syncError
             }
@@ -411,9 +419,69 @@ struct ProcessInfoView: View {
                 return
             }
 
-            errorMessage = (
-                error.localizedDescription
-            )
+            errorMessage = error.localizedDescription
+        }
+    }
+    
+    private func markVisibleMessagesRead() async {
+        guard scenePhase == .active, !isMarkingRead else {
+            return
+        }
+
+        isMarkingRead = true
+        defer {
+            isMarkingRead = false
+        }
+
+        while scenePhase == .active, !Task.isCancelled {
+            let items = messages.filter {
+                visibleMessageIds.contains($0.id)
+                && $0.direction == "office"
+                && $0.state == "synced"
+                && !acknowledgedMessageVersions.contains(
+                    "\($0.id):\($0.version)"
+                )
+            }
+            .prefix(250)
+            .map {
+                ProcessInfoVisibleItem(
+                    id: $0.id,
+                    version: $0.version
+                )
+            }
+
+            guard !items.isEmpty else {
+                return
+            }
+
+            do {
+                let summary = try await session.apiClient.markProcessInfosRead(
+                    commissionId: commissionId,
+                    items: items
+                )
+
+                for item in items {
+                    acknowledgedMessageVersions.insert(
+                        "\(item.id):\(item.version)"
+                    )
+
+                    if let index = messages.firstIndex(
+                        where: {
+                            $0.id == item.id
+                            && $0.version == item.version
+                        }
+                    ) {
+                        messages[index].isUnread = false
+                    }
+                }
+
+                store.apply(summary)
+            } catch {
+                if !error.isRequestCancellation {
+                    errorMessage = error.localizedDescription
+                }
+                return
+            }
         }
     }
 
@@ -544,6 +612,16 @@ private struct ProcessInfoBubble: View {
                 )
             }
             .padding(12)
+            if message.isMine {
+                ForEach(
+                    Array((message.readReceipts ?? []).enumerated()),
+                    id: \.offset
+                ) { entry in
+                    Text(receiptText(entry.element))
+                        .font(.caption2)
+                        .foregroundStyle(.secondary)
+                }
+            }
             .background(
                 message.isMine
                 ? Color.accentColor
@@ -563,6 +641,33 @@ private struct ProcessInfoBubble: View {
                 Spacer(minLength: 44)
             }
         }
+    }
+    
+    private func receiptText(
+        _ receipt: ProcessInfoReadReceipt
+    ) -> String {
+        guard receipt.readerId != nil else {
+            return "\(receipt.readerName): Lesestatus nicht verfügbar"
+        }
+
+        guard receipt.isRead, let value = receipt.readAt else {
+            return "\(receipt.readerName): Ungelesen"
+        }
+
+        let formatter = ISO8601DateFormatter()
+        formatter.formatOptions = [
+            .withInternetDateTime,
+            .withFractionalSeconds
+        ]
+
+        let date = formatter.date(from: value)
+            ?? ISO8601DateFormatter().date(from: value)
+
+        guard let date else {
+            return "\(receipt.readerName): Gelesen"
+        }
+
+        return "\(receipt.readerName): Gelesen am \(Self.displayDateFormatter.string(from: date))"
     }
 
     private var displayDate: String {
