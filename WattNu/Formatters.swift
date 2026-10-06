@@ -45,6 +45,10 @@ enum Formatters {
         dateFormatter.locale = Locale(identifier: "de_DE")
         dateFormatter.timeZone = .current
         dateFormatter.dateFormat = "d. MMMM yyyy"
+        
+        if fromValue?.count == 10 {
+            return dateFormatter.string(from: fromDate)
+        }
 
         let timeFormatter = DateFormatter()
         timeFormatter.locale = Locale(identifier: "de_DE")
@@ -114,7 +118,8 @@ enum Formatters {
         let formats = [
             "yyyy-MM-dd'T'HH:mm:ss.SSSSSS",
             "yyyy-MM-dd'T'HH:mm:ss.SSS",
-            "yyyy-MM-dd'T'HH:mm:ss"
+            "yyyy-MM-dd'T'HH:mm:ss",
+            "yyyy-MM-dd"
         ]
 
         for format in formats {

@@ -88,10 +88,22 @@ struct CommissionListView: View {
             ordered = searchedCommissions
         }
 
+        let currentDate = Date()
+        let isToday: (Commission) -> Bool = {
+            Formatters.isAppointmentToday(
+                $0.acceptedAppointmentFrom,
+                at: currentDate
+            )
+        }
+
         return ordered.filter { $0.isHighPriorityValue }
+            + ordered.filter {
+                !$0.isHighPriorityValue && isToday($0)
+            }
             + ordered.filter {
                 !$0.isHighPriorityValue
                     && $0.acceptedAppointmentFrom != nil
+                    && !isToday($0)
             }
             + ordered.filter {
                 !$0.isHighPriorityValue

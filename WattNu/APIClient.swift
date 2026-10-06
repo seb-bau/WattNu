@@ -334,6 +334,27 @@ final class APIClient {
         return response.item
     }
     
+    func enterCommissionAppointment(
+        commissionId: Int,
+        date: String,
+        time: String?,
+        comment: String?
+    ) async throws -> Commission {
+        try requireToken()
+
+        let response: ItemResponse<Commission> = try await send(
+            path: "/api/commissions/\(commissionId)/appointments/accepted",
+            method: "POST",
+            body: ManualAppointmentCreatePayload(
+                date: date,
+                time: time,
+                comment: comment
+            )
+        )
+
+        return response.item
+    }
+    
     func cancelAcceptedCommissionAppointment(
         commissionId: Int
     ) async throws -> Commission {

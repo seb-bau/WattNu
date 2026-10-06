@@ -16,7 +16,6 @@ struct TimeSectionView: View {
     @State private var travelMinutesText = ""
     @State private var documentationMinutesText = ""
     @State private var extraMinutesText = ""
-    @State private var deviationReason = ""
     @State private var note = ""
     @State private var serviceDate = Date()
     @State private var editingEntry: TimeEntry?
@@ -25,16 +24,6 @@ struct TimeSectionView: View {
     @State private var errorMessage: String?
     @State private var suggestionTask: Task<Void, Never>?
     @State private var commissionTasks: [TimeTask] = []
-
-    private let deviationReasons = [
-        ("", "Keine Besonderheit"),
-        ("waiting", "Wartezeit"),
-        ("extra_damage", "Zusätzlicher Schaden"),
-        ("difficult_access", "Erschwerte Bedingungen"),
-        ("material", "Materialbeschaffung"),
-        ("consultation", "Rücksprache"),
-        ("other", "Sonstiges")
-    ]
 
     private var formTitle: String {
         editingEntry == nil ? "Zeit erfassen" : "Zeit bearbeiten"
@@ -176,13 +165,6 @@ struct TimeSectionView: View {
                     minuteField("Zusatzarbeit", text: $extraMinutesText)
                 }
 
-                Picker("Grund bei Abweichung", selection: $deviationReason) {
-                    ForEach(deviationReasons, id: \.0) { reason in
-                        Text(reason.1).tag(reason.0)
-                    }
-                }
-                .disabled(commission.canEditValue == false)
-
                 TextField("Notiz / Erläuterung", text: $note, axis: .vertical)
                     .disabled(commission.canEditValue == false)
 
@@ -291,11 +273,6 @@ struct TimeSectionView: View {
                 Text(componentSummary(for: entry))
                     .font(.caption)
                     .foregroundStyle(.secondary)
-            }
-
-            if let deviationReason = entry.deviationReason, !deviationReason.isEmpty {
-                Text(deviationReason)
-                    .font(.caption)
             }
 
             if let note = entry.note, !note.isEmpty {
@@ -465,7 +442,6 @@ struct TimeSectionView: View {
             extraMinutesText = ""
         }
 
-        deviationReason = entry.deviationReason ?? ""
         note = entry.note ?? ""
     }
 
@@ -513,7 +489,7 @@ struct TimeSectionView: View {
                     travelMinutes: values.hasComponentInput ? values.travelMinutes : nil,
                     documentationMinutes: values.hasComponentInput ? values.documentationMinutes : nil,
                     extraMinutes: values.hasComponentInput ? values.extraMinutes : nil,
-                    deviationReason: deviationReason.isEmpty ? nil : deviationReason,
+                    deviationReason: editingEntry.deviationReason,
                     note: note.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ? nil : note
                 )
             } else {
@@ -530,7 +506,7 @@ struct TimeSectionView: View {
                     travelMinutes: values.hasComponentInput ? values.travelMinutes : nil,
                     documentationMinutes: values.hasComponentInput ? values.documentationMinutes : nil,
                     extraMinutes: values.hasComponentInput ? values.extraMinutes : nil,
-                    deviationReason: deviationReason.isEmpty ? nil : deviationReason,
+                    deviationReason: nil,
                     note: note.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ? nil : note
                 )
             }
@@ -643,7 +619,6 @@ struct TimeSectionView: View {
         travelMinutesText = ""
         documentationMinutesText = ""
         extraMinutesText = ""
-        deviationReason = ""
         note = ""
         editingEntry = nil
         serviceDate = Date()

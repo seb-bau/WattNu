@@ -16,7 +16,6 @@ struct MaterialsSectionView: View {
     @State private var usageStatus = "installed"
     @State private var inventoryLocations: [InventoryLocation] = []
     @State private var selectedInventoryLocationId: Int?
-    @State private var deviationReason = ""
     @State private var note = ""
     @State private var selectedItem: InventoryItem?
     @State private var searchSuggestions: [InventoryItem] = []
@@ -67,16 +66,6 @@ struct MaterialsSectionView: View {
         ("returned", "Zurückgegeben"),
         ("defective", "Defekt"),
         ("in_vehicle", "Im Fahrzeug")
-    ]
-
-    private let deviationReasons = [
-        ("", "Keine Abweichung"),
-        ("different_material", "Anderes Material"),
-        ("additional_material", "Zusätzliches Material"),
-        ("not_needed", "Nicht benötigt"),
-        ("not_available", "Nicht verfügbar"),
-        ("direct_purchase", "Direktkauf"),
-        ("other", "Sonstiges")
     ]
 
     var body: some View {
@@ -370,13 +359,6 @@ struct MaterialsSectionView: View {
                 }
                 .disabled(commission.canEditValue == false)
 
-                Picker("Abweichungsgrund", selection: $deviationReason) {
-                    ForEach(deviationReasons, id: \.0) { reason in
-                        Text(reason.1).tag(reason.0)
-                    }
-                }
-                .disabled(commission.canEditValue == false)
-
                 TextField("Notiz / Erläuterung", text: $note, axis: .vertical)
                     .disabled(commission.canEditValue == false)
 
@@ -477,11 +459,6 @@ struct MaterialsSectionView: View {
                                 Text(user.displayName)
                                     .font(.caption)
                                     .foregroundStyle(.secondary)
-                            }
-
-                            if let deviationReason = movement.deviationReason, !deviationReason.isEmpty {
-                                Text(deviationReason)
-                                    .font(.caption)
                             }
 
                             if let note = movement.note, !note.isEmpty {
@@ -742,7 +719,6 @@ struct MaterialsSectionView: View {
         )
         usageStatus = "installed"
         materialSource = "warehouse"
-        deviationReason = ""
         serialNumber = ""
 
         if let item = expectedMaterial.item {
@@ -1000,11 +976,7 @@ struct MaterialsSectionView: View {
                 usageStatus: usageStatus,
                 source: materialSource,
                 locationId: locationId,
-                deviationReason: (
-                    deviationReason.isEmpty
-                    ? nil
-                    : deviationReason
-                ),
+                deviationReason: nil,
                 note: (
                     note.trimmingCharacters(
                         in: .whitespacesAndNewlines
@@ -1062,7 +1034,6 @@ struct MaterialsSectionView: View {
         quantityText = "1"
         usageStatus = "installed"
         materialSource = "warehouse"
-        deviationReason = ""
         note = ""
         configureInventoryLocation()
         itemTypeFilterId = nil

@@ -184,6 +184,8 @@ struct Commission: Codable, Identifiable, Hashable {
     let acceptedAppointmentFrom: String?
     let acceptedAppointmentTo: String?
     let acceptedAppointmentComment: String?
+    let acceptedAppointmentHasTime: Bool?
+    let acceptedAppointmentIsManual: Bool?
 
     enum CodingKeys: String, CodingKey {
         case id
@@ -229,6 +231,8 @@ struct Commission: Codable, Identifiable, Hashable {
         case acceptedAppointmentFrom = "accepted_appointment_from"
         case acceptedAppointmentTo = "accepted_appointment_to"
         case acceptedAppointmentComment = "accepted_appointment_comment"
+        case acceptedAppointmentHasTime = "accepted_appointment_has_time"
+        case acceptedAppointmentIsManual = "accepted_appointment_is_manual"
     }
     
     var isHighPriorityValue: Bool {
@@ -1519,6 +1523,12 @@ struct AppointmentRequestCreatePayload: Encodable {
         case message
         case proposals
     }
+}
+
+struct ManualAppointmentCreatePayload: Encodable {
+    let date: String
+    let time: String?
+    let comment: String?
 }
 
 struct CommissionHistoryEntry: Codable, Identifiable, Hashable {

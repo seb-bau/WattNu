@@ -5,6 +5,10 @@ enum AppointmentReminderService {
     static func schedule(
         for commission: Commission
     ) async {
+        if commission.acceptedAppointmentIsManual == true {
+            cancel(for: commission)
+            return
+        }
         guard let value = commission.acceptedAppointmentFrom,
               let appointmentDate = parseDate(value) else {
             return

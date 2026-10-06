@@ -12,6 +12,7 @@ struct CommissionAppointmentSectionView: View {
     @State private var errorMessage: String?
     @State private var cancellationConfirmationPresented = false
     @State private var isCancelling = false
+    @State private var manualEntryPresented = false
 
     var body: some View {
         VStack(
@@ -170,16 +171,26 @@ struct CommissionAppointmentSectionView: View {
             if commission.canEditValue
                 && commission.isActionableValue
                 && commission.acceptedAppointmentFrom == nil {
-                Button {
-                    composerPresented = true
-                } label: {
-                    Label(
-                        "Terminvorschläge senden",
-                        systemImage: "calendar.badge.plus"
-                    )
-                    .frame(
-                        maxWidth: .infinity
-                    )
+                HStack(alignment: .top, spacing: 8) {
+                    Button {
+                        composerPresented = true
+                    } label: {
+                        Label(
+                            "Terminvorschläge senden",
+                            systemImage: "calendar.badge.plus"
+                        )
+                        .frame(maxWidth: .infinity)
+                    }
+
+                    Button {
+                        manualEntryPresented = true
+                    } label: {
+                        Label(
+                            "Termin eintragen",
+                            systemImage: "calendar.badge.checkmark"
+                        )
+                        .frame(maxWidth: .infinity)
+                    }
                 }
                 .buttonStyle(.bordered)
             }
@@ -216,6 +227,15 @@ struct CommissionAppointmentSectionView: View {
                         at: 0
                     )
                 }
+            }
+            .environmentObject(session)
+        }
+        .sheet(isPresented: $manualEntryPresented) {
+            NavigationStack {
+                ManualAppointmentEntryView(
+                    commission: commission,
+                    onSaved: onCommissionUpdated
+                )
             }
             .environmentObject(session)
         }
