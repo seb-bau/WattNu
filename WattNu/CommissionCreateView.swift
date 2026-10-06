@@ -17,6 +17,7 @@ struct CommissionCreateView: View {
     @State private var damageLocation = ""
     @State private var contactPerson = ""
     @State private var hasExecutionPeriod = false
+    @State private var notifyTenants: Bool?
     @State private var executionFrom = Date()
     @State private var executionTo = Date()
         .addingTimeInterval(60 * 60)
@@ -181,6 +182,15 @@ struct CommissionCreateView: View {
                     "Ansprechpartner vor Ort",
                     text: $contactPerson
                 )
+                
+                Toggle(
+                    "Mieter über Beauftragung informieren",
+                    isOn: Binding(
+                        get: { notifyTenants ?? options?.notifyTenantsDefault ?? false },
+                        set: { notifyTenants = $0 }
+                    )
+                )
+                .disabled(isLoading || isSaving)
             }
 
             Section("Ausführungszeitraum") {
@@ -417,7 +427,8 @@ struct CommissionCreateView: View {
             executionTo: hasExecutionPeriod
                 ? formattedDate(executionTo)
                 : nil,
-            positions: positionRequests
+            positions: positionRequests,
+            notifyTenants: notifyTenants ?? options?.notifyTenantsDefault ?? false
         )
 
         isSaving = true

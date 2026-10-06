@@ -830,11 +830,13 @@ struct TimeEntry: Codable, Identifiable, Equatable {
 
 struct CommissionCreateOptions: Decodable {
     let canCreate: Bool
+    let notifyTenantsDefault: Bool?
     let companyCodes: [CompanyCodeOption]
     let commissionTypes: [CommissionTypeOption]
 
     enum CodingKeys: String, CodingKey {
         case canCreate = "can_create"
+        case notifyTenantsDefault = "notify_tenants_default"
         case companyCodes = "company_codes"
         case commissionTypes = "commission_types"
     }
@@ -965,6 +967,7 @@ struct CommissionCreateRequest: Encodable {
     let executionFrom: String?
     let executionTo: String?
     let positions: [CommissionPositionRequest]
+    let notifyTenants: Bool
 
     enum CodingKeys: String, CodingKey {
         case objectType = "object_type"
@@ -976,6 +979,7 @@ struct CommissionCreateRequest: Encodable {
         case executionFrom = "execution_from"
         case executionTo = "execution_to"
         case positions
+        case notifyTenants = "notify_tenants"
     }
 }
 
