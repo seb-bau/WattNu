@@ -95,7 +95,9 @@ struct TimeSectionView: View {
                                 .font(.caption)
                                 .foregroundStyle(.secondary)
 
-                            if let suggestedMinutes = selectedTask.suggestedMinutes, suggestedMinutes > 0 {
+                            if session.showServiceTargetTimes,
+                               let suggestedMinutes = selectedTask.suggestedMinutes,
+                               suggestedMinutes > 0 {
                                 Text("SOLL-Zeit: \(suggestedMinutes) Min.")
                                     .font(.caption)
                                     .foregroundStyle(.secondary)
@@ -204,6 +206,7 @@ struct TimeSectionView: View {
             await loadData()
         }
         .refreshable {
+            await session.loadMobileConfig()
             await loadData()
         }
         .onChange(of: taskSearchText) { _, newValue in

@@ -56,6 +56,7 @@ struct DatLaeuftApp: App {
                         navigation.commissionListRevision += 1
 
                         Task {
+                            await session.loadMobileConfig()
                             await pushNotifications.refreshAuthorizationStatus()
                             await synchronizePushDevice()
                             await synchronizeProcessInfoBadge()

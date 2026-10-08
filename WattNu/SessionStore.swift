@@ -34,6 +34,14 @@ final class SessionStore: ObservableObject {
     var isMicrosoftLoginAvailable: Bool {
         mobileConfig?.microsoft != nil
     }
+    
+    var showServiceTargetTimes: Bool {
+        mobileConfig?.showServiceTargetTimes ?? true
+    }
+
+    var showWorkTimeTargetTimes: Bool {
+        mobileConfig?.showWorkTimeTargetTimes ?? true
+    }
 
     init() {
         let settings = LocalAppSettings()
@@ -77,7 +85,7 @@ final class SessionStore: ObservableObject {
             applyCurrentBaseURL()
             mobileConfig = try await apiClient.fetchMobileConfig()
         } catch {
-            mobileConfig = nil
+            return
         }
     }
 

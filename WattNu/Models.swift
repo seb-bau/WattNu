@@ -11,10 +11,14 @@ import CoreLocation
 struct MobileConfig: Codable, Equatable {
     let passwordLoginEnabled: Bool
     let microsoft: MobileMicrosoftConfig?
+    let showServiceTargetTimes: Bool?
+    let showWorkTimeTargetTimes: Bool?
 
     enum CodingKeys: String, CodingKey {
         case passwordLoginEnabled = "password_login_enabled"
         case microsoft
+        case showServiceTargetTimes = "show_service_target_times"
+        case showWorkTimeTargetTimes = "show_work_time_target_times"
     }
 }
 

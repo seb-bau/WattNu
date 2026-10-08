@@ -92,6 +92,7 @@ struct MyTimeView: View {
                         }
                     }
                     .refreshable {
+                        await session.loadMobileConfig()
                         await loadSummary()
                     }
                 }
@@ -163,12 +164,14 @@ struct MyTimeView: View {
     ) -> some View {
         VStack(alignment: .leading, spacing: 14) {
             HStack(spacing: 12) {
-                valueCard(
-                    title: "SOLL",
-                    value: summary.expectedMinutes.map {
-                        WorkTimeText.duration($0)
-                    } ?? "Kein Profil"
-                )
+                if session.showWorkTimeTargetTimes {
+                    valueCard(
+                        title: "SOLL",
+                        value: summary.expectedMinutes.map {
+                            WorkTimeText.duration($0)
+                        } ?? "Kein Profil"
+                    )
+                }
 
                 valueCard(
                     title: "Erfasst",
@@ -178,49 +181,51 @@ struct MyTimeView: View {
                 )
             }
 
-            HStack {
-                if let difference =
-                    summary.differenceMinutes
-                {
-                    Text(
-                        "Differenz: \(WorkTimeText.signedDuration(difference))"
-                    )
-                    .font(
-                        .subheadline.weight(.semibold)
-                    )
+            if session.showWorkTimeTargetTimes {
+                HStack {
+                    if let difference =
+                        summary.differenceMinutes
+                    {
+                        Text(
+                            "Differenz: \(WorkTimeText.signedDuration(difference))"
+                        )
+                        .font(
+                            .subheadline.weight(.semibold)
+                        )
+                    }
+
+                    Spacer()
+
+                    Text(summary.statusLabel)
+                        .font(.caption.weight(.semibold))
+                        .foregroundStyle(
+                            summary.statusColor
+                        )
+                        .padding(.horizontal, 10)
+                        .padding(.vertical, 5)
+                        .background(
+                            summary.statusColor.opacity(0.14)
+                        )
+                        .clipShape(Capsule())
                 }
 
-                Spacer()
+                if let profile = summary.profile {
+                    Text("Profil: \(profile.name)")
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                }
 
-                Text(summary.statusLabel)
-                    .font(.caption.weight(.semibold))
-                    .foregroundStyle(
-                        summary.statusColor
+                if let targetOverride =
+                    summary.targetOverride
+                {
+                    Label(
+                        targetOverride.reason,
+                        systemImage:
+                            "calendar.badge.exclamationmark"
                     )
-                    .padding(.horizontal, 10)
-                    .padding(.vertical, 5)
-                    .background(
-                        summary.statusColor.opacity(0.14)
-                    )
-                    .clipShape(Capsule())
-            }
-
-            if let profile = summary.profile {
-                Text("Profil: \(profile.name)")
                     .font(.caption)
                     .foregroundStyle(.secondary)
-            }
-
-            if let targetOverride =
-                summary.targetOverride
-            {
-                Label(
-                    targetOverride.reason,
-                    systemImage:
-                        "calendar.badge.exclamationmark"
-                )
-                .font(.caption)
-                .foregroundStyle(.secondary)
+                }
             }
         }
         .padding(.vertical, 4)
