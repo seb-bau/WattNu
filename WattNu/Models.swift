@@ -68,13 +68,75 @@ struct CurrentUserResponse: Decodable {
     let user: AppUser
 }
 
+enum AppPushEvent: String, CaseIterable, Identifiable {
+    case newCommission = "new_commission"
+    case appointmentAccepted = "appointment_accepted"
+    case appointmentRejected = "appointment_rejected"
+    case commissionPriorityRaised = "commission_priority_raised"
+    case newProcessInfo = "new_process_info"
+    case newSafetyInspection = "new_safety_inspection"
+    case changedSafetyInspection = "changed_safety_inspection"
+    case urgentSafetyDefect = "urgent_safety_defect"
+
+    var id: String { rawValue }
+
+    var title: String {
+        switch self {
+        case .newCommission:
+            return "Neue Aufträge"
+        case .appointmentAccepted:
+            return "Termin angenommen"
+        case .appointmentRejected:
+            return "Termin abgelehnt"
+        case .commissionPriorityRaised:
+            return "Auftragspriorität erhöht"
+        case .newProcessInfo:
+            return "Neue Zusatzinformationen"
+        case .newSafetyInspection:
+            return "Neue Prüfaufträge"
+        case .changedSafetyInspection:
+            return "Geänderte Prüfaufträge"
+        case .urgentSafetyDefect:
+            return "Dringende Mängel"
+        }
+    }
+}
+
 struct PushPreferences: Codable, Equatable {
     let newCommissionEnabled: Bool
     let changedCommissionEnabled: Bool
+    let events: [String: Bool]?
 
     enum CodingKeys: String, CodingKey {
         case newCommissionEnabled = "new_commission_enabled"
         case changedCommissionEnabled = "changed_commission_enabled"
+        case events
+    }
+
+    func isEnabled(_ event: AppPushEvent) -> Bool {
+        if let enabled = events?[event.rawValue] {
+            return enabled
+        }
+
+        switch event {
+        case .newCommission:
+            return newCommissionEnabled
+        case .appointmentAccepted, .appointmentRejected, .commissionPriorityRaised:
+            return changedCommissionEnabled
+        default:
+            return true
+        }
+    }
+
+    func updating(_ event: AppPushEvent, enabled: Bool) -> PushPreferences {
+        var updatedEvents = events ?? [:]
+        updatedEvents[event.rawValue] = enabled
+
+        return PushPreferences(
+            newCommissionEnabled: newCommissionEnabled,
+            changedCommissionEnabled: changedCommissionEnabled,
+            events: updatedEvents
+        )
     }
 }
 
@@ -83,13 +145,7 @@ struct PushPreferencesResponse: Decodable {
 }
 
 struct PushPreferencesUpdateRequest: Encodable {
-    let newCommissionEnabled: Bool
-    let changedCommissionEnabled: Bool
-
-    enum CodingKeys: String, CodingKey {
-        case newCommissionEnabled = "new_commission_enabled"
-        case changedCommissionEnabled = "changed_commission_enabled"
-    }
+    let events: [String: Bool]
 }
 
 struct PushDeviceRegistrationRequest: Encodable {

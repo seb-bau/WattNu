@@ -77,19 +77,21 @@ final class APIClient {
     }
 
     func updatePushPreferences(
-        newCommissionEnabled: Bool,
-        changedCommissionEnabled: Bool
+        event: AppPushEvent,
+        enabled: Bool
     ) async throws -> PushPreferences {
         try requireToken()
+
         let body = PushPreferencesUpdateRequest(
-            newCommissionEnabled: newCommissionEnabled,
-            changedCommissionEnabled: changedCommissionEnabled
+            events: [event.rawValue: enabled]
         )
+
         let response: PushPreferencesResponse = try await send(
             path: "/api/push/preferences",
             method: "PATCH",
             body: body
         )
+
         return response.preferences
     }
 

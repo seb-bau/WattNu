@@ -39,43 +39,13 @@ struct AppSettingsView: View {
                     if session.isPushPreferencesLoading && session.pushPreferences == nil {
                         ProgressView("Einstellungen werden geladen …")
                     } else {
-                        Toggle(
-                            "Neue Aufträge",
-                            isOn: Binding(
-                                get: {
-                                    session.pushPreferences?.newCommissionEnabled ?? true
-                                },
-                                set: { value in
-                                    let changedValue = session.pushPreferences?.changedCommissionEnabled ?? true
-                                    Task {
-                                        await session.updatePushPreferences(
-                                            newCommissionEnabled: value,
-                                            changedCommissionEnabled: changedValue
-                                        )
-                                    }
-                                }
+                        ForEach(AppPushEvent.allCases) { event in
+                            Toggle(
+                                event.title,
+                                isOn: pushPreferenceBinding(for: event)
                             )
-                        )
-                        .disabled(arePushPreferenceControlsDisabled)
-
-                        Toggle(
-                            "Geänderte Aufträge",
-                            isOn: Binding(
-                                get: {
-                                    session.pushPreferences?.changedCommissionEnabled ?? true
-                                },
-                                set: { value in
-                                    let newValue = session.pushPreferences?.newCommissionEnabled ?? true
-                                    Task {
-                                        await session.updatePushPreferences(
-                                            newCommissionEnabled: newValue,
-                                            changedCommissionEnabled: value
-                                        )
-                                    }
-                                }
-                            )
-                        )
-                        .disabled(arePushPreferenceControlsDisabled)
+                            .disabled(arePushPreferenceControlsDisabled)
+                        }
                     }
 
                     if let message = session.pushRegistrationErrorMessage
@@ -167,11 +137,27 @@ struct AppSettingsView: View {
             }
             .navigationTitle("Einstellungen")
             .task {
-                if session.pushPreferences == nil {
-                    await session.loadPushPreferences()
-                }
+                await session.loadPushPreferences()
             }
         }
+    }
+    
+    private func pushPreferenceBinding(
+        for event: AppPushEvent
+    ) -> Binding<Bool> {
+        Binding(
+            get: {
+                session.pushPreferences?.isEnabled(event) ?? true
+            },
+            set: { enabled in
+                Task {
+                    await session.updatePushPreferences(
+                        event: event,
+                        enabled: enabled
+                    )
+                }
+            }
+        )
     }
 
     private var arePushPreferenceControlsDisabled: Bool {

@@ -188,18 +188,18 @@ final class SessionStore: ObservableObject {
     }
 
     func updatePushPreferences(
-        newCommissionEnabled: Bool,
-        changedCommissionEnabled: Bool
+        event: AppPushEvent,
+        enabled: Bool
     ) async {
-        guard isAuthenticated else {
+        guard isAuthenticated,
+              !isPushPreferencesSaving,
+              !isPushPreferencesLoading,
+              let previousPreferences = pushPreferences else {
             return
         }
 
-        let previousPreferences = pushPreferences
-        pushPreferences = PushPreferences(
-            newCommissionEnabled: newCommissionEnabled,
-            changedCommissionEnabled: changedCommissionEnabled
-        )
+        let currentAccessToken = accessToken
+        pushPreferences = previousPreferences.updating(event, enabled: enabled)
         isPushPreferencesSaving = true
 
         defer {
@@ -208,13 +208,20 @@ final class SessionStore: ObservableObject {
 
         do {
             applyCurrentBaseURL()
-            pushPreferences = try await apiClient.updatePushPreferences(
-                newCommissionEnabled: newCommissionEnabled,
-                changedCommissionEnabled: changedCommissionEnabled
+
+            let updatedPreferences = try await apiClient.updatePushPreferences(
+                event: event,
+                enabled: enabled
             )
+
+            guard accessToken == currentAccessToken else { return }
+            pushPreferences = updatedPreferences
         } catch APIError.unauthorized {
-            clearSession()
+            if accessToken == currentAccessToken {
+                clearSession()
+            }
         } catch {
+            guard accessToken == currentAccessToken else { return }
             pushPreferences = previousPreferences
             errorMessage = error.localizedDescription
         }
