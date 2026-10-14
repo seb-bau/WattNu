@@ -17,10 +17,10 @@ struct LoginView: View {
                         .font(.system(size: 56))
                         .foregroundStyle(.blue)
 
-                    Text("datlaeuft")
+                    Text("MachMa!")
                         .font(.largeTitle.bold())
 
-                    Text("Aufträge, Lager und Zeiten")
+                    Text("Auftrag rein. Haken dran. Feierabend!")
                         .foregroundStyle(.secondary)
                 }
 

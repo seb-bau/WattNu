@@ -424,6 +424,7 @@
 				ENABLE_PREVIEWS = YES;
 				GENERATE_INFOPLIST_FILE = YES;
 				INFOPLIST_FILE = WattNu/Info.plist;
+				INFOPLIST_KEY_CFBundleDisplayName = "MachMa!";
 				INFOPLIST_KEY_ITSAppUsesNonExemptEncryption = NO;
 				INFOPLIST_KEY_NSCameraUsageDescription = "Die App benötigt die Kamera, um Fotos zu Aufträgen und Prüfungen aufzunehmen.";
 				INFOPLIST_KEY_NSLocationWhenInUseUsageDescription = "Die App nutzt deinen Standort, um die Entfernung zu Aufträgen anzuzeigen und Aufträge nach Entfernung zu sortieren.";
@@ -462,6 +463,7 @@
 				ENABLE_PREVIEWS = YES;
 				GENERATE_INFOPLIST_FILE = YES;
 				INFOPLIST_FILE = WattNu/Info.plist;
+				INFOPLIST_KEY_CFBundleDisplayName = "MachMa!";
 				INFOPLIST_KEY_ITSAppUsesNonExemptEncryption = NO;
 				INFOPLIST_KEY_NSCameraUsageDescription = "Die App benötigt die Kamera, um Fotos zu Aufträgen und Prüfungen aufzunehmen.";
 				INFOPLIST_KEY_NSLocationWhenInUseUsageDescription = "Die App nutzt deinen Standort, um die Entfernung zu Aufträgen anzuzeigen und Aufträge nach Entfernung zu sortieren.";
