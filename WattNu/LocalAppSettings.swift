@@ -25,7 +25,7 @@ final class LocalAppSettings: ObservableObject {
     }
 
     init() {
-        self.baseURLString = UserDefaults.standard.string(forKey: Keys.baseURLString) ?? "http://127.0.0.1:5000"
+        self.baseURLString = UserDefaults.standard.string(forKey: Keys.baseURLString) ?? "https://public.mach-ma.app"
         self.appearanceMode = AppAppearanceMode(rawValue: UserDefaults.standard.string(forKey: Keys.appearanceMode) ?? "system") ?? .system
     }
 
