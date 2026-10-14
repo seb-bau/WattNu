@@ -1692,7 +1692,7 @@ struct SafetyInspectionJob: Codable, Identifiable, Hashable {
     let canEdit: Bool
     let group: SafetyInspectionGroupSummary
     let template: SafetyInspectionTemplateSummary
-    let department: SafetyInspectionDepartmentSummary
+    let department: SafetyInspectionDepartmentSummary?
     let assignedUser: AppUser?
     let object: SafetyInspectionObjectSummary
     var progress: SafetyInspectionProgress

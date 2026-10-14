@@ -76,8 +76,10 @@ struct SafetyInspectionDetailView: View {
                             }
                         }
 
-                        LabeledContent("Abteilung") {
-                            Text(job.department.name)
+                        if let department = job.department {
+                            LabeledContent("Abteilung") {
+                                Text(department.name)
+                            }
                         }
                     }
 
