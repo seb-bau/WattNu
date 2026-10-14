@@ -81,12 +81,21 @@ struct LoginView: View {
 
                 Spacer()
 
-                Button {
-                    showSettings.toggle()
-                } label: {
-                    Label("Verbindung einrichten", systemImage: "gearshape")
+                VStack(spacing: 12) {
+                    Button {
+                        showSettings.toggle()
+                    } label: {
+                        Label("Verbindung einrichten", systemImage: "gearshape")
+                    }
+                    .foregroundStyle(.secondary)
+
+                    if let privacyURL = URL(
+                        string: "https://www.mach-ma.app/datenschutz.html"
+                    ) {
+                        Link("Datenschutz", destination: privacyURL)
+                            .font(.footnote)
+                    }
                 }
-                .foregroundStyle(.secondary)
             }
             .padding()
             .task {

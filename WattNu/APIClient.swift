@@ -920,38 +920,45 @@ final class APIClient {
         return response.item
     }
     
+    func fetchSafetyInspectionUsers() async throws -> [AppUser] {
+        try requireToken()
+
+        let response: ListResponse<AppUser> = try await request(
+            path: "/api/safety-inspections/users"
+        )
+
+        return response.items
+    }
+
     func fetchSafetyInspections(
         status: String = "active",
         scope: String = "mine",
-        overdueOnly: Bool = false
+        overdueOnly: Bool = false,
+        userId: Int? = nil
     ) async throws -> [SafetyInspectionJob] {
         try requireToken()
 
         var queryItems = [
-            URLQueryItem(
-                name: "status",
-                value: status
-            ),
-            URLQueryItem(
-                name: "scope",
-                value: scope
-            )
+            URLQueryItem(name: "status", value: status),
+            URLQueryItem(name: "scope", value: scope)
         ]
 
-        if overdueOnly {
+        if let userId {
             queryItems.append(
-                URLQueryItem(
-                    name: "overdue",
-                    value: "1"
-                )
+                URLQueryItem(name: "user_id", value: "\(userId)")
             )
         }
 
-        let response: ListResponse<SafetyInspectionJob> =
-            try await request(
-                path: "/api/safety-inspections",
-                queryItems: queryItems
+        if overdueOnly {
+            queryItems.append(
+                URLQueryItem(name: "overdue", value: "1")
             )
+        }
+
+        let response: ListResponse<SafetyInspectionJob> = try await request(
+            path: "/api/safety-inspections",
+            queryItems: queryItems
+        )
 
         return response.items
     }

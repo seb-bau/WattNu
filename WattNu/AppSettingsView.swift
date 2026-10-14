@@ -122,6 +122,16 @@ struct AppSettingsView: View {
                         value: session.isMicrosoftLoginAvailable ? "Verfügbar" : "Nicht verfügbar"
                     )
                 }
+                
+                Section("Rechtliches") {
+                    if let privacyURL = URL(
+                        string: "https://www.mach-ma.app/datenschutz.html"
+                    ) {
+                        Link(destination: privacyURL) {
+                            Label("Datenschutz", systemImage: "hand.raised")
+                        }
+                    }
+                }
 
                 Section {
                     Button(role: .destructive) {
