@@ -1873,6 +1873,9 @@ struct SafetyInspectionResult: Codable, Identifiable, Hashable {
     let publicId: String
     let positionIndex: Int
     let title: String
+    let catalogPosition: String?
+    let sectionKey: String?
+    let sectionTitle: String?
     let description: String?
     let helpText: String?
     let required: Bool
@@ -1893,6 +1896,9 @@ struct SafetyInspectionResult: Codable, Identifiable, Hashable {
         case publicId = "public_id"
         case positionIndex = "position_index"
         case title
+        case catalogPosition = "catalog_position"
+        case sectionKey = "section_key"
+        case sectionTitle = "section_title"
         case description
         case helpText = "help_text"
         case required

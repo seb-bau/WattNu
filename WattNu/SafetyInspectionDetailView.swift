@@ -131,27 +131,24 @@ struct SafetyInspectionDetailView: View {
                         }
                     }
 
-                    Section("Prüfpunkte") {
-                        ForEach(job.results ?? []) { result in
-                            NavigationLink {
-                                SafetyInspectionResultEditorView(
-                                    jobId: job.id,
-                                    initialResult: result,
-                                    canEdit: job.canEdit,
-                                    onChanged: {
-                                        updatedResult in
-
-                                        updateCachedResult(
-                                            updatedResult
-                                        )
-                                    }
-                                )
-                            } label: {
-                                SafetyInspectionResultRowView(
-                                    result: result
-                                )
+                    ForEach(resultSections(job.results ?? [])) { section in
+                        Section(section.title) {
+                            ForEach(section.results) { result in
+                                NavigationLink {
+                                    SafetyInspectionResultEditorView(
+                                        jobId: job.id,
+                                        initialResult: result,
+                                        canEdit: job.canEdit,
+                                        onChanged: { updatedResult in
+                                            updateCachedResult(updatedResult)
+                                        }
+                                    )
+                                } label: {
+                                    SafetyInspectionResultRowView(result: result)
+                                }
                             }
                         }
+                        .textCase(nil)
                     }
 
                     if job.canEdit {
@@ -299,6 +296,35 @@ struct SafetyInspectionDetailView: View {
             errorMessage = error.localizedDescription
         }
     }
+    
+    private struct ResultSection: Identifiable {
+        let id: Int
+        let key: String?
+        let title: String
+        var results: [SafetyInspectionResult]
+    }
+
+    private func resultSections(_ results: [SafetyInspectionResult]) -> [ResultSection] {
+        var sections: [ResultSection] = []
+        let orderedResults = results.sorted {
+            if $0.positionIndex == $1.positionIndex { return $0.id < $1.id }
+            return $0.positionIndex < $1.positionIndex
+        }
+        for result in orderedResults {
+            if let lastIndex = sections.indices.last,
+               sections[lastIndex].key == result.sectionKey {
+                sections[lastIndex].results.append(result)
+            } else {
+                sections.append(ResultSection(
+                    id: result.id,
+                    key: result.sectionKey,
+                    title: result.sectionTitle ?? "Prüfpunkte",
+                    results: [result]
+                ))
+            }
+        }
+        return sections
+    }
 
     private func updateCachedResult(
         _ result: SafetyInspectionResult
@@ -362,6 +388,13 @@ struct SafetyInspectionResultRowView: View {
                 .clipShape(Circle())
 
             VStack(alignment: .leading, spacing: 5) {
+                if let catalogPosition = result.catalogPosition,
+                   !catalogPosition.isEmpty {
+                    Text("Katalogposition: \(catalogPosition)")
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                }
+                
                 Text(result.title)
                     .foregroundStyle(.primary)
 
@@ -460,6 +493,16 @@ struct SafetyInspectionResultEditorView: View {
     var body: some View {
         Form {
             Section("Prüfpunkt") {
+                if let sectionTitle = result.sectionTitle {
+                    Text(sectionTitle)
+                        .font(.subheadline)
+                        .foregroundStyle(.secondary)
+                }
+                if let catalogPosition = result.catalogPosition,
+                   !catalogPosition.isEmpty {
+                    LabeledContent("Katalogposition", value: catalogPosition)
+                }
+                
                 Text(result.title)
                     .font(.headline)
 
