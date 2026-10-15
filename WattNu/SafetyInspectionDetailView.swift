@@ -60,14 +60,6 @@ struct SafetyInspectionDetailView: View {
                             .foregroundStyle(.red)
                         }
 
-                        LabeledContent("Fortschritt") {
-                            Text(
-                                "\(job.progress.checkedCount) "
-                                + "von "
-                                + "\(job.progress.resultCount)"
-                            )
-                        }
-
                         if let assignedUser = job.assignedUser {
                             LabeledContent("Zuständig") {
                                 Text(
@@ -84,50 +76,34 @@ struct SafetyInspectionDetailView: View {
                     }
 
                     Section("Objekt") {
-                        LabeledContent("Ebene") {
-                            Text(job.object.levelLabel)
-                        }
-
                         LabeledContent("Adresse") {
                             Text(job.objectTitle)
-                                .multilineTextAlignment(
-                                    .trailing
-                                )
+                                .multilineTextAlignment(.trailing)
                         }
 
                         if let location = job.object.location,
                            !location.isEmpty {
                             LabeledContent("Lage") {
                                 Text(location)
-                                    .multilineTextAlignment(
-                                        .trailing
-                                    )
+                                    .multilineTextAlignment(.trailing)
                             }
                         }
 
-                        if let value = job.object
-                            .economicUnitIdnum {
-                            LabeledContent(
-                                "Wirtschaftseinheit"
-                            ) {
-                                Text(value)
+                        switch job.object.level {
+                        case "economic_unit":
+                            if let value = job.object.economicUnitIdnum {
+                                LabeledContent("Wirtschaftseinheit", value: value)
                             }
-                        }
-
-                        if let value = job.object
-                            .buildingIdnum {
-                            LabeledContent("Gebäude") {
-                                Text(value)
+                        case "building":
+                            if let value = job.object.buildingIdnum {
+                                LabeledContent("Gebäude", value: value)
                             }
-                        }
-
-                        if let value = job.object
-                            .useUnitIdnum {
-                            LabeledContent(
-                                "Nutzungseinheit"
-                            ) {
-                                Text(value)
+                        case "use_unit":
+                            if let value = job.object.useUnitIdnum {
+                                LabeledContent("Nutzungseinheit", value: value)
                             }
+                        default:
+                            EmptyView()
                         }
                     }
 
@@ -622,38 +598,39 @@ struct SafetyInspectionResultEditorView: View {
                     .disabled(isUploading)
                 }
             }
-
+            
+        }
+        .safeAreaInset(edge: .bottom, spacing: 0) {
             if canEdit {
-                Section {
-                    Button {
-                        Task {
-                            await saveResult()
-                        }
-                    } label: {
-                        HStack {
-                            Spacer()
-
-                            if isSaving {
-                                ProgressView()
-                            } else {
-                                Label(
-                                    "Prüfpunkt speichern",
-                                    systemImage: "checkmark"
-                                )
-                            }
-
-                            Spacer()
-                        }
+                Button {
+                    Task {
+                        await saveResult()
                     }
-                    .disabled(
-                        isSaving || isUploading
-                    )
+                } label: {
+                    HStack {
+                        Spacer()
+
+                        if isSaving {
+                            ProgressView()
+                        } else {
+                            Label(
+                                "Prüfpunkt speichern",
+                                systemImage: "checkmark"
+                            )
+                        }
+
+                        Spacer()
+                    }
                 }
+                .buttonStyle(.borderedProminent)
+                .controlSize(.large)
+                .disabled(isSaving || isUploading)
+                .padding(.horizontal, 16)
+                .padding(.vertical, 12)
+                .background(.bar)
             }
         }
-        .navigationTitle(
-            "Prüfpunkt \(result.positionIndex + 1)"
-        )
+        .navigationTitle("")
         .navigationBarTitleDisplayMode(.inline)
         .task {
             await loadThumbnails()
