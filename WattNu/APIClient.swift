@@ -33,7 +33,8 @@ enum APIError: LocalizedError {
 final class APIClient {
     var baseURL: URL
     var accessToken: String?
-
+    weak var safetyInspectionStore: SafetyInspectionOfflineStore?
+    
     private let session: URLSession
     private let encoder: JSONEncoder
     private let decoder: JSONDecoder
@@ -920,7 +921,7 @@ final class APIClient {
         return response.item
     }
     
-    func fetchSafetyInspectionUsers() async throws -> [AppUser] {
+    func fetchSafetyInspectionUsersRemote() async throws -> [AppUser] {
         try requireToken()
 
         let response: ListResponse<AppUser> = try await request(
@@ -930,7 +931,7 @@ final class APIClient {
         return response.items
     }
 
-    func fetchSafetyInspections(
+    func fetchSafetyInspectionsRemote(
         status: String = "active",
         scope: String = "mine",
         overdueOnly: Bool = false,
@@ -963,7 +964,7 @@ final class APIClient {
         return response.items
     }
 
-    func fetchSafetyInspection(
+    func fetchSafetyInspectionRemote(
         id: Int
     ) async throws -> SafetyInspectionJob {
         try requireToken()
@@ -976,7 +977,7 @@ final class APIClient {
         return response.item
     }
 
-    func updateSafetyInspectionResult(
+    func updateSafetyInspectionResultRemote(
         jobId: Int,
         resultId: Int,
         state: String,
@@ -1006,7 +1007,7 @@ final class APIClient {
         return response.item
     }
 
-    func completeSafetyInspection(
+    func completeSafetyInspectionRemote(
         jobId: Int,
         overallNote: String?
     ) async throws -> SafetyInspectionJob {
@@ -1029,7 +1030,7 @@ final class APIClient {
         return response.item
     }
 
-    func uploadSafetyInspectionPhoto(
+    func uploadSafetyInspectionPhotoRemote(
         jobId: Int,
         resultId: Int,
         imageData: Data,
@@ -1111,7 +1112,7 @@ final class APIClient {
         )
     }
 
-    func deleteSafetyInspectionPhoto(
+    func deleteSafetyInspectionPhotoRemote(
         jobId: Int,
         resultId: Int,
         photoId: Int
@@ -1131,7 +1132,7 @@ final class APIClient {
         )
     }
 
-    func downloadSafetyInspectionPhoto(
+    func downloadSafetyInspectionPhotoRemote(
         path: String
     ) async throws -> Data {
         try requireToken()
@@ -1312,4 +1313,184 @@ private extension Data {
             append(data)
         }
     }
+}
+
+@MainActor
+extension APIClient {
+    func fetchSafetyInspectionUsers() async throws -> [AppUser] {
+        if let safetyInspectionStore {
+            return try await safetyInspectionStore.fetchUsers()
+        }
+        return try await fetchSafetyInspectionUsersRemote()
+    }
+
+    func fetchSafetyInspections(
+        status: String = "active", scope: String = "mine",
+        overdueOnly: Bool = false, userId: Int? = nil
+    ) async throws -> [SafetyInspectionJob] {
+        if let safetyInspectionStore {
+            return try await safetyInspectionStore.fetchJobs(
+                status: status,
+                scope: scope,
+                overdue: overdueOnly,
+                userId: userId
+            )
+        }
+        return try await fetchSafetyInspectionsRemote(
+            status: status,
+            scope: scope,
+            overdueOnly: overdueOnly,
+            userId: userId
+        )
+    }
+
+    func fetchSafetyInspection(id: Int) async throws -> SafetyInspectionJob {
+        if let safetyInspectionStore {
+            return try await safetyInspectionStore.fetchJob(id)
+        }
+        return try await fetchSafetyInspectionRemote(id: id)
+    }
+
+    func updateSafetyInspectionResult(
+        jobId: Int, resultId: Int, state: String, note: String?,
+        immediateAction: String?, version: Int
+    ) async throws -> SafetyInspectionResult {
+        if let safetyInspectionStore {
+            return try safetyInspectionStore.saveResult(
+                jobId: jobId,
+                resultId: resultId,
+                state: state,
+                note: note,
+                immediateAction: immediateAction,
+                version: version
+            )
+        }
+        return try await updateSafetyInspectionResultRemote(
+            jobId: jobId,
+            resultId: resultId,
+            state: state,
+            note: note,
+            immediateAction: immediateAction,
+            version: version
+        )
+    }
+
+    func completeSafetyInspection(
+        jobId: Int, overallNote: String?
+    ) async throws -> SafetyInspectionJob {
+        if let safetyInspectionStore {
+            return try safetyInspectionStore.complete(
+                jobId: jobId,
+                note: overallNote
+            )
+        }
+        return try await completeSafetyInspectionRemote(
+            jobId: jobId,
+            overallNote: overallNote
+        )
+    }
+
+    func uploadSafetyInspectionPhoto(
+        jobId: Int, resultId: Int, imageData: Data, source: String,
+        caption: String? = nil, capturedAt: Date = Date()
+    ) async throws -> SafetyInspectionPhotoUploadResponse {
+        if let safetyInspectionStore {
+            return try safetyInspectionStore.addPhoto(
+                jobId: jobId,
+                resultId: resultId,
+                data: imageData,
+                source: source,
+                caption: caption,
+                capturedAt: capturedAt
+            )
+        }
+        return try await uploadSafetyInspectionPhotoRemote(
+            jobId: jobId,
+            resultId: resultId,
+            imageData: imageData,
+            source: source,
+            caption: caption,
+            capturedAt: capturedAt
+        )
+    }
+
+    func deleteSafetyInspectionPhoto(
+        jobId: Int, resultId: Int, photoId: Int
+    ) async throws {
+        if let safetyInspectionStore {
+            try safetyInspectionStore.deletePhoto(
+                jobId: jobId,
+                resultId: resultId,
+                photoId: photoId
+            )
+            return
+        }
+        try await deleteSafetyInspectionPhotoRemote(
+            jobId: jobId,
+            resultId: resultId,
+            photoId: photoId
+        )
+    }
+
+    func downloadSafetyInspectionPhoto(path: String) async throws -> Data {
+        if path.hasPrefix("offline-photo/"), let safetyInspectionStore {
+            return try safetyInspectionStore.localPhoto(path)
+        }
+        return try await downloadSafetyInspectionPhotoRemote(path: path)
+    }
+
+    func fetchInspectionOfflineDetails(
+        ids: [Int]
+    ) async throws -> InspectionOfflineDetailsResponse {
+        try requireToken()
+        return try await send(
+            path: "/api/safety-inspections/offline-details",
+            method: "POST",
+            body: InspectionOfflineIDs(ids: ids)
+        )
+    }
+
+    func sendInspectionOperation(
+        _ operation: InspectionOperationRequest,
+        photo: Data?
+    ) async throws -> InspectionOperationResponse {
+        try requireToken()
+        let path = "/api/safety-inspections/\(operation.jobId)/offline-operations"
+        guard let photo else {
+            return try await send(
+                path: path,
+                method: "POST",
+                body: operation
+            )
+        }
+
+        let boundary = "WattNu-\(UUID().uuidString)"
+        var data = Data()
+        data.appendUTF8("--\(boundary)\r\n")
+        data.appendUTF8("Content-Disposition: form-data; name=\"operation\"\r\n\r\n")
+        data.append(try JSONEncoder().encode(operation))
+        data.appendUTF8("\r\n--\(boundary)\r\n")
+        data.appendUTF8(
+            "Content-Disposition: form-data; name=\"photo\"; filename=\"prueffoto.jpg\"\r\n"
+        )
+        data.appendUTF8("Content-Type: image/jpeg\r\n\r\n")
+        data.append(photo)
+        data.appendUTF8("\r\n--\(boundary)--\r\n")
+
+        let response = try await performRaw(
+            path: path,
+            method: "POST",
+            contentType: "multipart/form-data; boundary=\(boundary)",
+            accept: "application/json",
+            bodyData: data
+        )
+        return try JSONDecoder().decode(
+            InspectionOperationResponse.self,
+            from: response
+        )
+    }
+}
+
+private struct InspectionOfflineIDs: Encodable {
+    let ids: [Int]
 }

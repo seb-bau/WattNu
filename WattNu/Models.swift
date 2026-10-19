@@ -1688,15 +1688,15 @@ struct SafetyInspectionJob: Codable, Identifiable, Hashable {
     let missedOn: String
     let isDue: Bool
     let isOverdue: Bool
-    let isTerminal: Bool
-    let canEdit: Bool
+    var isTerminal: Bool
+    var canEdit: Bool
     let group: SafetyInspectionGroupSummary
     let template: SafetyInspectionTemplateSummary
     let department: SafetyInspectionDepartmentSummary?
     let assignedUser: AppUser?
     let object: SafetyInspectionObjectSummary
     var progress: SafetyInspectionProgress
-    let overallNote: String?
+    var overallNote: String?
     let startedAt: String?
     let completedAt: String?
     let completedBy: AppUser?

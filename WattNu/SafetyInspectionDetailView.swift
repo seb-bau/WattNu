@@ -4,11 +4,13 @@ import UIKit
 
 struct SafetyInspectionDetailView: View {
     @EnvironmentObject private var session: SessionStore
+    @EnvironmentObject private var inspections: SafetyInspectionOfflineStore
 
     let jobId: Int
 
     @State private var job: SafetyInspectionJob?
     @State private var overallNote = ""
+    @State private var storedOverallNote = ""
     @State private var isLoading = false
     @State private var isCompleting = false
     @State private var completionConfirmationPresented = false
@@ -26,6 +28,23 @@ struct SafetyInspectionDetailView: View {
                 )
             } else if let job {
                 Form {
+                    Section("Übertragung") {
+                        if inspections.completionJobIds.contains(jobId) {
+                            Text("Lokal abgeschlossen – Übertragung ausstehend")
+                        } else if inspections.pendingJobIds.contains(jobId) {
+                            Text("Lokal gespeichert – Übertragung ausstehend")
+                        } else {
+                            Text("Gespeicherter Prüfauftrag")
+                        }
+
+                        if !inspections.message.isEmpty {
+                            Text(inspections.message)
+                        }
+
+                        NavigationLink("Übertragung prüfen") {
+                            InspectionSyncView()
+                        }
+                    }
                     Section("Prüfung") {
                         LabeledContent("Prüfgruppe") {
                             Text(job.group.name)
@@ -189,6 +208,11 @@ struct SafetyInspectionDetailView: View {
         .task {
             await loadJob()
         }
+        .onChange(of: inspections.revision) { _, _ in
+            if let cached = try? inspections.cachedJob(jobId) {
+                acceptJob(cached)
+            }
+        }
         .confirmationDialog(
             "Prüfung abschließen?",
             isPresented: $completionConfirmationPresented,
@@ -232,6 +256,10 @@ struct SafetyInspectionDetailView: View {
     private func loadJob() async {
         isLoading = true
 
+        if let cached = try? inspections.cachedJob(jobId) {
+            acceptJob(cached)
+        }
+
         defer {
             isLoading = false
         }
@@ -240,8 +268,7 @@ struct SafetyInspectionDetailView: View {
             let loadedJob = try await session.apiClient
                 .fetchSafetyInspection(id: jobId)
 
-            job = loadedJob
-            overallNote = loadedJob.overallNote ?? ""
+            acceptJob(loadedJob)
         } catch {
             if error.isRequestCancellation {
                 return
@@ -249,6 +276,15 @@ struct SafetyInspectionDetailView: View {
 
             errorMessage = error.localizedDescription
         }
+    }
+
+    private func acceptJob(_ value: SafetyInspectionJob) {
+        let savedNote = value.overallNote ?? ""
+        if overallNote == storedOverallNote {
+            overallNote = savedNote
+        }
+        storedOverallNote = savedNote
+        job = value
     }
 
     private func completeJob() async {
@@ -263,11 +299,12 @@ struct SafetyInspectionDetailView: View {
         }
 
         do {
-            job = try await session.apiClient
+            let completedJob = try await session.apiClient
                 .completeSafetyInspection(
                     jobId: jobId,
                     overallNote: normalizedOverallNote
                 )
+            acceptJob(completedJob)
         } catch {
             errorMessage = error.localizedDescription
         }
@@ -408,6 +445,7 @@ struct SafetyInspectionResultRowView: View {
 
 struct SafetyInspectionResultEditorView: View {
     @EnvironmentObject private var session: SessionStore
+    @EnvironmentObject private var inspections: SafetyInspectionOfflineStore
     @Environment(\.dismiss) private var dismiss
 
     let jobId: Int
@@ -635,6 +673,23 @@ struct SafetyInspectionResultEditorView: View {
         .task {
             await loadThumbnails()
         }
+        .onChange(of: inspections.revision) { _, _ in
+            if let cached = try? inspections.cachedJob(jobId),
+               let updated = cached.results?.first(where: { $0.id == result.id }) {
+                let previous = Dictionary(
+                    uniqueKeysWithValues: result.photos.map {
+                        ($0.publicId, $0.id)
+                    }
+                )
+                for photo in updated.photos {
+                    if let oldId = previous[photo.publicId],
+                       let image = thumbnails[oldId] {
+                        thumbnails[photo.id] = image
+                    }
+                }
+                result.photos = updated.photos
+            }
+        }
         .confirmationDialog(
             "Foto hinzufügen",
             isPresented: $sourceDialogPresented,
@@ -732,7 +787,8 @@ struct SafetyInspectionResultEditorView: View {
                             .resizable()
                             .scaledToFill()
                     } else {
-                        ProgressView()
+                        Image(systemName: "photo")
+                            .foregroundStyle(.secondary)
                     }
                 }
                 .frame(height: 112)
@@ -849,9 +905,25 @@ struct SafetyInspectionResultEditorView: View {
         _ image: UIImage,
         source: String
     ) async {
-        guard let imageData = image.jpegData(
-            compressionQuality: 0.82
-        ) else {
+        let scale = min(
+            1,
+            2560 / max(image.size.width, image.size.height)
+        )
+        let size = CGSize(
+            width: image.size.width * scale,
+            height: image.size.height * scale
+        )
+        let format = UIGraphicsImageRendererFormat()
+        format.scale = 1
+
+        let normalized = UIGraphicsImageRenderer(
+            size: size,
+            format: format
+        ).image { _ in
+            image.draw(in: CGRect(origin: .zero, size: size))
+        }
+
+        guard let imageData = normalized.jpegData(compressionQuality: 0.82) else {
             errorMessage = (
                 "Das Foto konnte nicht "
                 + "vorbereitet werden."
@@ -949,6 +1021,7 @@ struct SafetyInspectionResultEditorView: View {
             }
         } catch {
             if !error.isRequestCancellation,
+               !InspectionOfflineError.isConnectionError(error),
                errorMessage == nil {
                 errorMessage = error.localizedDescription
             }
@@ -999,6 +1072,7 @@ struct SafetyInspectionResultEditorView: View {
 
 struct SafetyInspectionPhotoPreview: View {
     @EnvironmentObject private var session: SessionStore
+    @EnvironmentObject private var inspections: SafetyInspectionOfflineStore
     @Environment(\.dismiss) private var dismiss
 
     let photo: SafetyInspectionPhoto

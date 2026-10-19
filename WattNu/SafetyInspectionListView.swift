@@ -3,6 +3,7 @@ import SwiftUI
 struct SafetyInspectionListView: View {
     @EnvironmentObject private var session: SessionStore
     @EnvironmentObject private var navigation: AppNavigationStore
+    @EnvironmentObject private var inspections: SafetyInspectionOfflineStore
 
     @State private var jobs: [SafetyInspectionJob] = []
     @State private var inspectionUsers: [AppUser] = []
@@ -160,7 +161,35 @@ struct SafetyInspectionListView: View {
         NavigationStack(path: $navigation.safetyInspectionPath) {
             VStack(spacing: 0) {
                 filterHeader
+                HStack {
+                    NavigationLink {
+                        InspectionSyncView()
+                    } label: {
+                        Label(
+                            "\(inspections.pendingCount) ausstehend",
+                            systemImage: "arrow.triangle.2.circlepath"
+                        )
+                    }
 
+                    Spacer()
+
+                    Button("Offline vorbereiten") {
+                        Task {
+                            await inspections.prepare(filteredJobs)
+                        }
+                    }
+                    .disabled(inspections.isPreparing || filteredJobs.isEmpty)
+                }
+                .font(.caption)
+                .padding(.horizontal)
+                .padding(.vertical, 6)
+
+                if !inspections.preparationText.isEmpty {
+                    Text(inspections.preparationText)
+                        .font(.caption)
+                        .padding(.horizontal)
+                }
+                
                 if isSearchExpanded {
                     HStack(spacing: 8) {
                         Image(systemName: "magnifyingglass")
@@ -283,6 +312,15 @@ struct SafetyInspectionListView: View {
                     await loadJobs()
                 }
             }
+            .onChange(of: inspections.revision) { _, _ in
+                if let cached = try? inspections.cachedJobs(
+                    status: statusFilter.rawValue,
+                    scope: ownerFilter.scope.rawValue,
+                    userId: ownerFilter.userId
+                ) {
+                    jobs = cached
+                }
+            }
             .alert(
                 "Fehler",
                 isPresented: Binding(
@@ -320,6 +358,9 @@ struct SafetyInspectionListView: View {
         usersLoadRevision += 1
         let requestedRevision = usersLoadRevision
         isLoadingUsers = true
+        if let cached = try? inspections.cachedUsers() {
+            inspectionUsers = cached
+        }
 
         defer {
             if requestedRevision == usersLoadRevision {
@@ -361,6 +402,13 @@ struct SafetyInspectionListView: View {
         let requestedOwner = ownerFilter
         let requestedStatus = statusFilter
         isLoading = true
+        if let cached = try? inspections.cachedJobs(
+            status: requestedStatus.rawValue,
+            scope: requestedOwner.scope.rawValue,
+            userId: requestedOwner.userId
+        ) {
+            jobs = cached
+        }
 
         defer {
             if requestedRevision == loadRevision {

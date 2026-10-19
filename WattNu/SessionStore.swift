@@ -16,7 +16,8 @@ final class SessionStore: ObservableObject {
 
     let localSettings: LocalAppSettings
     let apiClient: APIClient
-
+    let inspectionStore = SafetyInspectionOfflineStore()
+    
     private let tokenStore = KeychainTokenStore()
     private var lastRegisteredDeviceKey: String?
     private var pendingDeviceRegistrationKey: String?
@@ -50,6 +51,7 @@ final class SessionStore: ObservableObject {
         self.accessToken = tokenStore.readToken()
         self.user = Self.readStoredUser()
         self.apiClient.accessToken = accessToken
+        configureInspectionStorage()
     }
 
     func bootstrap() async {
@@ -70,6 +72,7 @@ final class SessionStore: ObservableObject {
             let response = try await apiClient.getMe()
             user = response.user
             Self.saveStoredUser(response.user)
+            configureInspectionStorage()
             await loadPushPreferences(showErrors: false)
         } catch APIError.unauthorized {
             clearSession()
@@ -299,6 +302,7 @@ final class SessionStore: ObservableObject {
         if apiClient.baseURL != baseURL {
             apiClient.updateBaseURL(baseURL)
             resetPushRegistration()
+            configureInspectionStorage()
         }
     }
 
@@ -356,6 +360,7 @@ final class SessionStore: ObservableObject {
         apiClient.accessToken = response.accessToken
         tokenStore.saveToken(response.accessToken)
         Self.saveStoredUser(response.user)
+        configureInspectionStorage()
         resetPushRegistration()
     }
 
@@ -367,9 +372,23 @@ final class SessionStore: ObservableObject {
         apiClient.accessToken = nil
         tokenStore.deleteToken()
         Self.deleteStoredUser()
+        configureInspectionStorage()
         resetPushRegistration()
     }
-
+    
+    private func configureInspectionStorage() {
+        apiClient.safetyInspectionStore = inspectionStore
+        do {
+            try inspectionStore.bind(
+                user: user,
+                baseURL: apiClient.baseURL,
+                token: accessToken
+            )
+        } catch {
+            errorMessage = error.localizedDescription
+        }
+    }
+    
     private static func readStoredUser() -> AppUser? {
         guard let data = UserDefaults.standard.data(forKey: Keys.storedUser) else {
             return nil

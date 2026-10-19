@@ -17,6 +17,7 @@ struct DatLaeuftApp: App {
         WindowGroup {
             RootView()
                 .environmentObject(session)
+                .environmentObject(session.inspectionStore)
                 .environmentObject(session.localSettings)
                 .environmentObject(locationStore)
                 .environmentObject(navigation)
@@ -53,6 +54,7 @@ struct DatLaeuftApp: App {
                 }
                 .onChange(of: scenePhase) { _, newValue in
                     if newValue == .active {
+                        session.inspectionStore.setActive(newValue == .active)
                         navigation.commissionListRevision += 1
 
                         Task {
