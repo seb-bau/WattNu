@@ -243,6 +243,16 @@ struct SafetyInspectionListView: View {
     }
 }
 
+@MainActor
+    private func loadInitialData() async {
+        guard !Task.isCancelled else { return }
+
+        async let userLoad: Void = loadInspectionUsers()
+        async let jobLoad: Void = loadJobs()
+
+        _ = await (userLoad, jobLoad)
+    }
+
 enum SafetyInspectionListFilter: String,
     CaseIterable,
     Identifiable {
