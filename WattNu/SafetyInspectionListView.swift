@@ -1,3 +1,4 @@
+
 import SwiftUI
 
 struct SafetyInspectionListView: View {
@@ -5,257 +6,183 @@ struct SafetyInspectionListView: View {
     @EnvironmentObject private var navigation: AppNavigationStore
 
     @State private var jobs: [SafetyInspectionJob] = []
-    @State private var inspectionUsers: [AppUser] = []
-    @State private var ownerFilter: CommissionOwnerFilter = .mine
-    @State private var sortMode: SafetyInspectionSortMode = .dueDate
-    @State private var isSearchVisible = false
-    @State private var isLoading = false
-    @State private var isLoadingUsers = false
-    @State private var usersLoadRevision = 0
-    @State private var loadRevision = 0
-    @State private var errorMessage: String?
+    private var searchText: String {
+        navigation.safetyInspectionSearchText
+    }
 
     private var statusFilter: SafetyInspectionListFilter {
         navigation.safetyInspectionStatusFilter
     }
-
-    private var isSearchExpanded: Bool {
-        isSearchVisible || !navigation.safetyInspectionSearchText.isEmpty
-    }
-
-    private var colleagueUsers: [AppUser] {
-        inspectionUsers
-            .filter { $0.id != session.user?.id }
-            .sorted {
-                $0.displayName.localizedCaseInsensitiveCompare(
-                    $1.displayName
-                ) == .orderedAscending
-            }
-    }
-
-    private var ownerFilterLabel: String {
-        switch ownerFilter {
-        case .mine:
-            return "Meine"
-        case .all:
-            return "Alle"
-        case .user(let userId):
-            return inspectionUsers.first {
-                $0.id == userId
-            }?.displayName ?? "Kollege"
-        }
-    }
+    @State private var sortMode: SafetyInspectionSortMode = .dueDate
+    @State private var isLoading = false
+    @State private var errorMessage: String?
 
     private var filteredJobs: [SafetyInspectionJob] {
-        let selectedJobs = jobs.filter { job in
-            let matchesOwner: Bool
-
-            switch ownerFilter {
-            case .mine:
-                matchesOwner = job.assignedUser?.id == session.user?.id
-            case .user(let userId):
-                matchesOwner = job.assignedUser?.id == userId
-            case .all:
-                matchesOwner = true
-            }
-
-            return matchesOwner
-                && statusFilter.matches(job)
-                && job.matchesSearch(navigation.safetyInspectionSearchText)
-        }
-
-        return selectedJobs.sorted { left, right in
-            switch sortMode {
-            case .dueDate:
-                return left.dueTo == right.dueTo
-                    ? left.id < right.id
-                    : left.dueTo < right.dueTo
-            case .address:
-                let comparison = left.objectTitle
-                    .localizedCaseInsensitiveCompare(right.objectTitle)
-                return comparison == .orderedSame
-                    ? left.id < right.id
-                    : comparison == .orderedAscending
-            case .status:
-                let comparison = left.statusLabel
-                    .localizedCaseInsensitiveCompare(right.statusLabel)
-                if comparison != .orderedSame {
-                    return comparison == .orderedAscending
-                }
-                return left.dueTo == right.dueTo
-                    ? left.id < right.id
-                    : left.dueTo < right.dueTo
-            }
-        }
-    }
-
-    private var filterHeader: some View {
-        VStack(alignment: .leading, spacing: 6) {
-            HStack(spacing: 8) {
-                Picker(selection: $ownerFilter) {
-                    Text("Meine").tag(CommissionOwnerFilter.mine)
-
-                    ForEach(colleagueUsers) { user in
-                        Text(user.displayName)
-                            .tag(CommissionOwnerFilter.user(user.id))
-                    }
-
-                    Text("Alle").tag(CommissionOwnerFilter.all)
-                } label: {
-                    Text(ownerFilterLabel).lineLimit(1)
-                }
-                .pickerStyle(.menu)
-                .frame(maxWidth: .infinity, alignment: .leading)
-
-                Picker(
-                    selection: $navigation.safetyInspectionStatusFilter
-                ) {
-                    ForEach(SafetyInspectionListFilter.allCases) { filter in
-                        Text(filter.label).tag(filter)
-                    }
-                } label: {
-                    Text(statusFilter.label).lineLimit(1)
-                }
-                .pickerStyle(.menu)
-                .frame(maxWidth: .infinity, alignment: .center)
-
-                Picker(selection: $sortMode) {
-                    ForEach(SafetyInspectionSortMode.allCases) { mode in
-                        Text(mode.label).tag(mode)
-                    }
-                } label: {
-                    Text(sortMode.label).lineLimit(1)
-                }
-                .pickerStyle(.menu)
-                .frame(maxWidth: .infinity, alignment: .trailing)
-            }
-
-            Text(
-                isLoading || isLoadingUsers
-                    ? "Prüfaufträge werden geladen …"
-                    : "\(filteredJobs.count) Prüfaufträge"
+        let query = searchText
+            .trimmingCharacters(
+                in: .whitespacesAndNewlines
             )
-            .font(.caption)
-            .foregroundStyle(.secondary)
-            .frame(maxWidth: .infinity, alignment: .trailing)
+            .lowercased()
+
+        let searchedJobs = jobs.filter {
+            $0.matchesSearch(searchText)
         }
-        .padding(.horizontal)
-        .padding(.vertical, 8)
-        .background(.background)
+
+        switch sortMode {
+        case .dueDate:
+            return searchedJobs.sorted {
+                if $0.dueTo == $1.dueTo {
+                    return $0.id < $1.id
+                }
+
+                return $0.dueTo < $1.dueTo
+            }
+
+        case .address:
+            return searchedJobs.sorted {
+                $0.objectTitle
+                    .localizedCaseInsensitiveCompare(
+                        $1.objectTitle
+                    ) == .orderedAscending
+            }
+
+        case .status:
+            return searchedJobs.sorted {
+                if $0.statusLabel == $1.statusLabel {
+                    return $0.dueTo < $1.dueTo
+                }
+
+                return $0.statusLabel
+                    .localizedCaseInsensitiveCompare(
+                        $1.statusLabel
+                    ) == .orderedAscending
+            }
+        }
     }
 
     var body: some View {
-        NavigationStack(path: $navigation.safetyInspectionPath) {
+        NavigationStack(
+            path: $navigation.safetyInspectionPath
+        ) {
             VStack(spacing: 0) {
-                filterHeader
-
-                if isSearchExpanded {
-                    HStack(spacing: 8) {
-                        Image(systemName: "magnifyingglass")
-                            .foregroundStyle(.secondary)
-
-                        TextField(
-                            "Prüfaufträge durchsuchen",
-                            text: $navigation.safetyInspectionSearchText
-                        )
-
-                        if !navigation.safetyInspectionSearchText.isEmpty {
-                            Button {
-                                navigation.safetyInspectionSearchText = ""
-                            } label: {
-                                Image(systemName: "xmark.circle.fill")
-                                    .foregroundStyle(.secondary)
-                            }
-                            .buttonStyle(.plain)
+                VStack(spacing: 10) {
+                    Picker(
+                        "Status",
+                        selection: $navigation.safetyInspectionStatusFilter
+                    ) {
+                        ForEach(SafetyInspectionListFilter.allCases) { filter in
+                            Text(filter.label)
+                                .tag(filter)
                         }
                     }
-                    .padding(.horizontal, 10)
-                    .frame(height: 36)
-                    .background(Color(.secondarySystemGroupedBackground))
-                    .clipShape(RoundedRectangle(cornerRadius: 10))
-                    .padding(.horizontal)
-                    .padding(.top, 8)
-                    .padding(.bottom, 10)
-                    .background(Color(.systemGroupedBackground))
+                    .pickerStyle(.segmented)
+
+                    Picker(
+                        "Sortierung",
+                        selection: $sortMode
+                    ) {
+                        ForEach(
+                            SafetyInspectionSortMode.allCases
+                        ) { mode in
+                            Text(mode.label)
+                                .tag(mode)
+                        }
+                    }
+                    .pickerStyle(.segmented)
                 }
+                .padding()
+                .background(
+                    Color(.systemGroupedBackground)
+                )
 
                 Group {
-                    if (isLoading || isLoadingUsers) && filteredJobs.isEmpty {
-                        ProgressView("Prüfaufträge werden geladen …")
-                            .frame(maxWidth: .infinity, maxHeight: .infinity)
+                    if isLoading && jobs.isEmpty {
+                        ProgressView(
+                            "Prüfaufträge werden geladen …"
+                        )
+                        .frame(
+                            maxWidth: .infinity,
+                            maxHeight: .infinity
+                        )
                     } else if filteredJobs.isEmpty {
                         ContentUnavailableView(
                             "Keine Prüfaufträge",
                             systemImage: "checklist",
                             description: Text(
-                                "Es sind aktuell keine passenden Prüfaufträge vorhanden."
+                                "Es sind aktuell keine passenden "
+                                + "Prüfaufträge vorhanden."
                             )
                         )
-                        .frame(maxWidth: .infinity, maxHeight: .infinity)
+                        .frame(
+                            maxWidth: .infinity,
+                            maxHeight: .infinity
+                        )
                     } else {
                         List(filteredJobs) { job in
                             NavigationLink(value: job) {
-                                SafetyInspectionRowView(job: job)
+                                SafetyInspectionRowView(
+                                    job: job
+                                )
                             }
                             .buttonStyle(.plain)
                             .listRowSeparator(.hidden)
                             .listRowInsets(
                                 EdgeInsets(
-                                    top: 7, leading: 16,
-                                    bottom: 7, trailing: 16
+                                    top: 7,
+                                    leading: 16,
+                                    bottom: 7,
+                                    trailing: 16
                                 )
                             )
                             .listRowBackground(Color.clear)
                         }
                         .listStyle(.plain)
                         .scrollContentBackground(.hidden)
-                        .background(Color(.systemGroupedBackground))
+                        .background(
+                            Color(.systemGroupedBackground)
+                        )
                         .refreshable {
-                            await loadInitialData()
+                            await loadJobs()
                         }
                     }
                 }
             }
             .navigationTitle("Prüfaufträge")
+            .searchable(
+                text: $navigation.safetyInspectionSearchText,
+                prompt: "Prüfaufträge suchen"
+            )
             .toolbar {
-                ToolbarItemGroup(placement: .topBarTrailing) {
+                ToolbarItem(
+                    placement: .topBarTrailing
+                ) {
                     Button {
-                        withAnimation(.easeInOut(duration: 0.2)) {
-                            isSearchVisible = !isSearchExpanded
-                            if !isSearchVisible {
-                                navigation.safetyInspectionSearchText = ""
-                            }
+                        Task {
+                            await loadJobs()
                         }
                     } label: {
                         Image(
-                            systemName: isSearchExpanded
-                                ? "magnifyingglass.circle.fill"
-                                : "magnifyingglass"
+                            systemName: "arrow.clockwise"
                         )
                     }
-
-                    Button {
-                        Task {
-                            await loadInitialData()
-                        }
-                    } label: {
-                        Image(systemName: "arrow.clockwise")
-                    }
                 }
             }
-            .navigationDestination(for: SafetyInspectionJob.self) { job in
-                SafetyInspectionDetailView(jobId: job.id)
+            .navigationDestination(
+                for: SafetyInspectionJob.self
+            ) { job in
+                SafetyInspectionDetailView(
+                    jobId: job.id
+                )
             }
-            .navigationDestination(for: Int.self) { jobId in
-                SafetyInspectionDetailView(jobId: jobId)
+            .navigationDestination(
+                for: Int.self
+            ) { jobId in
+                SafetyInspectionDetailView(
+                    jobId: jobId
+                )
             }
             .task {
-                await loadInitialData()
-            }
-            .onChange(of: ownerFilter) { _, _ in
-                Task {
-                    await loadJobs()
-                }
+                await loadJobs()
             }
             .onChange(of: statusFilter) { _, _ in
                 Task {
@@ -265,7 +192,9 @@ struct SafetyInspectionListView: View {
             .alert(
                 "Fehler",
                 isPresented: Binding(
-                    get: { errorMessage != nil },
+                    get: {
+                        errorMessage != nil
+                    },
                     set: { visible in
                         if !visible {
                             errorMessage = nil
@@ -282,80 +211,22 @@ struct SafetyInspectionListView: View {
         }
     }
 
-    private func loadInitialData() async {
-        guard !Task.isCancelled else { return }
-
-        await loadInspectionUsers()
-
-        guard !Task.isCancelled else { return }
-
-        await loadJobs()
-    }
-
-    private func loadInspectionUsers() async {
-        guard !Task.isCancelled else { return }
-
-        usersLoadRevision += 1
-        let requestedRevision = usersLoadRevision
-        isLoadingUsers = true
-
-        defer {
-            if requestedRevision == usersLoadRevision {
-                isLoadingUsers = false
-            }
-        }
-
-        do {
-            let users = try await session.apiClient.fetchSafetyInspectionUsers()
-
-            guard !Task.isCancelled,
-                  requestedRevision == usersLoadRevision else {
-                return
-            }
-
-            inspectionUsers = users
-
-            if case .user(let userId) = ownerFilter,
-               !users.contains(where: { $0.id == userId }) {
-                ownerFilter = .mine
-            }
-        } catch {
-            if error.isRequestCancellation
-                || Task.isCancelled
-                || requestedRevision != usersLoadRevision {
-                return
-            }
-
-            errorMessage = error.localizedDescription
-        }
-    }
-
     private func loadJobs() async {
-        guard !Task.isCancelled else { return }
-
-        loadRevision += 1
-        let requestedRevision = loadRevision
-        let requestedOwner = ownerFilter
-        let requestedStatus = statusFilter
+        let requestedFilter = statusFilter
         isLoading = true
 
         defer {
-            if requestedRevision == loadRevision {
+            if requestedFilter == statusFilter {
                 isLoading = false
             }
         }
 
         do {
             let loadedJobs = try await session.apiClient.fetchSafetyInspections(
-                status: requestedStatus.rawValue,
-                scope: requestedOwner.scope.rawValue,
-                userId: requestedOwner.userId
+                status: requestedFilter.rawValue
             )
 
-            guard !Task.isCancelled,
-                  requestedRevision == loadRevision,
-                  requestedOwner == ownerFilter,
-                  requestedStatus == statusFilter else {
+            guard !Task.isCancelled, requestedFilter == statusFilter else {
                 return
             }
 
@@ -363,9 +234,7 @@ struct SafetyInspectionListView: View {
         } catch {
             if error.isRequestCancellation
                 || Task.isCancelled
-                || requestedRevision != loadRevision
-                || requestedOwner != ownerFilter
-                || requestedStatus != statusFilter {
+                || requestedFilter != statusFilter {
                 return
             }
 
@@ -374,57 +243,50 @@ struct SafetyInspectionListView: View {
     }
 }
 
-enum SafetyInspectionListFilter: String, CaseIterable, Identifiable {
+enum SafetyInspectionListFilter: String,
+    CaseIterable,
+    Identifiable {
+
     case active
-    case planned
-    case inProgress = "in_progress"
     case completed
-    case completedWithDefects = "completed_with_defects"
-    case missed
-    case canceled
     case all
 
-    var id: String { rawValue }
+    var id: String {
+        rawValue
+    }
 
     var label: String {
         switch self {
-        case .active: return "Offen"
-        case .planned: return "Geplant"
-        case .inProgress: return "In Bearbeitung"
-        case .completed: return "Erledigt"
-        case .completedWithDefects: return "Erledigt mit Mängeln"
-        case .missed: return "Abgelaufen"
-        case .canceled: return "Abgebrochen"
-        case .all: return "Alle Status"
-        }
-    }
-
-    func matches(_ job: SafetyInspectionJob) -> Bool {
-        switch self {
         case .active:
-            return ["planned", "in_progress"].contains(job.status)
+            return "Offen"
         case .completed:
-            return ["completed", "completed_with_defects"].contains(job.status)
+            return "Erledigt"
         case .all:
-            return true
-        default:
-            return job.status == rawValue
+            return "Alle"
         }
     }
 }
 
-enum SafetyInspectionSortMode: String, CaseIterable, Identifiable {
+enum SafetyInspectionSortMode: String,
+    CaseIterable,
+    Identifiable {
+
     case dueDate
     case address
     case status
 
-    var id: String { rawValue }
+    var id: String {
+        rawValue
+    }
 
     var label: String {
         switch self {
-        case .dueDate: return "Fälligkeit"
-        case .address: return "Adresse"
-        case .status: return "Status"
+        case .dueDate:
+            return "Fälligkeit"
+        case .address:
+            return "Adresse"
+        case .status:
+            return "Status"
         }
     }
 }
@@ -440,7 +302,6 @@ extension SafetyInspectionJob {
             || objectTitle.lowercased().contains(query)
             || (object.location ?? "").lowercased().contains(query)
             || (object.economicUnitIdnum ?? "").lowercased().contains(query)
-            || (assignedUser?.displayName ?? "").lowercased().contains(query)
             || statusLabel.lowercased().contains(query)
     }
 }
