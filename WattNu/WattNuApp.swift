@@ -37,6 +37,8 @@ struct DatLaeuftApp: App {
                     await synchronizeProcessInfoBadge()
                 }
                 .onChange(of: session.user?.id) { _, _ in
+                    navigation.mapCommissions = nil
+
                     Task {
                         await synchronizePushDevice()
                         await synchronizeProcessInfoBadge()
@@ -53,8 +55,9 @@ struct DatLaeuftApp: App {
                     }
                 }
                 .onChange(of: scenePhase) { _, newValue in
+                    session.inspectionStore.setActive(newValue == .active)
+
                     if newValue == .active {
-                        session.inspectionStore.setActive(newValue == .active)
                         navigation.commissionListRevision += 1
 
                         Task {

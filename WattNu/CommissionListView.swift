@@ -307,6 +307,11 @@ struct CommissionListView: View {
                 locationStore.requestLocation()
                 await loadInitialData()
             }
+            .onChange(of: sortedCommissions) { _, items in
+                if navigation.mapCommissions != nil {
+                    navigation.mapCommissions = items
+                }
+            }
             .onChange(of: ownerFilter) { _, _ in
                 Task {
                     await loadCommissions()
@@ -423,6 +428,7 @@ struct CommissionListView: View {
             await processInfos.refresh(
                 apiClient: session.apiClient
             )
+            navigation.mapCommissions = sortedCommissions
         } catch {
             if error.isRequestCancellation {
                 return

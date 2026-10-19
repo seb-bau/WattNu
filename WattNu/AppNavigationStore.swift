@@ -17,6 +17,8 @@ final class AppNavigationStore: ObservableObject {
     @Published var commissionListRevision = 0
     @Published var safetyInspectionStatusFilter: SafetyInspectionListFilter = .active
     @Published var safetyInspectionSearchText = ""
+    @Published var safetyInspectionOwnerFilter: CommissionOwnerFilter = .mine
+    @Published var mapCommissions: [Commission]?
 
     func openCommission(id: Int) {
         selectedTab = .commissions

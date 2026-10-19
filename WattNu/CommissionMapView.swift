@@ -5,20 +5,71 @@ import SwiftUI
 struct CommissionMapView: View {
     @EnvironmentObject private var session: SessionStore
     @EnvironmentObject private var navigation: AppNavigationStore
+    @EnvironmentObject private var inspections: SafetyInspectionOfflineStore
 
-    let commissions: [Commission]
+    let commissions: [Commission]?
 
     @State private var safetyInspections: [SafetyInspectionJob] = []
-    @State private var displayMode: MapDisplayMode = .both
+    @State private var fallbackCommissions: [Commission] = []
+    @State private var displayMode: MapDisplayMode
     @State private var cameraPosition: MapCameraPosition = .automatic
     @State private var errorMessage: String?
+
+    init(
+        commissions: [Commission]? = nil,
+        initialDisplayMode: MapDisplayMode = .both
+    ) {
+        self.commissions = commissions
+        _displayMode = State(initialValue: initialDisplayMode)
+    }
+
+    private struct InspectionFilter: Equatable {
+        let owner: CommissionOwnerFilter
+        let status: SafetyInspectionListFilter
+    }
+
+    private var inspectionFilter: InspectionFilter {
+        InspectionFilter(
+            owner: navigation.safetyInspectionOwnerFilter,
+            status: navigation.safetyInspectionStatusFilter
+        )
+    }
+
+    private var inspectionFilterLabel: String {
+        let ownerLabel: String
+
+        switch inspectionFilter.owner {
+        case .mine:
+            ownerLabel = "Meine"
+        case .all:
+            ownerLabel = "Alle"
+        case .user(let userId):
+            ownerLabel = safetyInspections.first {
+                $0.assignedUser?.id == userId
+            }?.assignedUser?.displayName ?? "Ausgewählter Kollege"
+        }
+
+        var parts = [ownerLabel, inspectionFilter.status.label]
+        let query = navigation.safetyInspectionSearchText
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+
+        if !query.isEmpty {
+            parts.append("Suche: \(query)")
+        }
+
+        return parts.joined(separator: " · ")
+    }
 
     private var mappableCommissions: [Commission] {
         guard displayMode != .safetyInspections else {
             return []
         }
 
-        return commissions.filter { commission in
+        let selectedCommissions = commissions
+            ?? navigation.mapCommissions
+            ?? fallbackCommissions
+
+        return selectedCommissions.filter { commission in
             guard let coordinate = commission.coordinate else {
                 return false
             }
@@ -33,11 +84,24 @@ struct CommissionMapView: View {
         }
 
         return safetyInspections.filter { job in
-            guard let coordinate = job.coordinate else {
+            guard let coordinate = job.coordinate,
+                  CLLocationCoordinate2DIsValid(coordinate) else {
                 return false
             }
 
-            return CLLocationCoordinate2DIsValid(coordinate)
+            let matchesOwner: Bool
+
+            switch inspectionFilter.owner {
+            case .mine:
+                matchesOwner = job.assignedUser?.id == session.user?.id
+            case .user(let userId):
+                matchesOwner = job.assignedUser?.id == userId
+            case .all:
+                matchesOwner = true
+            }
+
+            return matchesOwner
+                && inspectionFilter.status.matches(job)
                 && job.matchesSearch(navigation.safetyInspectionSearchText)
         }
     }
@@ -110,15 +174,27 @@ struct CommissionMapView: View {
                     .foregroundStyle(.orange)
                 }
                 .font(.caption)
+                if displayMode != .commissions {
+                    Text("Prüfungen: \(inspectionFilterLabel)")
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                        .frame(maxWidth: .infinity, alignment: .leading)
+                }
             }
             .padding(.horizontal)
             .padding(.vertical, 8)
             .background(.ultraThinMaterial)
         }
-        .navigationTitle("Auftragskarte")
+        .navigationTitle("Karte")
         .navigationBarTitleDisplayMode(.inline)
-        .task(id: navigation.safetyInspectionStatusFilter) {
+        .task {
+            await loadCommissionsIfNeeded()
+        }
+        .task(id: inspectionFilter) {
             await loadSafetyInspections()
+        }
+        .onChange(of: inspections.revision) { _, _ in
+            updateCachedSafetyInspections()
         }
         .onChange(of: displayMode) { _, _ in
             cameraPosition = .automatic
@@ -147,18 +223,56 @@ struct CommissionMapView: View {
         }
     }
 
+    private func loadCommissionsIfNeeded() async {
+        guard commissions == nil,
+              navigation.mapCommissions == nil else {
+            return
+        }
+
+        do {
+            let loadedCommissions = try await session.apiClient.fetchCommissions()
+
+            guard !Task.isCancelled else {
+                return
+            }
+
+            fallbackCommissions = loadedCommissions.filter {
+                CommissionStatusFilter.activeLocalStatuses.contains($0.localStatus)
+            }
+        } catch {
+            guard !error.isRequestCancellation, !Task.isCancelled else {
+                return
+            }
+
+            errorMessage = error.localizedDescription
+        }
+    }
+
+    private func updateCachedSafetyInspections() {
+        if let cached = try? inspections.cachedJobs(
+            status: inspectionFilter.status.rawValue,
+            scope: inspectionFilter.owner.scope.rawValue,
+            userId: inspectionFilter.owner.userId
+        ) {
+            safetyInspections = cached
+        }
+    }
+
     private func loadSafetyInspections() async {
-        let requestedFilter = navigation.safetyInspectionStatusFilter
+        let requestedFilter = inspectionFilter
         safetyInspections = []
         errorMessage = nil
+        updateCachedSafetyInspections()
 
         do {
             let loadedJobs = try await session.apiClient.fetchSafetyInspections(
-                status: requestedFilter.rawValue
+                status: requestedFilter.status.rawValue,
+                scope: requestedFilter.owner.scope.rawValue,
+                userId: requestedFilter.owner.userId
             )
 
             guard !Task.isCancelled,
-                  requestedFilter == navigation.safetyInspectionStatusFilter else {
+                  requestedFilter == inspectionFilter else {
                 return
             }
 
@@ -167,7 +281,7 @@ struct CommissionMapView: View {
         } catch {
             if error.isRequestCancellation
                 || Task.isCancelled
-                || requestedFilter != navigation.safetyInspectionStatusFilter {
+                || requestedFilter != inspectionFilter {
                 return
             }
 

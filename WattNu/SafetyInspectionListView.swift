@@ -8,7 +8,6 @@ struct SafetyInspectionListView: View {
 
     @State private var jobs: [SafetyInspectionJob] = []
     @State private var inspectionUsers: [AppUser] = []
-    @State private var ownerFilter: CommissionOwnerFilter = .mine
     @State private var sortMode: SafetyInspectionSortMode = .dueDate
     @State private var isSearchVisible = false
     @State private var isLoading = false
@@ -16,6 +15,10 @@ struct SafetyInspectionListView: View {
     @State private var usersLoadRevision = 0
     @State private var loadRevision = 0
     @State private var errorMessage: String?
+    
+    private var ownerFilter: CommissionOwnerFilter {
+        navigation.safetyInspectionOwnerFilter
+    }
 
     private var statusFilter: SafetyInspectionListFilter {
         navigation.safetyInspectionStatusFilter
@@ -99,7 +102,7 @@ struct SafetyInspectionListView: View {
     private var filterHeader: some View {
         VStack(alignment: .leading, spacing: 6) {
             HStack(spacing: 8) {
-                Picker(selection: $ownerFilter) {
+                Picker(selection: $navigation.safetyInspectionOwnerFilter) {
                     Text("Meine")
                         .tag(CommissionOwnerFilter.mine)
 
@@ -256,6 +259,15 @@ struct SafetyInspectionListView: View {
                                 : "magnifyingglass"
                         )
                     }
+                    
+                    NavigationLink {
+                        CommissionMapView(
+                            initialDisplayMode: .safetyInspections
+                        )
+                    } label: {
+                        Image(systemName: "map")
+                    }
+                    .accessibilityLabel("Karte anzeigen")
 
                     Button {
                         Task {
@@ -364,7 +376,7 @@ struct SafetyInspectionListView: View {
 
             if case .user(let userId) = ownerFilter,
                !users.contains(where: { $0.id == userId }) {
-                ownerFilter = .mine
+                navigation.safetyInspectionOwnerFilter = .mine
             }
         } catch {
             if error.isRequestCancellation
