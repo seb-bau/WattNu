@@ -37,6 +37,7 @@ struct InspectionOperationRequest: Codable {
     var capturedAt: String?
     var overallNote: String?
     var occurredAt = Date().ISO8601Format()
+    var replacesOperationId: String?
 
     enum CodingKeys: String, CodingKey {
         case operationId = "operation_id"
@@ -52,6 +53,74 @@ struct InspectionOperationRequest: Codable {
         case capturedAt = "captured_at"
         case overallNote = "overall_note"
         case occurredAt = "occurred_at"
+        case replacesOperationId = "replaces_operation_id"
+    }
+}
+
+struct InspectionResultSnapshot: Codable, Equatable {
+    let state: String
+    let note: String?
+    let immediateAction: String?
+
+    init(state: String, note: String?, immediateAction: String?) {
+        self.state = state
+        self.note = Self.normalized(note)
+        self.immediateAction = Self.normalized(immediateAction)
+    }
+
+    init(_ result: SafetyInspectionResult) {
+        self.init(
+            state: result.state,
+            note: result.note,
+            immediateAction: result.immediateAction
+        )
+    }
+
+    private static func normalized(_ value: String?) -> String? {
+        let text = value?.trimmingCharacters(
+            in: .whitespacesAndNewlines
+        ) ?? ""
+
+        return text.isEmpty ? nil : text
+    }
+
+    func merging(
+        local: InspectionResultSnapshot,
+        current: InspectionResultSnapshot
+    ) throws -> InspectionResultSnapshot {
+        if local.state != current.state,
+           local != self,
+           current != self {
+            throw InspectionOfflineError.message(
+                "Der Prüfauftrag enthält widersprüchliche Bearbeitungen. Die Eingaben bleiben gespeichert."
+            )
+        }
+
+        func merged<T: Equatable>(
+            _ base: T,
+            _ local: T,
+            _ remote: T
+        ) throws -> T {
+            if local == base {
+                return remote
+            }
+            if remote == base || remote == local {
+                return local
+            }
+            throw InspectionOfflineError.message(
+                "Der Prüfauftrag enthält widersprüchliche Bearbeitungen. Die Eingaben bleiben gespeichert."
+            )
+        }
+
+        return try InspectionResultSnapshot(
+            state: merged(state, local.state, current.state),
+            note: merged(note, local.note, current.note),
+            immediateAction: merged(
+                immediateAction,
+                local.immediateAction,
+                current.immediateAction
+            )
+        )
     }
 }
 
@@ -61,6 +130,9 @@ struct InspectionPendingOperation: Codable {
     var filename: String?
     var resolvedPhotoId: Int?
     var error: String?
+    var baseResult: InspectionResultSnapshot?
+    var attempts: Int?
+    var retryAfter: Date?
 }
 
 struct InspectionOperationResponse: Decodable {
@@ -138,6 +210,7 @@ final class SafetyInspectionOfflineStore: ObservableObject {
     private let monitor = NWPathMonitor()
     private let encoder = JSONEncoder()
     private let decoder = JSONDecoder()
+    private var refreshTasks: [String: Task<Void, Never>] = [:]
 
     init() {
         monitor.pathUpdateHandler = { [weak self] path in
@@ -196,6 +269,10 @@ final class SafetyInspectionOfflineStore: ObservableObject {
 
     func stop() {
         generation += 1
+        for task in refreshTasks.values {
+            task.cancel()
+        }
+        refreshTasks.removeAll()
         syncTask?.cancel()
         timerTask?.cancel()
         syncTask = nil
@@ -268,15 +345,32 @@ final class SafetyInspectionOfflineStore: ObservableObject {
     }
 
     private func put<T: Encodable>(
-        _ value: T, key: String, kind: String, jobId: Int = 0
+        _ value: T,
+        key: String,
+        kind: String,
+        jobId: Int = 0
     ) throws {
         let data = try encoder.encode(value)
+
         if let existing = try row(key) {
             existing.data = data
         } else {
             try database().insert(InspectionOfflineRow(
-                key: key, kind: kind, jobId: jobId, data: data
+                key: key,
+                kind: kind,
+                jobId: jobId,
+                data: data
             ))
+        }
+
+        if kind == "job", var summary = value as? SafetyInspectionJob {
+            summary.results = nil
+            try put(
+                summary,
+                key: "summary:\(summary.id)",
+                kind: "summary",
+                jobId: summary.id
+            )
         }
     }
 
@@ -334,54 +428,133 @@ final class SafetyInspectionOfflineStore: ObservableObject {
         completionJobIds = Set(pending.filter {
             $0.request.kind == "complete"
         }.map { $0.request.jobId })
+
         preparedCount = try database().fetchCount(
             FetchDescriptor<InspectionOfflineRow>(
                 predicate: #Predicate { $0.kind == "job" }
             )
         )
+
         var seen: Set<Int> = []
-        issues = try pending.compactMap { operation in
+        issues = pending.compactMap { operation in
             guard let error = operation.error,
-                  seen.insert(operation.request.jobId).inserted else { return nil }
-            let job = try cachedJob(operation.request.jobId)
+                  seen.insert(operation.request.jobId).inserted else {
+                return nil
+            }
+
             return InspectionSyncIssue(
                 id: operation.request.jobId,
-                title: job?.objectTitle ?? "Prüfauftrag \(operation.request.jobId)",
+                title: "Prüfauftrag \(operation.request.jobId)",
                 message: error
             )
         }
+
         revision += 1
     }
 
     func cachedUsers() throws -> [AppUser]? {
-        guard let value = try row("users") else { return nil }
-        return try decoder.decode([AppUser].self, from: value.data)
+        if let value = try row("users") {
+            return try decoder.decode([AppUser].self, from: value.data)
+        }
+
+        var known: [Int: AppUser] = [:]
+
+        if let user {
+            known[user.id] = user
+        }
+
+        for job in try cachedJobs(
+            status: "all",
+            scope: "all",
+            userId: nil
+        ) ?? [] {
+            if let owner = job.assignedUser {
+                known[owner.id] = owner
+            }
+        }
+
+        return known.isEmpty ? nil : Array(known.values)
     }
 
-    func fetchUsers() async throws -> [AppUser] {
+    private func loadCached<T>(
+        key: String,
+        cached: @escaping @MainActor () throws -> T?,
+        fetch: @escaping @MainActor (APIClient) async throws -> T,
+        store: @escaping @MainActor (T) throws -> Void
+    ) async throws -> T {
         guard let transport else {
             throw InspectionOfflineError.message("Bitte anmelden.")
         }
+
         let expectedGeneration = generation
+
+        if let value = try cached() {
+            if isActive, refreshTasks[key] == nil {
+                refreshTasks[key] = Task { [weak self] in
+                    guard let self else { return }
+
+                    defer {
+                        if self.generation == expectedGeneration {
+                            self.refreshTasks[key] = nil
+                        }
+                    }
+
+                    do {
+                        let value = try await fetch(transport)
+                        guard self.generation == expectedGeneration else {
+                            return
+                        }
+
+                        try store(value)
+                        self.changed()
+                    } catch {
+                        return
+                    }
+                }
+            }
+
+            requestSync()
+            return value
+        }
+
         do {
-            let users = try await transport.fetchSafetyInspectionUsersRemote()
+            let value = try await fetch(transport)
             guard generation == expectedGeneration else {
                 throw CancellationError()
             }
-            try transaction {
-                try put(users, key: "users", kind: "users")
-            }
-            return users
+
+            try store(value)
+            changed()
+            return try cached() ?? value
         } catch {
             guard generation == expectedGeneration else {
                 throw CancellationError()
             }
+
             if InspectionOfflineError.isConnectionError(error),
-               let users = try cachedUsers() {
-                return users
+               let value = try cached() {
+                return value
             }
+
             throw error
         }
+    }
+
+    func fetchUsers() async throws -> [AppUser] {
+        try await loadCached(
+            key: "users",
+            cached: {
+                try self.cachedUsers()
+            },
+            fetch: {
+                try await $0.fetchSafetyInspectionUsersRemote()
+            },
+            store: { users in
+                try self.transaction {
+                    try self.put(users, key: "users", kind: "users")
+                }
+            }
+        )
     }
 
     private func listKey(
@@ -401,13 +574,41 @@ final class SafetyInspectionOfflineStore: ObservableObject {
             items = try decoder.decode([SafetyInspectionJob].self, from: value.data)
         } else {
             let lists = try rows("list")
-            guard !lists.isEmpty else { return nil }
+            let summaries = try rows("summary")
             var byId: [Int: SafetyInspectionJob] = [:]
+
             for list in lists {
-                for job in try decoder.decode([SafetyInspectionJob].self, from: list.data) {
+                for job in try decoder.decode(
+                    [SafetyInspectionJob].self,
+                    from: list.data
+                ) {
                     byId[job.id] = job
                 }
             }
+
+            for value in summaries {
+                let job = try decoder.decode(
+                    SafetyInspectionJob.self,
+                    from: value.data
+                )
+                byId[job.id] = job
+            }
+
+            if lists.isEmpty && summaries.isEmpty {
+                for value in try rows("job") {
+                    var job = try decoder.decode(
+                        SafetyInspectionJob.self,
+                        from: value.data
+                    )
+                    job.results = nil
+                    byId[job.id] = job
+                }
+            }
+
+            guard !byId.isEmpty || !lists.isEmpty else {
+                return nil
+            }
+
             items = Array(byId.values)
         }
         let pending = try operations()
@@ -457,52 +658,54 @@ final class SafetyInspectionOfflineStore: ObservableObject {
     }
 
     func fetchJobs(
-        status: String, scope: String, overdue: Bool, userId: Int?
+        status: String,
+        scope: String,
+        overdue: Bool,
+        userId: Int?
     ) async throws -> [SafetyInspectionJob] {
-        guard let transport else {
-            throw InspectionOfflineError.message("Bitte anmelden.")
-        }
-        let expectedGeneration = generation
         let revisions = jobRevisions
-        do {
-            var items = try await transport.fetchSafetyInspectionsRemote(
-                status: status, scope: scope, overdueOnly: overdue, userId: userId
-            )
-            guard generation == expectedGeneration else {
-                throw CancellationError()
-            }
-            for index in items.indices where revisions[items[index].id, default: 0]
-                != jobRevisions[items[index].id, default: 0] {
-                if var latest = try cachedJob(items[index].id) {
-                    latest.results = nil
-                    items[index] = latest
+        let key = listKey(
+            status: status,
+            scope: scope,
+            overdue: overdue,
+            userId: userId
+        )
+
+        return try await loadCached(
+            key: key,
+            cached: {
+                try self.cachedJobs(
+                    status: status,
+                    scope: scope,
+                    overdue: overdue,
+                    userId: userId
+                )
+            },
+            fetch: {
+                try await $0.fetchSafetyInspectionsRemote(
+                    status: status,
+                    scope: scope,
+                    overdueOnly: overdue,
+                    userId: userId
+                )
+            },
+            store: { response in
+                var items = response
+
+                for index in items.indices
+                where revisions[items[index].id, default: 0]
+                    != self.jobRevisions[items[index].id, default: 0] {
+                    if var latest = try self.cachedJob(items[index].id) {
+                        latest.results = nil
+                        items[index] = latest
+                    }
+                }
+
+                try self.transaction {
+                    try self.put(items, key: key, kind: "list")
                 }
             }
-            try transaction {
-                try put(
-                    items,
-                    key: listKey(
-                        status: status, scope: scope, overdue: overdue, userId: userId
-                    ),
-                    kind: "list"
-                )
-            }
-            return try cachedJobs(
-                status: status, scope: scope, overdue: overdue, userId: userId
-            ) ?? items
-        } catch {
-            guard generation == expectedGeneration else {
-                throw CancellationError()
-            }
-            if InspectionOfflineError.isConnectionError(error),
-               let items = try cachedJobs(
-                   status: status, scope: scope, overdue: overdue, userId: userId
-               ) {
-                message = "Offline – gespeicherter Stand"
-                return items
-            }
-            throw error
-        }
+        )
     }
 
     func cachedJob(_ jobId: Int) throws -> SafetyInspectionJob? {
@@ -524,35 +727,41 @@ final class SafetyInspectionOfflineStore: ObservableObject {
     }
 
     func fetchJob(_ jobId: Int) async throws -> SafetyInspectionJob {
-        guard let transport else {
-            throw InspectionOfflineError.message("Bitte anmelden.")
-        }
-        let expectedGeneration = generation
         let expectedRevision = jobRevisions[jobId, default: 0]
+
         do {
-            let job = try await transport.fetchSafetyInspectionRemote(id: jobId)
-            guard generation == expectedGeneration else {
-                throw CancellationError()
-            }
-            if expectedRevision == jobRevisions[jobId, default: 0] {
-                try transaction {
-                    try put(job, key: "job:\(job.id)", kind: "job", jobId: job.id)
+            return try await loadCached(
+                key: "job:\(jobId)",
+                cached: {
+                    try self.cachedJob(jobId)
+                },
+                fetch: {
+                    try await $0.fetchSafetyInspectionRemote(id: jobId)
+                },
+                store: { job in
+                    guard expectedRevision
+                        == self.jobRevisions[jobId, default: 0] else {
+                        return
+                    }
+
+                    try self.transaction {
+                        try self.put(
+                            job,
+                            key: "job:\(jobId)",
+                            kind: "job",
+                            jobId: jobId
+                        )
+                        try self.updateLists(job)
+                    }
                 }
-            }
-            return try cachedJob(jobId) ?? job
+            )
         } catch {
-            guard generation == expectedGeneration else {
-                throw CancellationError()
-            }
             if InspectionOfflineError.isConnectionError(error) {
-                if let job = try cachedJob(jobId) {
-                    message = "Offline – gespeicherter Stand"
-                    return job
-                }
                 throw InspectionOfflineError.message(
-                    "Diese Prüfung ist noch nicht offline vorbereitet. Bitte einmal mit Internet öffnen oder vorbereiten."
+                    "Dieser Prüfauftrag wurde auf diesem Gerät noch nicht geöffnet. Zum ersten Öffnen ist eine Internetverbindung erforderlich."
                 )
             }
+
             throw error
         }
     }
@@ -621,7 +830,7 @@ final class SafetyInspectionOfflineStore: ObservableObject {
     private func editableJob(_ jobId: Int) throws -> SafetyInspectionJob {
         guard let job = try cachedJob(jobId), job.results != nil else {
             throw InspectionOfflineError.message(
-                "Diese Prüfung bitte zuerst online vorbereiten."
+                "Diesen Prüfauftrag bitte zuerst mit Internet öffnen."
             )
         }
         guard !isResolving else {
@@ -638,25 +847,66 @@ final class SafetyInspectionOfflineStore: ObservableObject {
     }
 
     func saveResult(
-        jobId: Int, resultId: Int, state: String, note: String?,
-        immediateAction: String?, version: Int
+        jobId: Int,
+        resultId: Int,
+        state: String,
+        note: String?,
+        immediateAction: String?,
+        version: Int,
+        baseResult: InspectionResultSnapshot? = nil
     ) throws -> SafetyInspectionResult {
         let job = try editableJob(jobId)
-        guard let result = job.results?.first(where: { $0.id == resultId }) else {
+
+        guard let result = job.results?.first(
+            where: { $0.id == resultId }
+        ) else {
             throw InspectionOfflineError.message(
                 "Der Prüfpunkt fehlt im Offline-Speicher."
             )
         }
-        guard result.version == version else {
-            throw InspectionOfflineError.message(
-                "Der Prüfpunkt hat sich geändert. Bitte erneut öffnen."
-            )
-        }
-        let request = InspectionOperationRequest(
-            kind: "result", jobId: jobId, resultId: resultId,
-            state: state, note: note, immediateAction: immediateAction, version: version
+
+        let current = InspectionResultSnapshot(result)
+        var origin = current
+        var expectedVersion = result.version
+        var local = InspectionResultSnapshot(
+            state: state,
+            note: note,
+            immediateAction: immediateAction
         )
-        try enqueue(InspectionPendingOperation(request: request))
+
+        if result.version != version {
+            guard let baseResult else {
+                throw InspectionOfflineError.message(
+                    "Der Prüfpunkt wurde zwischenzeitlich geändert."
+                )
+            }
+
+            do {
+                local = try baseResult.merging(
+                    local: local,
+                    current: current
+                )
+            } catch {
+                origin = baseResult
+                expectedVersion = version
+            }
+        }
+
+        let request = InspectionOperationRequest(
+            kind: "result",
+            jobId: jobId,
+            resultId: resultId,
+            state: local.state,
+            note: local.note,
+            immediateAction: local.immediateAction,
+            version: expectedVersion
+        )
+
+        try enqueue(InspectionPendingOperation(
+            request: request,
+            baseResult: origin
+        ))
+
         guard let updated = try cachedJob(jobId)?.results?.first(
             where: { $0.id == resultId }
         ) else {
@@ -664,6 +914,7 @@ final class SafetyInspectionOfflineStore: ObservableObject {
                 "Der gespeicherte Prüfpunkt konnte nicht gelesen werden."
             )
         }
+
         return updated
     }
 
@@ -857,41 +1108,164 @@ final class SafetyInspectionOfflineStore: ObservableObject {
             }
         }
     }
+    
+    private func rebasePendingResults(
+        after failed: InspectionOperationRequest,
+        generation expectedGeneration: Int
+    ) async throws -> Bool {
+        guard failed.kind == "result", let transport else {
+            return false
+        }
+
+        let serverJob = try await transport.fetchSafetyInspectionRemote(
+            id: failed.jobId
+        )
+
+        guard generation == expectedGeneration else {
+            throw CancellationError()
+        }
+
+        guard serverJob.canEdit,
+              let failedResult = serverJob.results?.first(
+                  where: { $0.id == failed.resultId }
+              ),
+              failedResult.version != failed.version else {
+            return false
+        }
+
+        let entries = try rows("operation").filter {
+            $0.jobId == failed.jobId
+        }
+        var current = Dictionary(
+            uniqueKeysWithValues: (serverJob.results ?? []).map {
+                ($0.id, $0)
+            }
+        )
+        var updates: [(InspectionOfflineRow, InspectionPendingOperation)] = []
+
+        for entry in entries {
+            var operation = try decoder.decode(
+                InspectionPendingOperation.self,
+                from: entry.data
+            )
+
+            if operation.request.kind == "result" {
+                guard let resultId = operation.request.resultId,
+                      var result = current[resultId],
+                      let base = operation.baseResult else {
+                    return false
+                }
+
+                let remote = InspectionResultSnapshot(result)
+                let local = InspectionResultSnapshot(
+                    state: operation.request.state ?? base.state,
+                    note: operation.request.note,
+                    immediateAction: operation.request.immediateAction
+                )
+                let merged = try base.merging(
+                    local: local,
+                    current: remote
+                )
+
+                operation.request.replacesOperationId =
+                    operation.request.operationId
+                operation.request.operationId =
+                    UUID().uuidString.lowercased()
+                operation.request.version = result.version
+                operation.request.state = merged.state
+                operation.request.note = merged.note
+                operation.request.immediateAction = merged.immediateAction
+                operation.baseResult = remote
+
+                result.state = merged.state
+                result.note = merged.note
+                result.immediateAction = merged.immediateAction
+                result.version += 1
+                current[resultId] = result
+            }
+
+            operation.error = nil
+            operation.attempts = nil
+            operation.retryAfter = nil
+            updates.append((entry, operation))
+        }
+
+        try transaction {
+            try put(
+                serverJob,
+                key: "job:\(failed.jobId)",
+                kind: "job",
+                jobId: failed.jobId
+            )
+
+            for (entry, operation) in updates {
+                entry.key = "operation:\(operation.request.operationId)"
+                entry.data = try encoder.encode(operation)
+            }
+
+            try updateLists(serverJob)
+        }
+
+        jobRevisions[failed.jobId, default: 0] += 1
+        changed()
+        return true
+    }
 
     private func synchronize(generation expectedGeneration: Int) async {
         guard let transport, let rootURL else { return }
+
         isSyncing = true
+        var hadFailures = false
+        var serverFailures = 0
+
         defer {
             if generation == expectedGeneration {
                 isSyncing = false
+                if hadFailures {
+                    changed()
+                }
             }
         }
+
         do {
             let pending = try operations()
             var blocked: Set<Int> = []
+
             for operation in pending {
                 try Task.checkCancellation()
                 guard generation == expectedGeneration else { return }
+
                 let jobId = operation.request.jobId
-                if operation.error != nil {
+
+                if let retryAfter = operation.retryAfter,
+                   retryAfter > Date(),
+                   retryAfter.timeIntervalSinceNow <= 300 {
                     blocked.insert(jobId)
                 }
+
                 if blocked.contains(jobId) {
                     continue
                 }
+
                 do {
                     let data = try operation.filename.map {
                         try Data(contentsOf: rootURL.appendingPathComponent($0))
                     }
+
                     let response = try await transport.sendInspectionOperation(
-                        operation.request, photo: data
+                        operation.request,
+                        photo: data
                     )
+
+                    serverFailures = 0
                     guard generation == expectedGeneration else { return }
+
                     guard response.operationId == operation.request.operationId else {
                         throw InspectionOfflineError.message(
                             "Die Serverbestätigung passt nicht zum Vorgang."
                         )
                     }
+
                     try transaction {
                         try put(
                             response.item,
@@ -899,6 +1273,7 @@ final class SafetyInspectionOfflineStore: ObservableObject {
                             kind: "job",
                             jobId: jobId
                         )
+
                         if operation.request.kind == "photo",
                            let photoId = response.photoId {
                             for value in try rows("operation")
@@ -907,6 +1282,7 @@ final class SafetyInspectionOfflineStore: ObservableObject {
                                     InspectionPendingOperation.self,
                                     from: value.data
                                 )
+
                                 if pending.request.photoOperationId
                                     == operation.request.operationId {
                                     pending.resolvedPhotoId = photoId
@@ -914,39 +1290,75 @@ final class SafetyInspectionOfflineStore: ObservableObject {
                                 }
                             }
                         }
+
                         if let entry = try row(
                             "operation:\(operation.request.operationId)"
                         ) {
                             try database().delete(entry)
                         }
+
                         try updateLists(response.item)
                     }
+
                     jobRevisions[jobId, default: 0] += 1
                     changed()
+
                     if let filename = operation.filename {
                         try? FileManager.default.removeItem(
                             at: rootURL.appendingPathComponent(filename)
                         )
                     }
+
                     message = ""
                 } catch APIError.unauthorized {
                     message = "Übertragung pausiert – bitte erneut anmelden."
                     return
                 } catch {
                     guard generation == expectedGeneration else { return }
-                    if error.isRequestCancellation {
+
+                    var reason = error
+
+                    if case APIError.serverStatus(409, _) = reason,
+                       operation.request.kind == "result" {
+                        do {
+                            if try await rebasePendingResults(
+                                after: operation.request,
+                                generation: expectedGeneration
+                            ) {
+                                blocked.insert(jobId)
+                                syncRequested = true
+                                continue
+                            }
+                        } catch {
+                            reason = error
+                        }
+                    }
+
+                    guard generation == expectedGeneration else { return }
+
+                    if reason.isRequestCancellation {
                         return
                     }
-                    if InspectionOfflineError.isConnectionError(error) {
+                    if case APIError.unauthorized = reason {
+                        return
+                    }
+                    if InspectionOfflineError.isConnectionError(reason) {
                         message = "Offline – Änderungen bleiben auf dem Gerät."
                         return
                     }
-                    if case APIError.serverStatus(let status, _) = error,
+
+                    if case APIError.serverStatus(let status, _) = reason,
                        status >= 500 || [408, 425, 429].contains(status) {
-                        message = "Server nicht erreichbar – Übertragung wird wiederholt."
-                        return
+                        serverFailures += 1
+                        if serverFailures >= 3 {
+                            return
+                        }
+                    } else {
+                        serverFailures = 0
                     }
+
                     var failed = operation
+
                     if let entry = try row(
                         "operation:\(operation.request.operationId)"
                     ) {
@@ -955,7 +1367,19 @@ final class SafetyInspectionOfflineStore: ObservableObject {
                             from: entry.data
                         )
                     }
-                    failed.error = error.localizedDescription
+
+                    failed.error = reason.localizedDescription
+                    failed.attempts = min((failed.attempts ?? 0) + 1, 5)
+
+                    let delay = min(
+                        300.0,
+                        30.0 * pow(
+                            2.0,
+                            Double((failed.attempts ?? 1) - 1)
+                        )
+                    )
+                    failed.retryAfter = Date().addingTimeInterval(delay)
+
                     try transaction {
                         try put(
                             failed,
@@ -964,8 +1388,9 @@ final class SafetyInspectionOfflineStore: ObservableObject {
                             jobId: jobId
                         )
                     }
+
                     blocked.insert(jobId)
-                    try publish()
+                    hadFailures = true
                 }
             }
         } catch {

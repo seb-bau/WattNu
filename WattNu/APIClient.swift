@@ -1352,8 +1352,13 @@ extension APIClient {
     }
 
     func updateSafetyInspectionResult(
-        jobId: Int, resultId: Int, state: String, note: String?,
-        immediateAction: String?, version: Int
+        jobId: Int,
+        resultId: Int,
+        state: String,
+        note: String?,
+        immediateAction: String?,
+        version: Int,
+        baseResult: InspectionResultSnapshot? = nil
     ) async throws -> SafetyInspectionResult {
         if let safetyInspectionStore {
             return try safetyInspectionStore.saveResult(
@@ -1362,9 +1367,11 @@ extension APIClient {
                 state: state,
                 note: note,
                 immediateAction: immediateAction,
-                version: version
+                version: version,
+                baseResult: baseResult
             )
         }
+
         return try await updateSafetyInspectionResultRemote(
             jobId: jobId,
             resultId: resultId,

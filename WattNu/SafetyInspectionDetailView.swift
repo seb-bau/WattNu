@@ -5,6 +5,7 @@ import UIKit
 struct SafetyInspectionDetailView: View {
     @EnvironmentObject private var session: SessionStore
     @EnvironmentObject private var inspections: SafetyInspectionOfflineStore
+    @Environment(\.scenePhase) private var scenePhase
 
     let jobId: Int
 
@@ -28,23 +29,6 @@ struct SafetyInspectionDetailView: View {
                 )
             } else if let job {
                 Form {
-                    Section("Übertragung") {
-                        if inspections.completionJobIds.contains(jobId) {
-                            Text("Lokal abgeschlossen – Übertragung ausstehend")
-                        } else if inspections.pendingJobIds.contains(jobId) {
-                            Text("Lokal gespeichert – Übertragung ausstehend")
-                        } else {
-                            Text("Gespeicherter Prüfauftrag")
-                        }
-
-                        if !inspections.message.isEmpty {
-                            Text(inspections.message)
-                        }
-
-                        NavigationLink("Übertragung prüfen") {
-                            InspectionSyncView()
-                        }
-                    }
                     Section("Prüfung") {
                         LabeledContent("Prüfgruppe") {
                             Text(job.group.name)
@@ -211,6 +195,13 @@ struct SafetyInspectionDetailView: View {
         .onChange(of: inspections.revision) { _, _ in
             if let cached = try? inspections.cachedJob(jobId) {
                 acceptJob(cached)
+            }
+        }
+        .onChange(of: scenePhase) { _, phase in
+            if phase == .active {
+                Task {
+                    await loadJob()
+                }
             }
         }
         .confirmationDialog(
@@ -856,7 +847,8 @@ struct SafetyInspectionResultEditorView: View {
                                 immediateAction
                             )
                             : nil,
-                        version: result.version
+                        version: result.version,
+                        baseResult: InspectionResultSnapshot(result)
                     )
 
             result = updatedResult
