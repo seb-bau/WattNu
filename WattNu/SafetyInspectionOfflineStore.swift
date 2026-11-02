@@ -801,6 +801,14 @@ final class SafetyInspectionOfflineStore: ObservableObject {
             .compactMap { $0.date(from: value) }
             .first
     }
+    
+    private func pendingContentJobIds() throws -> Set<Int> {
+        Set(
+            try operations()
+                .filter { $0.request.kind != "visit" }
+                .map { $0.request.jobId }
+        )
+    }
 
     @discardableResult
     private func cacheServerJobs(
@@ -813,7 +821,7 @@ final class SafetyInspectionOfflineStore: ObservableObject {
             return []
         }
 
-        let pending = Set(try operations().map { $0.request.jobId })
+        let pending = try pendingContentJobIds()
         var accepted: Set<Int> = []
         let context = try database()
 
@@ -1046,7 +1054,13 @@ final class SafetyInspectionOfflineStore: ObservableObject {
             try transaction {
                 for job in jobs
                 where ["planned", "in_progress"].contains(job.status) {
-                    let request = InspectionPreparationRequest(jobId: job.id)
+                    if try row("prepare:\(job.id)") != nil {
+                        continue
+                    }
+
+                    let request = InspectionPreparationRequest(
+                        jobId: job.id
+                    )
 
                     try put(
                         request,
@@ -1206,7 +1220,7 @@ final class SafetyInspectionOfflineStore: ObservableObject {
 
         guard let transport else { throw CancellationError() }
 
-        let pending = Set(try operations().map { $0.request.jobId })
+        let pending = try pendingContentJobIds()
         let ids = requests.map(\.jobId).filter {
             !pending.contains($0)
         }

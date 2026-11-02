@@ -488,7 +488,15 @@ struct SafetyInspectionListView: View {
                 return
             }
 
-            jobs = loadedJobs
+            if session.apiClient.safetyInspectionStore != nil {
+                jobs = try inspections.cachedJobs(
+                    status: requestedLoadStatus.rawValue,
+                    scope: requestedOwner.scope.rawValue,
+                    userId: requestedOwner.userId
+                ) ?? []
+            } else {
+                jobs = loadedJobs
+            }
         } catch {
             if error.isRequestCancellation
                 || Task.isCancelled

@@ -19,6 +19,7 @@ struct SafetyInspectionDetailView: View {
     @State private var savingResultIds: Set<Int> = []
     @State private var editorTarget: ResultEditorTarget?
     @State private var completionReviewPresented = false
+    @State private var loadRevision = 0
 
     var body: some View {
         Group {
@@ -256,6 +257,10 @@ struct SafetyInspectionDetailView: View {
     }
 
     private func loadJob() async {
+        guard !Task.isCancelled else { return }
+
+        loadRevision += 1
+        let requestedRevision = loadRevision
         isLoading = true
 
         if let cached = try? inspections.cachedJob(jobId) {
@@ -263,16 +268,33 @@ struct SafetyInspectionDetailView: View {
         }
 
         defer {
-            isLoading = false
+            if requestedRevision == loadRevision {
+                isLoading = false
+            }
         }
 
         do {
             let loadedJob = try await session.apiClient
                 .fetchSafetyInspection(id: jobId)
 
-            acceptJob(loadedJob)
+            guard !Task.isCancelled,
+                  requestedRevision == loadRevision else {
+                return
+            }
+
+            if session.apiClient.safetyInspectionStore != nil {
+                if let current = try inspections.cachedJob(jobId) {
+                    acceptJob(current)
+                } else {
+                    job = nil
+                }
+            } else {
+                acceptJob(loadedJob)
+            }
         } catch {
-            if error.isRequestCancellation {
+            guard !Task.isCancelled,
+                  !error.isRequestCancellation,
+                  requestedRevision == loadRevision else {
                 return
             }
 
