@@ -1440,9 +1440,10 @@ extension APIClient {
     }
 
     func downloadSafetyInspectionPhoto(path: String) async throws -> Data {
-        if path.hasPrefix("offline-photo/"), let safetyInspectionStore {
-            return try safetyInspectionStore.localPhoto(path)
+        if let safetyInspectionStore {
+            return try await safetyInspectionStore.photoData(path)
         }
+
         return try await downloadSafetyInspectionPhotoRemote(path: path)
     }
 

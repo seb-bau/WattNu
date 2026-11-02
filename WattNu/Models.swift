@@ -1703,6 +1703,7 @@ struct SafetyInspectionJob: Codable, Identifiable, Hashable {
     let createdAt: String?
     let updatedAt: String?
     var results: [SafetyInspectionResult]?
+    var visit: SafetyInspectionVisit? = nil
 
     enum CodingKeys: String, CodingKey {
         case id
@@ -1732,6 +1733,7 @@ struct SafetyInspectionJob: Codable, Identifiable, Hashable {
         case createdAt = "created_at"
         case updatedAt = "updated_at"
         case results
+        case visit
     }
 
     var statusLabel: String {
@@ -2041,4 +2043,110 @@ struct SafetyInspectionCompletionRequest: Encodable {
 struct SafetyInspectionPhotoUploadResponse: Decodable {
     let item: SafetyInspectionPhoto
     let duplicate: Bool
+}
+
+extension SafetyInspectionResult {
+    func requiresNote(for state: String) -> Bool {
+        ["not_present", "defect_info", "defect_urgent"].contains(state)
+    }
+
+    func requiresPhoto(for state: String) -> Bool {
+        switch state {
+        case "no_defect":
+            return photoRequirements.noDefect
+        case "not_present":
+            return photoRequirements.notPresent
+        case "defect_info":
+            return photoRequirements.defectInfo
+        case "defect_urgent":
+            return photoRequirements.defectUrgent
+        default:
+            return false
+        }
+    }
+
+    func missingRequirements(
+        for state: String,
+        note: String?
+    ) -> [String] {
+        switch state {
+        case "not_checked":
+            return required ? ["Bewertung fehlt."] : []
+        case "no_defect", "not_present", "defect_info", "defect_urgent":
+            break
+        default:
+            return ["Bewertung ist ungültig."]
+        }
+
+        var issues: [String] = []
+
+        if state == "not_present" && !allowNotPresent {
+            issues.append(
+                "„Nicht vorhanden“ ist für diesen Prüfpunkt nicht zulässig."
+            )
+        }
+
+        if requiresNote(for: state),
+           (note ?? "").trimmingCharacters(
+                in: .whitespacesAndNewlines
+           ).isEmpty {
+            issues.append(
+                state == "not_present"
+                    ? "Begründung fehlt."
+                    : "Mangelbeschreibung fehlt."
+            )
+        }
+
+        if requiresPhoto(for: state) && photos.isEmpty {
+            issues.append("Pflichtfoto fehlt.")
+        }
+
+        return issues
+    }
+
+    var completionIssues: [String] {
+        missingRequirements(for: state, note: note)
+    }
+}
+
+struct SafetyInspectionVisit: Codable, Hashable {
+    let blocked: Bool
+    let note: String?
+    let followUpOn: String?
+    let occurredAt: String
+    let operationId: String
+    let groupId: String
+
+    enum CodingKeys: String, CodingKey {
+        case blocked, note
+        case followUpOn = "follow_up_on"
+        case occurredAt = "occurred_at"
+        case operationId = "operation_id"
+        case groupId = "group_id"
+    }
+}
+
+extension SafetyInspectionJob {
+    var hasVisitTask: Bool {
+        isOpenInspection
+            && (visit?.blocked == true || visit?.followUpOn != nil)
+    }
+
+    var visitLabel: String? {
+        guard hasVisitTask, let visit else { return nil }
+
+        var parts: [String] = []
+
+        if visit.blocked {
+            parts.append("Kein Zugang")
+        }
+
+        if let date = visit.followUpOn {
+            parts.append(
+                "Wiedervorlage \(Formatters.dateText(date))"
+            )
+        }
+
+        return parts.joined(separator: " · ")
+    }
 }

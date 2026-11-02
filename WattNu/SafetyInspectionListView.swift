@@ -8,13 +8,14 @@ struct SafetyInspectionListView: View {
 
     @State private var jobs: [SafetyInspectionJob] = []
     @State private var inspectionUsers: [AppUser] = []
-    @State private var sortMode: SafetyInspectionSortMode = .dueDate
-    @State private var isSearchVisible = false
+    @State private var sortMode: SafetyInspectionSortMode = .address
+    @State private var isSearchVisible = true
     @State private var isLoading = false
     @State private var isLoadingUsers = false
     @State private var usersLoadRevision = 0
     @State private var loadRevision = 0
     @State private var errorMessage: String?
+    @State private var visitFilter: InspectionVisitFilter = .all
     
     private var ownerFilter: CommissionOwnerFilter {
         navigation.safetyInspectionOwnerFilter
@@ -50,8 +51,37 @@ struct SafetyInspectionListView: View {
             }?.displayName ?? "Kollege"
         }
     }
+    
+    private var loadStatus: SafetyInspectionListFilter {
+        switch statusFilter {
+        case .active, .planned, .inProgress:
+            return .active
+        default:
+            return statusFilter
+        }
+    }
+
+    private var visibleBuildings: [InspectionBuildingGroup] {
+        let grouped = Dictionary(grouping: jobs, by: \.inspectionBuildingId)
+        var seen: Set<InspectionBuildingId> = []
+
+        return filteredJobs.compactMap { job in
+            let id = job.inspectionBuildingId
+
+            guard seen.insert(id).inserted,
+                  let items = grouped[id] else {
+                return nil
+            }
+
+            return InspectionBuildingGroup(
+                id: id,
+                jobs: items.sorted { $0.id < $1.id }
+            )
+        }
+    }
 
     private var filteredJobs: [SafetyInspectionJob] {
+        let today = Formatters.apiDateText(Date())
         let selectedJobs = jobs.filter { job in
             let matchesOwner: Bool
 
@@ -66,7 +96,10 @@ struct SafetyInspectionListView: View {
 
             return matchesOwner
                 && statusFilter.matches(job)
-                && job.matchesSearch(navigation.safetyInspectionSearchText)
+                && visitFilter.matches(job, today: today)
+                && job.matchesSearch(
+                    navigation.safetyInspectionSearchText
+                )
         }
 
         return selectedJobs.sorted { left, right in
@@ -78,7 +111,7 @@ struct SafetyInspectionListView: View {
 
             case .address:
                 let comparison = left.objectTitle
-                    .localizedCaseInsensitiveCompare(right.objectTitle)
+                    .localizedStandardCompare(right.objectTitle)
 
                 return comparison == .orderedSame
                     ? left.id < right.id
@@ -86,7 +119,7 @@ struct SafetyInspectionListView: View {
 
             case .status:
                 let comparison = left.statusLabel
-                    .localizedCaseInsensitiveCompare(right.statusLabel)
+                    .localizedStandardCompare(right.statusLabel)
 
                 if comparison != .orderedSame {
                     return comparison == .orderedAscending
@@ -146,11 +179,18 @@ struct SafetyInspectionListView: View {
                 .pickerStyle(.menu)
                 .frame(maxWidth: .infinity, alignment: .trailing)
             }
+            
+            Picker("Besuchsvermerke", selection: $visitFilter) {
+                ForEach(InspectionVisitFilter.allCases) { filter in
+                    Text(filter.label).tag(filter)
+                }
+            }
+            .pickerStyle(.menu)
 
             Text(
                 isLoading || isLoadingUsers
                     ? "Prüfaufträge werden geladen …"
-                    : "\(filteredJobs.count) Prüfaufträge"
+                    : "\(visibleBuildings.count) Gebäude · \(filteredJobs.count) Prüfungen"
             )
             .font(.caption)
             .foregroundStyle(.secondary)
@@ -172,7 +212,7 @@ struct SafetyInspectionListView: View {
                             .foregroundStyle(.secondary)
 
                         TextField(
-                            "Prüfaufträge durchsuchen",
+                            "Adresse, Gebäude oder Prüfdetailplan",
                             text: $navigation.safetyInspectionSearchText
                         )
 
@@ -197,15 +237,15 @@ struct SafetyInspectionListView: View {
                 }
 
                 Group {
-                    if (isLoading || isLoadingUsers) && filteredJobs.isEmpty {
+                    if (isLoading || isLoadingUsers) && visibleBuildings.isEmpty {
                         ProgressView("Prüfaufträge werden geladen …")
                             .frame(
                                 maxWidth: .infinity,
                                 maxHeight: .infinity
                             )
-                    } else if filteredJobs.isEmpty {
+                    } else if visibleBuildings.isEmpty {
                         ContentUnavailableView(
-                            "Keine Prüfaufträge",
+                            "Keine passenden Gebäude",
                             systemImage: "checklist",
                             description: Text(
                                 "Es sind aktuell keine passenden Prüfaufträge vorhanden."
@@ -216,9 +256,27 @@ struct SafetyInspectionListView: View {
                             maxHeight: .infinity
                         )
                     } else {
-                        List(filteredJobs) { job in
-                            NavigationLink(value: job) {
-                                SafetyInspectionRowView(job: job)
+                        List(visibleBuildings) { building in
+                            NavigationLink(value: building.route(
+                                scope: ownerFilter.scope.rawValue,
+                                userId: ownerFilter.userId,
+                                initialStatus: statusFilter.rawValue
+                            )) {
+                                VStack(alignment: .leading, spacing: 6) {
+                                    Text(building.title)
+                                        .font(.headline)
+
+                                    if !building.subtitle.isEmpty {
+                                        Text(building.subtitle)
+                                            .font(.caption)
+                                            .foregroundStyle(.secondary)
+                                    }
+
+                                    Text(building.summary)
+                                        .font(.subheadline)
+                                        .foregroundStyle(.secondary)
+                                }
+                                .padding(.vertical, 8)
                             }
                             .buttonStyle(.plain)
                             .listRowSeparator(.hidden)
@@ -241,7 +299,7 @@ struct SafetyInspectionListView: View {
                     }
                 }
             }
-            .navigationTitle("Prüfaufträge")
+            .navigationTitle("Gebäude")
             .toolbar {
                 ToolbarItemGroup(placement: .topBarTrailing) {
                     Button {
@@ -278,6 +336,9 @@ struct SafetyInspectionListView: View {
                     }
                 }
             }
+            .navigationDestination(for: InspectionBuildingRoute.self) { route in
+                InspectionBuildingView(route: route)
+            }
             .navigationDestination(for: SafetyInspectionJob.self) { job in
                 SafetyInspectionDetailView(jobId: job.id)
             }
@@ -303,7 +364,7 @@ struct SafetyInspectionListView: View {
                 }
 
                 if let cached = try? inspections.cachedJobs(
-                    status: statusFilter.rawValue,
+                    status: loadStatus.rawValue,
                     scope: ownerFilter.scope.rawValue,
                     userId: ownerFilter.userId
                 ) {
@@ -397,9 +458,10 @@ struct SafetyInspectionListView: View {
         let requestedRevision = loadRevision
         let requestedOwner = ownerFilter
         let requestedStatus = statusFilter
+        let requestedLoadStatus = loadStatus
         isLoading = true
         if let cached = try? inspections.cachedJobs(
-            status: requestedStatus.rawValue,
+            status: requestedLoadStatus.rawValue,
             scope: requestedOwner.scope.rawValue,
             userId: requestedOwner.userId
         ) {
@@ -414,7 +476,7 @@ struct SafetyInspectionListView: View {
 
         do {
             let loadedJobs = try await session.apiClient.fetchSafetyInspections(
-                status: requestedStatus.rawValue,
+                status: requestedLoadStatus.rawValue,
                 scope: requestedOwner.scope.rawValue,
                 userId: requestedOwner.userId
             )
@@ -509,16 +571,30 @@ enum SafetyInspectionSortMode: String, CaseIterable, Identifiable {
 
 extension SafetyInspectionJob {
     func matchesSearch(_ searchText: String) -> Bool {
-        let query = searchText
-            .trimmingCharacters(in: .whitespacesAndNewlines)
-            .lowercased()
+        let options: String.CompareOptions = [
+            .caseInsensitive,
+            .diacriticInsensitive
+        ]
+        let locale = Locale(identifier: "de_DE")
+        let terms = searchText
+            .folding(options: options, locale: locale)
+            .split(whereSeparator: { $0.isWhitespace })
 
-        return query.isEmpty
-            || group.name.lowercased().contains(query)
-            || objectTitle.lowercased().contains(query)
-            || (object.location ?? "").lowercased().contains(query)
-            || (object.economicUnitIdnum ?? "").lowercased().contains(query)
-            || (assignedUser?.displayName ?? "").lowercased().contains(query)
-            || statusLabel.lowercased().contains(query)
+        let text = [
+            group.name,
+            template.name,
+            objectTitle,
+            object.location ?? "",
+            object.economicUnitIdnum ?? "",
+            object.economicUnitName ?? "",
+            object.buildingIdnum ?? "",
+            object.useUnitIdnum ?? "",
+            assignedUser?.displayName ?? "",
+            statusLabel
+        ]
+        .joined(separator: " ")
+        .folding(options: options, locale: locale)
+
+        return terms.allSatisfy { text.contains(String($0)) }
     }
 }

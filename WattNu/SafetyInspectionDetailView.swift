@@ -16,6 +16,9 @@ struct SafetyInspectionDetailView: View {
     @State private var isCompleting = false
     @State private var completionConfirmationPresented = false
     @State private var errorMessage: String?
+    @State private var savingResultIds: Set<Int> = []
+    @State private var editorTarget: ResultEditorTarget?
+    @State private var completionReviewPresented = false
 
     var body: some View {
         Group {
@@ -29,31 +32,40 @@ struct SafetyInspectionDetailView: View {
                 )
             } else if let job {
                 Form {
-                    Section("Prüfung") {
-                        LabeledContent("Prüfgruppe") {
-                            Text(job.group.name)
-                                .multilineTextAlignment(
-                                    .trailing
-                                )
+                    Section {
+                        Text(job.template.name)
+                            .font(.headline)
+
+                        Text(job.objectTitle)
+                            .font(.subheadline)
+                        
+                        Text(job.objectTitle)
+                            .font(.subheadline)
+
+                        InspectionVisitBadge(
+                            job: job,
+                            showDetails: true
+                        )
+
+                        if let location = job.object.location,
+                           !location.isEmpty {
+                            Text(location)
+                                .font(.subheadline)
+                                .foregroundStyle(.secondary)
                         }
 
-                        LabeledContent("Status") {
-                            Text(job.statusLabel)
-                                .foregroundStyle(
-                                    job.isOverdue
-                                    ? Color.red
-                                    : Color.secondary
-                                )
+                        if let location = job.object.location,
+                           !location.isEmpty {
+                            Text(location)
+                                .font(.subheadline)
+                                .foregroundStyle(.secondary)
                         }
 
-                        LabeledContent("Auszuführen") {
-                            Text(
-                                "\(Formatters.dateText(job.dueFrom)) "
-                                + "bis "
-                                + "\(Formatters.dateText(job.dueTo))"
-                            )
-                            .multilineTextAlignment(.trailing)
-                        }
+                        Text(
+                            "\(job.progress.checkedCount) von \(job.progress.resultCount) Prüfpunkten bewertet"
+                        )
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
 
                         if job.isOverdue {
                             Label(
@@ -63,68 +75,49 @@ struct SafetyInspectionDetailView: View {
                             .foregroundStyle(.red)
                         }
 
-                        if let assignedUser = job.assignedUser {
-                            LabeledContent("Zuständig") {
-                                Text(
-                                    assignedUser.displayName
+                        DisclosureGroup("Auftragsdaten") {
+                            LabeledContent(
+                                "Prüfgruppe",
+                                value: job.group.name
+                            )
+
+                            LabeledContent(
+                                "Status",
+                                value: job.statusLabel
+                            )
+
+                            LabeledContent(
+                                "Auszuführen",
+                                value: "\(Formatters.dateText(job.dueFrom)) bis \(Formatters.dateText(job.dueTo))"
+                            )
+
+                            if let assignedUser = job.assignedUser {
+                                LabeledContent(
+                                    "Zuständig",
+                                    value: assignedUser.displayName
                                 )
                             }
-                        }
 
-                        if let department = job.department {
-                            LabeledContent("Abteilung") {
-                                Text(department.name)
+                            if let department = job.department {
+                                LabeledContent(
+                                    "Abteilung",
+                                    value: department.name
+                                )
                             }
-                        }
-                    }
 
-                    Section("Objekt") {
-                        LabeledContent("Adresse") {
-                            Text(job.objectTitle)
-                                .multilineTextAlignment(.trailing)
-                        }
-
-                        if let location = job.object.location,
-                           !location.isEmpty {
-                            LabeledContent("Lage") {
-                                Text(location)
-                                    .multilineTextAlignment(.trailing)
+                            if let identifier = objectIdentifier(job) {
+                                LabeledContent(
+                                    job.object.levelLabel,
+                                    value: identifier
+                                )
                             }
-                        }
-
-                        switch job.object.level {
-                        case "economic_unit":
-                            if let value = job.object.economicUnitIdnum {
-                                LabeledContent("Wirtschaftseinheit", value: value)
-                            }
-                        case "building":
-                            if let value = job.object.buildingIdnum {
-                                LabeledContent("Gebäude", value: value)
-                            }
-                        case "use_unit":
-                            if let value = job.object.useUnitIdnum {
-                                LabeledContent("Nutzungseinheit", value: value)
-                            }
-                        default:
-                            EmptyView()
                         }
                     }
 
                     ForEach(resultSections(job.results ?? [])) { section in
                         Section(section.title) {
                             ForEach(section.results) { result in
-                                NavigationLink {
-                                    SafetyInspectionResultEditorView(
-                                        jobId: job.id,
-                                        initialResult: result,
-                                        canEdit: job.canEdit,
-                                        onChanged: { updatedResult in
-                                            updateCachedResult(updatedResult)
-                                        }
-                                    )
-                                } label: {
-                                    SafetyInspectionResultRowView(result: result)
-                                }
+                                resultRow(result, job: job)
                             }
                         }
                         .textCase(nil)
@@ -138,9 +131,10 @@ struct SafetyInspectionDetailView: View {
                                 axis: .vertical
                             )
                             .lineLimit(3...8)
+                            .disabled(isCompleting)
 
                             Button {
-                                completionConfirmationPresented = true
+                                requestCompletion()
                             } label: {
                                 HStack {
                                     Spacer()
@@ -159,6 +153,7 @@ struct SafetyInspectionDetailView: View {
                             }
                             .disabled(
                                 isCompleting
+                                || !savingResultIds.isEmpty
                                 || job.results?.isEmpty != false
                             )
                         }
@@ -170,6 +165,18 @@ struct SafetyInspectionDetailView: View {
                     systemImage: "exclamationmark.triangle"
                 )
             }
+        }
+        .navigationDestination(item: $editorTarget) { target in
+            SafetyInspectionResultEditorView(
+                jobId: jobId,
+                initialResult: target.result,
+                canEdit: job?.canEdit == true,
+                initialState: target.requestedState,
+                onChanged: updateCachedResult
+            )
+        }
+        .sheet(isPresented: $completionReviewPresented) {
+            completionReview
         }
         .navigationTitle("Prüfauftrag")
         .navigationBarTitleDisplayMode(.inline)
@@ -186,7 +193,11 @@ struct SafetyInspectionDetailView: View {
                         systemName: "arrow.clockwise"
                     )
                 }
-                .disabled(isLoading)
+                .disabled(
+                    isLoading
+                    || isCompleting
+                    || !savingResultIds.isEmpty
+                )
             }
         }
         .task {
@@ -279,23 +290,35 @@ struct SafetyInspectionDetailView: View {
     }
 
     private func completeJob() async {
-        guard !isCompleting else {
-            return
-        }
-
-        isCompleting = true
-
-        defer {
-            isCompleting = false
-        }
+        guard !isCompleting, savingResultIds.isEmpty else { return }
 
         do {
-            let completedJob = try await session.apiClient
+            if session.apiClient.safetyInspectionStore != nil,
+               let cached = try inspections.cachedJob(jobId) {
+                acceptJob(cached)
+            }
+
+            guard let current = job,
+                  current.canEdit,
+                  current.results?.isEmpty == false else {
+                return
+            }
+
+            guard incompleteResults.isEmpty else {
+                completionReviewPresented = true
+                return
+            }
+
+            isCompleting = true
+            defer { isCompleting = false }
+
+            let completed = try await session.apiClient
                 .completeSafetyInspection(
                     jobId: jobId,
                     overallNote: normalizedOverallNote
                 )
-            acceptJob(completedJob)
+
+            acceptJob(completed)
         } catch {
             errorMessage = error.localizedDescription
         }
@@ -330,33 +353,307 @@ struct SafetyInspectionDetailView: View {
         return sections
     }
 
-    private func updateCachedResult(
-        _ result: SafetyInspectionResult
-    ) {
+    private func updateCachedResult(_ result: SafetyInspectionResult) {
+        if let cached = try? inspections.cachedJob(jobId),
+           let latest = cached.results?.first(
+                where: { $0.id == result.id }
+           ),
+           latest.version >= result.version {
+            acceptJob(cached)
+            return
+        }
+
         guard var currentJob = job,
               var results = currentJob.results,
               let index = results.firstIndex(
-                where: {
-                    $0.id == result.id
-                }
-              ) else {
+                where: { $0.id == result.id }
+              ),
+              results[index].version <= result.version else {
             return
         }
 
         results[index] = result
         currentJob.results = results
 
-        currentJob.progress.checkedCount =
-            results.filter {
-                $0.state != "not_checked"
-            }.count
+        currentJob.progress.checkedCount = results.filter {
+            $0.state != "not_checked"
+        }.count
 
-        currentJob.progress.photoCount =
-            results.reduce(0) {
-                $0 + $1.photos.count
-            }
+        currentJob.progress.photoCount = results.reduce(0) {
+            $0 + $1.photos.count
+        }
+
+        if currentJob.status == "planned",
+           result.state != "not_checked" {
+            currentJob.status = "in_progress"
+        }
 
         job = currentJob
+    }
+    
+    @ViewBuilder
+    private func resultRow(
+        _ result: SafetyInspectionResult,
+        job: SafetyInspectionJob
+    ) -> some View {
+        VStack(alignment: .leading, spacing: 10) {
+            Button {
+                openEditor(result)
+            } label: {
+                SafetyInspectionResultRowView(result: result)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                    .contentShape(Rectangle())
+            }
+            .buttonStyle(.plain)
+            .disabled(
+                isCompleting || savingResultIds.contains(result.id)
+            )
+
+            if job.canEdit {
+                HStack(spacing: 10) {
+                    Button {
+                        Task { await markWithoutDefect(result) }
+                    } label: {
+                        Label(
+                            "Ohne Mangel",
+                            systemImage: "checkmark.circle"
+                        )
+                        .frame(minHeight: 32)
+                    }
+                    .buttonStyle(.bordered)
+                    .tint(.green)
+
+                    Menu {
+                        Button("Mangel (Info)") {
+                            openEditor(result, state: "defect_info")
+                        }
+
+                        Button("Mangel (dringend)") {
+                            openEditor(result, state: "defect_urgent")
+                        }
+
+                        if result.allowNotPresent {
+                            Button("Nicht vorhanden") {
+                                openEditor(result, state: "not_present")
+                            }
+                        }
+
+                        Button("Angaben und Fotos") {
+                            openEditor(result)
+                        }
+
+                        if result.state != "not_checked" {
+                            Button("Bewertung zurücksetzen") {
+                                openEditor(result, state: "not_checked")
+                            }
+                        }
+                    } label: {
+                        Label(
+                            "Weitere Bewertung",
+                            systemImage: "ellipsis.circle"
+                        )
+                        .frame(minHeight: 32)
+                    }
+                    .buttonStyle(.bordered)
+
+                    if savingResultIds.contains(result.id) {
+                        ProgressView()
+                    }
+                }
+                .disabled(
+                    isCompleting || savingResultIds.contains(result.id)
+                )
+
+                if result.state != "not_checked",
+                   !result.completionIssues.isEmpty {
+                    Text(
+                        result.completionIssues.joined(separator: " ")
+                    )
+                    .font(.caption)
+                    .foregroundStyle(.orange)
+                }
+            }
+        }
+        .padding(.vertical, 4)
+    }
+
+    private struct ResultEditorTarget: Hashable {
+        let result: SafetyInspectionResult
+        let requestedState: String?
+    }
+
+    private var incompleteResults: [SafetyInspectionResult] {
+        (job?.results ?? [])
+            .filter { !$0.completionIssues.isEmpty }
+            .sorted {
+                $0.positionIndex == $1.positionIndex
+                    ? $0.id < $1.id
+                    : $0.positionIndex < $1.positionIndex
+            }
+    }
+
+    private var completionReview: some View {
+        NavigationStack {
+            List {
+                if incompleteResults.isEmpty {
+                    ContentUnavailableView(
+                        "Alle Pflichtangaben sind vorhanden",
+                        systemImage: "checkmark.circle",
+                        description: Text(
+                            "Du kannst zur Prüfung zurückkehren und sie abschließen."
+                        )
+                    )
+                } else {
+                    ForEach(incompleteResults) { result in
+                        NavigationLink {
+                            SafetyInspectionResultEditorView(
+                                jobId: jobId,
+                                initialResult: result,
+                                canEdit: job?.canEdit == true,
+                                onChanged: updateCachedResult
+                            )
+                        } label: {
+                            VStack(alignment: .leading, spacing: 5) {
+                                Text(result.title)
+                                    .font(.headline)
+
+                                Text(
+                                    result.completionIssues.joined(
+                                        separator: " "
+                                    )
+                                )
+                                .font(.subheadline)
+                                .foregroundStyle(.secondary)
+                            }
+                        }
+                    }
+                }
+            }
+            .navigationTitle("Fehlende Angaben")
+            .navigationBarTitleDisplayMode(.inline)
+            .toolbar {
+                ToolbarItem(placement: .cancellationAction) {
+                    Button("Zurück zur Prüfung") {
+                        completionReviewPresented = false
+                    }
+                }
+            }
+        }
+    }
+
+    private func objectIdentifier(
+        _ job: SafetyInspectionJob
+    ) -> String? {
+        switch job.object.level {
+        case "economic_unit":
+            return job.object.economicUnitIdnum
+        case "building":
+            return job.object.buildingIdnum
+        case "use_unit":
+            return job.object.useUnitIdnum
+        default:
+            return nil
+        }
+    }
+
+    private func openEditor(
+        _ result: SafetyInspectionResult,
+        state: String? = nil
+    ) {
+        guard !isCompleting,
+              !savingResultIds.contains(result.id) else {
+            return
+        }
+
+        let current = job?.results?.first {
+            $0.id == result.id
+        } ?? result
+
+        editorTarget = ResultEditorTarget(
+            result: current,
+            requestedState: state
+        )
+    }
+
+    private func markWithoutDefect(
+        _ result: SafetyInspectionResult
+    ) async {
+        guard !isCompleting,
+              !savingResultIds.contains(result.id),
+              let currentJob = job,
+              currentJob.canEdit,
+              let current = currentJob.results?.first(
+                where: { $0.id == result.id }
+              ) else {
+            return
+        }
+
+        if current.state == "no_defect",
+           current.completionIssues.isEmpty {
+            return
+        }
+
+        let hasNotes = !(current.note ?? "")
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+            .isEmpty
+            || !(current.immediateAction ?? "")
+                .trimmingCharacters(in: .whitespacesAndNewlines)
+                .isEmpty
+
+        if !["not_checked", "no_defect"].contains(current.state)
+            || hasNotes
+            || !current.missingRequirements(
+                for: "no_defect",
+                note: current.note
+            ).isEmpty {
+            openEditor(current, state: "no_defect")
+            return
+        }
+
+        savingResultIds.insert(current.id)
+        defer { savingResultIds.remove(current.id) }
+
+        do {
+            let updated = try await session.apiClient
+                .updateSafetyInspectionResult(
+                    jobId: jobId,
+                    resultId: current.id,
+                    state: "no_defect",
+                    note: current.note,
+                    immediateAction: current.immediateAction,
+                    version: current.version,
+                    baseResult: InspectionResultSnapshot(current)
+                )
+
+            updateCachedResult(updated)
+        } catch {
+            errorMessage = error.localizedDescription
+        }
+    }
+
+    private func requestCompletion() {
+        guard !isCompleting, savingResultIds.isEmpty else { return }
+
+        do {
+            if session.apiClient.safetyInspectionStore != nil,
+               let cached = try inspections.cachedJob(jobId) {
+                acceptJob(cached)
+            }
+
+            guard let current = job,
+                  current.canEdit,
+                  current.results?.isEmpty == false else {
+                return
+            }
+
+            if incompleteResults.isEmpty {
+                completionConfirmationPresented = true
+            } else {
+                completionReviewPresented = true
+            }
+        } catch {
+            errorMessage = error.localizedDescription
+        }
     }
 
     private var normalizedOverallNote: String? {
@@ -472,6 +769,7 @@ struct SafetyInspectionResultEditorView: View {
         jobId: Int,
         initialResult: SafetyInspectionResult,
         canEdit: Bool,
+        initialState: String? = nil,
         onChanged: @escaping (
             SafetyInspectionResult
         ) -> Void
@@ -484,7 +782,7 @@ struct SafetyInspectionResultEditorView: View {
             initialValue: initialResult
         )
         _selectedState = State(
-            initialValue: initialResult.state
+            initialValue: initialState ?? initialResult.state
         )
         _note = State(
             initialValue: initialResult.note ?? ""
@@ -548,6 +846,19 @@ struct SafetyInspectionResultEditorView: View {
                     TextEditor(text: $note)
                         .frame(minHeight: 90)
                         .disabled(!canEdit)
+                }
+                
+                if result.requiresNote(for: selectedState),
+                   note.trimmingCharacters(
+                        in: .whitespacesAndNewlines
+                   ).isEmpty {
+                    Text(
+                        selectedState == "not_present"
+                            ? "Für den Abschluss fehlt die Begründung."
+                            : "Für den Abschluss fehlt die Mangelbeschreibung."
+                    )
+                    .font(.caption)
+                    .foregroundStyle(.orange)
                 }
 
                 if isDefectState {
@@ -653,13 +964,17 @@ struct SafetyInspectionResultEditorView: View {
                 }
                 .buttonStyle(.borderedProminent)
                 .controlSize(.large)
-                .disabled(isSaving || isUploading)
+                .disabled(
+                    isSaving
+                    || isUploading
+                    || !deletingPhotoIds.isEmpty
+                )
                 .padding(.horizontal, 16)
                 .padding(.vertical, 12)
                 .background(.bar)
             }
         }
-        .navigationTitle("")
+        .navigationTitle(result.title)
         .navigationBarTitleDisplayMode(.inline)
         .task {
             await loadThumbnails()
@@ -823,7 +1138,10 @@ struct SafetyInspectionResultEditorView: View {
     }
 
     private func saveResult() async {
-        guard !isSaving else {
+        guard canEdit,
+              !isSaving,
+              !isUploading,
+              deletingPhotoIds.isEmpty else {
             return
         }
 
@@ -1035,18 +1353,7 @@ struct SafetyInspectionResultEditorView: View {
     }
 
     private var photoRequired: Bool {
-        switch selectedState {
-        case "no_defect":
-            return result.photoRequirements.noDefect
-        case "not_present":
-            return result.photoRequirements.notPresent
-        case "defect_info":
-            return result.photoRequirements.defectInfo
-        case "defect_urgent":
-            return result.photoRequirements.defectUrgent
-        default:
-            return false
-        }
+        result.requiresPhoto(for: selectedState)
     }
 
     private func normalizedText(
