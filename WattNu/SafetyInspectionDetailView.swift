@@ -20,6 +20,7 @@ struct SafetyInspectionDetailView: View {
     @State private var editorTarget: ResultEditorTarget?
     @State private var completionReviewPresented = false
     @State private var loadRevision = 0
+    @State private var contactsPresented = false
 
     var body: some View {
         Group {
@@ -74,6 +75,17 @@ struct SafetyInspectionDetailView: View {
                                 systemImage: "exclamationmark.triangle.fill"
                             )
                             .foregroundStyle(.red)
+                        }
+                        
+                        if job.object.level == "use_unit" {
+                            Button {
+                                contactsPresented = true
+                            } label: {
+                                Label(
+                                    "Bewohner und Kontaktdaten anzeigen",
+                                    systemImage: "person.2.fill"
+                                )
+                            }
                         }
 
                         DisclosureGroup("Auftragsdaten") {
@@ -178,6 +190,11 @@ struct SafetyInspectionDetailView: View {
         }
         .sheet(isPresented: $completionReviewPresented) {
             completionReview
+        }
+        .sheet(isPresented: $contactsPresented) {
+            NavigationStack {
+                CommissionContactsView(inspectionJobId: jobId)
+            }
         }
         .navigationTitle("Prüfauftrag")
         .navigationBarTitleDisplayMode(.inline)
@@ -446,18 +463,12 @@ struct SafetyInspectionDetailView: View {
                     .tint(.green)
 
                     Menu {
-                        Button("Mangel (Info)") {
+                        Button("Mangel") {
                             openEditor(result, state: "defect_info")
                         }
 
-                        Button("Mangel (dringend)") {
-                            openEditor(result, state: "defect_urgent")
-                        }
-
-                        if result.allowNotPresent {
-                            Button("Nicht vorhanden") {
-                                openEditor(result, state: "not_present")
-                            }
+                        Button("Nicht vorhanden") {
+                            openEditor(result, state: "not_present")
                         }
 
                         Button("Angaben und Fotos") {
@@ -855,7 +866,11 @@ struct SafetyInspectionResultEditorView: View {
                 ) {
                     ForEach(availableChoices) { choice in
                         Text(choice.label)
-                            .tag(choice.rawValue)
+                            .tag(
+                                choice == .defect && selectedState == "defect_urgent"
+                                    ? "defect_urgent"
+                                    : choice.rawValue
+                            )
                     }
                 }
                 .disabled(!canEdit)
@@ -1360,13 +1375,8 @@ struct SafetyInspectionResultEditorView: View {
         }
     }
 
-    private var availableChoices:
-        [SafetyInspectionResultChoice] {
-
-        SafetyInspectionResultChoice.allCases.filter {
-            $0 != .notPresent
-            || result.allowNotPresent
-        }
+    private var availableChoices: [SafetyInspectionResultChoice] {
+        SafetyInspectionResultChoice.allCases
     }
 
     private var isDefectState: Bool {
@@ -1465,15 +1475,11 @@ struct SafetyInspectionPhotoPreview: View {
     }
 }
 
-enum SafetyInspectionResultChoice: String,
-    CaseIterable,
-    Identifiable {
-
+enum SafetyInspectionResultChoice: String, CaseIterable, Identifiable {
     case notChecked = "not_checked"
     case noDefect = "no_defect"
     case notPresent = "not_present"
-    case defectInfo = "defect_info"
-    case defectUrgent = "defect_urgent"
+    case defect = "defect_info"
 
     var id: String {
         rawValue
@@ -1487,10 +1493,8 @@ enum SafetyInspectionResultChoice: String,
             return "Ohne Mangel"
         case .notPresent:
             return "Nicht vorhanden"
-        case .defectInfo:
-            return "Mangel (Info)"
-        case .defectUrgent:
-            return "Mangel (dringend)"
+        case .defect:
+            return "Mangel"
         }
     }
 }

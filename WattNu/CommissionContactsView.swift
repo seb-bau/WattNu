@@ -4,7 +4,18 @@ struct CommissionContactsView: View {
     @EnvironmentObject private var session: SessionStore
     @Environment(\.dismiss) private var dismiss
 
-    let commission: Commission
+    private let commission: Commission?
+    private let inspectionJobId: Int?
+
+    init(commission: Commission) {
+        self.commission = commission
+        inspectionJobId = nil
+    }
+
+    init(inspectionJobId: Int) {
+        commission = nil
+        self.inspectionJobId = inspectionJobId
+    }
 
     @State private var contacts: [CommissionContactItem] = []
     @State private var isLoading = false
@@ -68,7 +79,15 @@ struct CommissionContactsView: View {
         }
 
         do {
-            contacts = try await session.apiClient.fetchCommissionContacts(commissionId: commission.id)
+            if let inspectionJobId {
+                contacts = try await session.apiClient.fetchSafetyInspectionContacts(
+                    jobId: inspectionJobId
+                )
+            } else if let commission {
+                contacts = try await session.apiClient.fetchCommissionContacts(
+                    commissionId: commission.id
+                )
+            }
         } catch {
             errorMessage = error.localizedDescription
         }

@@ -24,6 +24,7 @@ struct InspectionBuildingRoute: Hashable {
     let scope: String
     let userId: Int?
     let initialStatus: String
+    var templateId: Int? = nil
 }
 
 struct InspectionBuildingGroup: Identifiable {
@@ -80,7 +81,8 @@ struct InspectionBuildingGroup: Identifiable {
     func route(
         scope: String,
         userId: Int?,
-        initialStatus: String
+        initialStatus: String,
+        templateId: Int? = nil
     ) -> InspectionBuildingRoute {
         InspectionBuildingRoute(
             id: id,
@@ -89,7 +91,8 @@ struct InspectionBuildingGroup: Identifiable {
             jobIds: jobs.map(\.id),
             scope: scope,
             userId: userId,
-            initialStatus: initialStatus
+            initialStatus: initialStatus,
+            templateId: templateId
         )
     }
 }
@@ -386,7 +389,9 @@ struct InspectionBuildingView: View {
 
             jobs = try inspections.cachedInspectionJobs(ids: Array(knownIds))
                 .filter {
-                    $0.inspectionBuildingId == route.id && matchesOwner($0)
+                    $0.inspectionBuildingId == route.id
+                        && matchesOwner($0)
+                        && (route.templateId == nil || $0.template.id == route.templateId)
                 }
 
             if !newJobs.isEmpty {

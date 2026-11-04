@@ -1925,10 +1925,8 @@ struct SafetyInspectionResult: Codable, Identifiable, Hashable {
             return "Ohne Mangel"
         case "not_present":
             return "Nicht vorhanden"
-        case "defect_info":
-            return "Mangel (Info)"
-        case "defect_urgent":
-            return "Mangel (dringend)"
+        case "defect_info", "defect_urgent":
+            return "Mangel"
         default:
             return state
         }
@@ -2056,10 +2054,8 @@ extension SafetyInspectionResult {
             return photoRequirements.noDefect
         case "not_present":
             return photoRequirements.notPresent
-        case "defect_info":
-            return photoRequirements.defectInfo
-        case "defect_urgent":
-            return photoRequirements.defectUrgent
+        case "defect_info", "defect_urgent":
+            return photoRequirements.defectInfo || photoRequirements.defectUrgent
         default:
             return false
         }
@@ -2079,12 +2075,6 @@ extension SafetyInspectionResult {
         }
 
         var issues: [String] = []
-
-        if state == "not_present" && !allowNotPresent {
-            issues.append(
-                "„Nicht vorhanden“ ist für diesen Prüfpunkt nicht zulässig."
-            )
-        }
 
         if requiresNote(for: state),
            (note ?? "").trimmingCharacters(

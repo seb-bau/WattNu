@@ -1420,6 +1420,16 @@ extension APIClient {
             capturedAt: capturedAt
         )
     }
+    
+    func fetchSafetyInspectionContacts(jobId: Int) async throws -> [CommissionContactItem] {
+        try requireToken()
+
+        let response: CommissionContactsResponse = try await request(
+            path: "/api/safety-inspections/\(jobId)/contacts"
+        )
+
+        return response.contactItems
+    }
 
     func deleteSafetyInspectionPhoto(
         jobId: Int, resultId: Int, photoId: Int

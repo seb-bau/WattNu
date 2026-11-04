@@ -17,6 +17,19 @@ struct SafetyInspectionListView: View {
     @State private var errorMessage: String?
     @State private var visitFilter: InspectionVisitFilter = .all
     
+    @State private var selectedTemplateId: Int?
+
+    private var availableTemplates: [SafetyInspectionTemplateSummary] {
+        Dictionary(grouping: jobs, by: \.template.id)
+            .compactMap { $0.value.first?.template }
+            .sorted { left, right in
+                let comparison = left.name.localizedStandardCompare(right.name)
+                return comparison == .orderedSame
+                    ? left.id < right.id
+                    : comparison == .orderedAscending
+            }
+    }
+    
     private var ownerFilter: CommissionOwnerFilter {
         navigation.safetyInspectionOwnerFilter
     }
@@ -62,7 +75,7 @@ struct SafetyInspectionListView: View {
     }
 
     private var visibleBuildings: [InspectionBuildingGroup] {
-        let grouped = Dictionary(grouping: jobs, by: \.inspectionBuildingId)
+        let grouped = Dictionary(grouping: filteredJobs, by: \.inspectionBuildingId)
         var seen: Set<InspectionBuildingId> = []
 
         return filteredJobs.compactMap { job in
@@ -95,6 +108,7 @@ struct SafetyInspectionListView: View {
             }
 
             return matchesOwner
+                && (selectedTemplateId == nil || job.template.id == selectedTemplateId)
                 && statusFilter.matches(job)
                 && visitFilter.matches(job, today: today)
                 && job.matchesSearch(
@@ -180,6 +194,21 @@ struct SafetyInspectionListView: View {
                 .frame(maxWidth: .infinity, alignment: .trailing)
             }
             
+            Picker("Prüfdetailplan", selection: $selectedTemplateId) {
+                Text("Alle Prüfdetailpläne").tag(Int?.none)
+
+                ForEach(availableTemplates, id: \.id) { template in
+                    Text(template.name).tag(Optional(template.id))
+                }
+
+                if let selectedTemplateId,
+                   !availableTemplates.contains(where: { $0.id == selectedTemplateId }) {
+                    Text("Prüfdetailplan \(selectedTemplateId)")
+                        .tag(Optional(selectedTemplateId))
+                }
+            }
+            .pickerStyle(.menu)
+            
             Picker("Besuchsvermerke", selection: $visitFilter) {
                 ForEach(InspectionVisitFilter.allCases) { filter in
                     Text(filter.label).tag(filter)
@@ -260,7 +289,8 @@ struct SafetyInspectionListView: View {
                             NavigationLink(value: building.route(
                                 scope: ownerFilter.scope.rawValue,
                                 userId: ownerFilter.userId,
-                                initialStatus: statusFilter.rawValue
+                                initialStatus: statusFilter.rawValue,
+                                templateId: selectedTemplateId
                             )) {
                                 VStack(alignment: .leading, spacing: 6) {
                                     Text(building.title)
