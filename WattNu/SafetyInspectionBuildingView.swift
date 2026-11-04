@@ -518,6 +518,7 @@ struct InspectionBuildingView: View {
                     systemImage: "calendar.badge.clock"
                 )
             }
+            .compositingGroup()
         }
     }
 }

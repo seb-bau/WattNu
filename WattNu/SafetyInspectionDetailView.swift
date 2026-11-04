@@ -40,21 +40,11 @@ struct SafetyInspectionDetailView: View {
 
                         Text(job.objectTitle)
                             .font(.subheadline)
-                        
-                        Text(job.objectTitle)
-                            .font(.subheadline)
 
                         InspectionVisitBadge(
                             job: job,
                             showDetails: true
                         )
-
-                        if let location = job.object.location,
-                           !location.isEmpty {
-                            Text(location)
-                                .font(.subheadline)
-                                .foregroundStyle(.secondary)
-                        }
 
                         if let location = job.object.location,
                            !location.isEmpty {
@@ -435,70 +425,97 @@ struct SafetyInspectionDetailView: View {
         _ result: SafetyInspectionResult,
         job: SafetyInspectionJob
     ) -> some View {
+        let hasRating = result.state != "not_checked"
+        let isBusy = isCompleting
+            || savingResultIds.contains(result.id)
+
         VStack(alignment: .leading, spacing: 10) {
-            Button {
-                openEditor(result)
-            } label: {
-                SafetyInspectionResultRowView(result: result)
-                    .frame(maxWidth: .infinity, alignment: .leading)
-                    .contentShape(Rectangle())
+            HStack(alignment: .top, spacing: 12) {
+                Button {
+                    openEditor(result)
+                } label: {
+                    SafetyInspectionResultRowView(result: result)
+                        .frame(
+                            maxWidth: .infinity,
+                            alignment: .leading
+                        )
+                        .contentShape(Rectangle())
+                }
+                .buttonStyle(.plain)
+
+                if job.canEdit && hasRating {
+                    Button {
+                        openEditor(result)
+                    } label: {
+                        Image(systemName: "pencil")
+                            .frame(width: 44, height: 44)
+                    }
+                    .buttonStyle(.borderless)
+                    .accessibilityLabel("Prüfpunkt bearbeiten")
+                }
             }
-            .buttonStyle(.plain)
-            .disabled(
-                isCompleting || savingResultIds.contains(result.id)
-            )
+            .disabled(isBusy)
 
             if job.canEdit {
-                HStack(spacing: 10) {
-                    Button {
-                        Task { await markWithoutDefect(result) }
-                    } label: {
-                        Label(
-                            "Ohne Mangel",
-                            systemImage: "checkmark.circle"
-                        )
-                        .frame(minHeight: 32)
-                    }
-                    .buttonStyle(.bordered)
-                    .tint(.green)
-
-                    Menu {
-                        Button("Mangel") {
-                            openEditor(result, state: "defect_info")
-                        }
-
-                        Button("Nicht vorhanden") {
-                            openEditor(result, state: "not_present")
-                        }
-
-                        Button("Angaben und Fotos") {
-                            openEditor(result)
-                        }
-
-                        if result.state != "not_checked" {
-                            Button("Bewertung zurücksetzen") {
-                                openEditor(result, state: "not_checked")
+                if !hasRating {
+                    HStack(spacing: 8) {
+                        Button {
+                            Task {
+                                await markWithoutDefect(result)
                             }
+                        } label: {
+                            Text("Kein Mangel")
+                                .fixedSize(
+                                    horizontal: false,
+                                    vertical: true
+                                )
+                                .frame(
+                                    maxWidth: .infinity,
+                                    minHeight: 44
+                                )
                         }
-                    } label: {
-                        Label(
-                            "Weitere Bewertung",
-                            systemImage: "ellipsis.circle"
-                        )
-                        .frame(minHeight: 32)
+                        .tint(.green)
+
+                        Button {
+                            openEditor(result, state: "defect_info")
+                        } label: {
+                            Text("Mangel")
+                                .fixedSize(
+                                    horizontal: false,
+                                    vertical: true
+                                )
+                                .frame(
+                                    maxWidth: .infinity,
+                                    minHeight: 44
+                                )
+                        }
+                        .tint(.red)
+
+                        Button {
+                            openEditor(result)
+                        } label: {
+                            Text("Weitere Optionen")
+                                .fixedSize(
+                                    horizontal: false,
+                                    vertical: true
+                                )
+                                .frame(
+                                    maxWidth: .infinity,
+                                    minHeight: 44
+                                )
+                        }
                     }
+                    .font(.subheadline)
+                    .multilineTextAlignment(.center)
                     .buttonStyle(.bordered)
-
-                    if savingResultIds.contains(result.id) {
-                        ProgressView()
-                    }
+                    .disabled(isBusy)
                 }
-                .disabled(
-                    isCompleting || savingResultIds.contains(result.id)
-                )
 
-                if result.state != "not_checked",
-                   !result.completionIssues.isEmpty {
+                if savingResultIds.contains(result.id) {
+                    ProgressView()
+                }
+
+                if hasRating && !result.completionIssues.isEmpty {
                     Text(
                         result.completionIssues.joined(separator: " ")
                     )
@@ -617,29 +634,8 @@ struct SafetyInspectionDetailView: View {
               currentJob.canEdit,
               let current = currentJob.results?.first(
                 where: { $0.id == result.id }
-              ) else {
-            return
-        }
-
-        if current.state == "no_defect",
-           current.completionIssues.isEmpty {
-            return
-        }
-
-        let hasNotes = !(current.note ?? "")
-            .trimmingCharacters(in: .whitespacesAndNewlines)
-            .isEmpty
-            || !(current.immediateAction ?? "")
-                .trimmingCharacters(in: .whitespacesAndNewlines)
-                .isEmpty
-
-        if !["not_checked", "no_defect"].contains(current.state)
-            || hasNotes
-            || !current.missingRequirements(
-                for: "no_defect",
-                note: current.note
-            ).isEmpty {
-            openEditor(current, state: "no_defect")
+              ),
+              current.state == "not_checked" else {
             return
         }
 
@@ -754,9 +750,7 @@ struct SafetyInspectionResultRowView: View {
             return .green
         case "not_present":
             return .gray
-        case "defect_info":
-            return .orange
-        case "defect_urgent":
+        case "defect_info", "defect_urgent":
             return .red
         default:
             return .secondary
@@ -1490,7 +1484,7 @@ enum SafetyInspectionResultChoice: String, CaseIterable, Identifiable {
         case .notChecked:
             return "Nicht geprüft"
         case .noDefect:
-            return "Ohne Mangel"
+            return "Kein Mangel"
         case .notPresent:
             return "Nicht vorhanden"
         case .defect:

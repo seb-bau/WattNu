@@ -8,8 +8,8 @@ struct SafetyInspectionListView: View {
 
     @State private var jobs: [SafetyInspectionJob] = []
     @State private var inspectionUsers: [AppUser] = []
-    @State private var sortMode: SafetyInspectionSortMode = .address
-    @State private var isSearchVisible = true
+    @State private var isSearchVisible = false
+    @State private var isFilterPresented = false
     @State private var isLoading = false
     @State private var isLoadingUsers = false
     @State private var usersLoadRevision = 0
@@ -117,118 +117,136 @@ struct SafetyInspectionListView: View {
         }
 
         return selectedJobs.sorted { left, right in
-            switch sortMode {
-            case .dueDate:
-                return left.dueTo == right.dueTo
-                    ? left.id < right.id
-                    : left.dueTo < right.dueTo
+            let comparison = left.objectTitle
+                .localizedStandardCompare(right.objectTitle)
 
-            case .address:
-                let comparison = left.objectTitle
-                    .localizedStandardCompare(right.objectTitle)
-
-                return comparison == .orderedSame
-                    ? left.id < right.id
-                    : comparison == .orderedAscending
-
-            case .status:
-                let comparison = left.statusLabel
-                    .localizedStandardCompare(right.statusLabel)
-
-                if comparison != .orderedSame {
-                    return comparison == .orderedAscending
-                }
-
-                return left.dueTo == right.dueTo
-                    ? left.id < right.id
-                    : left.dueTo < right.dueTo
-            }
+            return comparison == .orderedSame
+                ? left.id < right.id
+                : comparison == .orderedAscending
         }
-    }
 
-    private var filterHeader: some View {
-        VStack(alignment: .leading, spacing: 6) {
+        private var filterSummary: String {
+            var parts = [ownerFilterLabel, statusFilter.label]
+
+            if let selectedTemplateId {
+                let name = availableTemplates.first {
+                    $0.id == selectedTemplateId
+                }?.name ?? "Prüfdetailplan \(selectedTemplateId)"
+                parts.append(name)
+            }
+
+            if visitFilter != .all {
+                parts.append(visitFilter.label)
+            }
+
+            return parts.joined(separator: " · ")
+        }
+
+        private var filterHeader: some View {
             HStack(spacing: 8) {
-                Picker(selection: $navigation.safetyInspectionOwnerFilter) {
-                    Text("Meine")
-                        .tag(CommissionOwnerFilter.mine)
+                Text(filterSummary)
+                    .lineLimit(1)
+                    .truncationMode(.tail)
 
-                    ForEach(colleagueUsers) { user in
-                        Text(user.displayName)
-                            .tag(CommissionOwnerFilter.user(user.id))
-                    }
+                Spacer(minLength: 4)
 
-                    Text("Alle")
-                        .tag(CommissionOwnerFilter.all)
-                } label: {
-                    Text(ownerFilterLabel)
-                        .lineLimit(1)
-                }
-                .pickerStyle(.menu)
-                .frame(maxWidth: .infinity, alignment: .leading)
-
-                Picker(
-                    selection: $navigation.safetyInspectionStatusFilter
-                ) {
-                    ForEach(SafetyInspectionListFilter.allCases) { filter in
-                        Text(filter.label)
-                            .tag(filter)
-                    }
-                } label: {
-                    Text(statusFilter.label)
-                        .lineLimit(1)
-                }
-                .pickerStyle(.menu)
-                .frame(maxWidth: .infinity, alignment: .center)
-
-                Picker(selection: $sortMode) {
-                    ForEach(SafetyInspectionSortMode.allCases) { mode in
-                        Text(mode.label)
-                            .tag(mode)
-                    }
-                } label: {
-                    Text(sortMode.label)
-                        .lineLimit(1)
-                }
-                .pickerStyle(.menu)
-                .frame(maxWidth: .infinity, alignment: .trailing)
+                Text(
+                    isLoading || isLoadingUsers
+                        ? "Wird geladen …"
+                        : "\(visibleBuildings.count) Gebäude · \(filteredJobs.count) Prüfungen"
+                )
+                .layoutPriority(1)
             }
-            
-            Picker("Prüfdetailplan", selection: $selectedTemplateId) {
-                Text("Alle Prüfdetailpläne").tag(Int?.none)
-
-                ForEach(availableTemplates, id: \.id) { template in
-                    Text(template.name).tag(Optional(template.id))
-                }
-
-                if let selectedTemplateId,
-                   !availableTemplates.contains(where: { $0.id == selectedTemplateId }) {
-                    Text("Prüfdetailplan \(selectedTemplateId)")
-                        .tag(Optional(selectedTemplateId))
-                }
-            }
-            .pickerStyle(.menu)
-            
-            Picker("Besuchsvermerke", selection: $visitFilter) {
-                ForEach(InspectionVisitFilter.allCases) { filter in
-                    Text(filter.label).tag(filter)
-                }
-            }
-            .pickerStyle(.menu)
-
-            Text(
-                isLoading || isLoadingUsers
-                    ? "Prüfaufträge werden geladen …"
-                    : "\(visibleBuildings.count) Gebäude · \(filteredJobs.count) Prüfungen"
-            )
             .font(.caption)
             .foregroundStyle(.secondary)
-            .frame(maxWidth: .infinity, alignment: .trailing)
+            .padding(.horizontal)
+            .padding(.vertical, 8)
+            .background(Color(.systemGroupedBackground))
         }
-        .padding(.horizontal)
-        .padding(.vertical, 8)
-        .background(.background)
-    }
+
+        private var filterSheet: some View {
+            NavigationStack {
+                Form {
+                    Section("Auswahl") {
+                        Picker(
+                            "Zuständigkeit",
+                            selection: $navigation.safetyInspectionOwnerFilter
+                        ) {
+                            Text("Meine")
+                                .tag(CommissionOwnerFilter.mine)
+
+                            ForEach(colleagueUsers) { user in
+                                Text(user.displayName)
+                                    .tag(CommissionOwnerFilter.user(user.id))
+                            }
+
+                            Text("Alle")
+                                .tag(CommissionOwnerFilter.all)
+                        }
+
+                        Picker(
+                            "Status",
+                            selection: $navigation.safetyInspectionStatusFilter
+                        ) {
+                            ForEach(SafetyInspectionListFilter.allCases) { filter in
+                                Text(filter.label).tag(filter)
+                            }
+                        }
+
+                        Picker(
+                            "Prüfdetailplan",
+                            selection: $selectedTemplateId
+                        ) {
+                            Text("Alle Prüfdetailpläne")
+                                .tag(Int?.none)
+
+                            ForEach(availableTemplates, id: \.id) { template in
+                                Text(template.name)
+                                    .tag(Optional(template.id))
+                            }
+
+                            if let selectedTemplateId,
+                               !availableTemplates.contains(
+                                   where: { $0.id == selectedTemplateId }
+                               ) {
+                                Text("Prüfdetailplan \(selectedTemplateId)")
+                                    .tag(Optional(selectedTemplateId))
+                            }
+                        }
+
+                        Picker(
+                            "Besuchsvermerke",
+                            selection: $visitFilter
+                        ) {
+                            ForEach(InspectionVisitFilter.allCases) { filter in
+                                Text(filter.label).tag(filter)
+                            }
+                        }
+                    }
+
+                    Section {
+                        Button("Filter zurücksetzen") {
+                            navigation.safetyInspectionOwnerFilter = .mine
+                            navigation.safetyInspectionStatusFilter = .active
+                            selectedTemplateId = nil
+                            visitFilter = .all
+                        }
+                    }
+                }
+                .pickerStyle(.navigationLink)
+                .navigationTitle("Filter")
+                .navigationBarTitleDisplayMode(.inline)
+                .toolbar {
+                    ToolbarItem(placement: .confirmationAction) {
+                        Button("Fertig") {
+                            isFilterPresented = false
+                        }
+                    }
+                }
+            }
+            .presentationDetents([.medium, .large])
+            .presentationDragIndicator(.visible)
+        }
 
     var body: some View {
         NavigationStack(path: $navigation.safetyInspectionPath) {
@@ -285,53 +303,57 @@ struct SafetyInspectionListView: View {
                             maxHeight: .infinity
                         )
                     } else {
-                        List(visibleBuildings) { building in
-                            NavigationLink(value: building.route(
-                                scope: ownerFilter.scope.rawValue,
-                                userId: ownerFilter.userId,
-                                initialStatus: statusFilter.rawValue,
-                                templateId: selectedTemplateId
-                            )) {
-                                VStack(alignment: .leading, spacing: 6) {
-                                    Text(building.title)
-                                        .font(.headline)
+                        List {
+                            ForEach(visibleBuildings) { building in
+                                Section {
+                                    NavigationLink(value: building.route(
+                                        scope: ownerFilter.scope.rawValue,
+                                        userId: ownerFilter.userId,
+                                        initialStatus: statusFilter.rawValue,
+                                        templateId: selectedTemplateId
+                                    )) {
+                                        VStack(alignment: .leading, spacing: 6) {
+                                            Text(building.title)
+                                                .font(.headline)
 
-                                    if !building.subtitle.isEmpty {
-                                        Text(building.subtitle)
-                                            .font(.caption)
-                                            .foregroundStyle(.secondary)
+                                            if !building.subtitle.isEmpty {
+                                                Text(building.subtitle)
+                                                    .font(.caption)
+                                                    .foregroundStyle(.secondary)
+                                            }
+
+                                            Text(building.summary)
+                                                .font(.subheadline)
+                                                .foregroundStyle(.secondary)
+                                        }
+                                        .padding(.vertical, 4)
                                     }
-
-                                    Text(building.summary)
-                                        .font(.subheadline)
-                                        .foregroundStyle(.secondary)
                                 }
-                                .padding(.vertical, 8)
                             }
-                            .buttonStyle(.plain)
-                            .listRowSeparator(.hidden)
-                            .listRowInsets(
-                                EdgeInsets(
-                                    top: 7,
-                                    leading: 16,
-                                    bottom: 7,
-                                    trailing: 16
-                                )
-                            )
-                            .listRowBackground(Color.clear)
                         }
-                        .listStyle(.plain)
-                        .scrollContentBackground(.hidden)
-                        .background(Color(.systemGroupedBackground))
+                        .listStyle(.insetGrouped)
+                        .listSectionSpacing(.compact)
                         .refreshable {
                             await loadInitialData()
                         }
                     }
                 }
             }
-            .navigationTitle("Gebäude")
+            .navigationTitle("Prüfungen")
+            .navigationBarTitleDisplayMode(.inline)
+            .sheet(isPresented: $isFilterPresented) {
+                filterSheet
+            }
             .toolbar {
                 ToolbarItemGroup(placement: .topBarTrailing) {
+                    Button {
+                        isFilterPresented = true
+                    } label: {
+                        Image(
+                            systemName: "line.3.horizontal.decrease.circle"
+                        )
+                    }
+                    .accessibilityLabel("Filter anzeigen")
                     Button {
                         withAnimation(.easeInOut(duration: 0.2)) {
                             isSearchVisible = !isSearchExpanded

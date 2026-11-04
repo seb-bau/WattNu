@@ -1922,7 +1922,7 @@ struct SafetyInspectionResult: Codable, Identifiable, Hashable {
         case "not_checked":
             return "Nicht geprüft"
         case "no_defect":
-            return "Ohne Mangel"
+            return "Kein Mangel"
         case "not_present":
             return "Nicht vorhanden"
         case "defect_info", "defect_urgent":
