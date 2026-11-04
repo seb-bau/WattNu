@@ -16,7 +16,7 @@ struct CommissionListView: View {
     @State private var statusFilter:
         CommissionStatusFilter = .active
     @State private var sortMode:
-        CommissionSortMode = .defaultOrder
+        CommissionSortMode = .distance
     @State private var isSearchVisible = false
     @State private var isLoading = false
     @State private var errorMessage: String?
@@ -65,53 +65,91 @@ struct CommissionListView: View {
     }
 
     private var sortedCommissions: [Commission] {
+        let selected: [Commission] = searchedCommissions
         let ordered: [Commission]
 
         switch sortMode {
         case .distance:
-            ordered = searchedCommissions.sorted {
-                let left = locationStore.distanceMeters(to: $0)
-                    ?? Double.greatestFiniteMagnitude
-                let right = locationStore.distanceMeters(to: $1)
-                    ?? Double.greatestFiniteMagnitude
-                return left < right
+            var distances: [Double] = []
+            distances.reserveCapacity(selected.count)
+
+            for commission in selected {
+                let meters: Double =
+                    locationStore.distanceMeters(to: commission)
+                    ?? Double.infinity
+
+                distances.append(meters)
             }
 
+            var indices: [Int] = Array(selected.indices)
+
+            indices.sort { (leftIndex: Int, rightIndex: Int) -> Bool in
+                let leftDistance: Double = distances[leftIndex]
+                let rightDistance: Double = distances[rightIndex]
+
+                if leftDistance == rightDistance {
+                    return leftIndex < rightIndex
+                }
+
+                return leftDistance < rightDistance
+            }
+
+            var nearby: [Commission] = []
+            nearby.reserveCapacity(selected.count)
+
+            for index in indices {
+                nearby.append(selected[index])
+            }
+
+            ordered = nearby
+
         case .title:
-            ordered = searchedCommissions.sorted {
-                $0.displayTitle.localizedCaseInsensitiveCompare(
-                    $1.displayTitle
-                ) == .orderedAscending
+            ordered = selected.sorted {
+                (left: Commission, right: Commission) -> Bool in
+
+                let comparison = left.displayTitle
+                    .localizedCaseInsensitiveCompare(right.displayTitle)
+
+                return comparison == .orderedAscending
             }
 
         case .defaultOrder:
-            ordered = searchedCommissions
+            ordered = selected
         }
 
         let currentDate = Date()
-        let isToday: (Commission) -> Bool = {
-            Formatters.isAppointmentToday(
-                $0.acceptedAppointmentFrom,
+        var urgent: [Commission] = []
+        var today: [Commission] = []
+        var scheduled: [Commission] = []
+        var remaining: [Commission] = []
+
+        for commission in ordered {
+            if commission.isHighPriorityValue {
+                urgent.append(commission)
+            } else if Formatters.isAppointmentToday(
+                commission.acceptedAppointmentFrom,
                 at: currentDate
-            )
+            ) {
+                today.append(commission)
+            } else if commission.acceptedAppointmentFrom != nil {
+                scheduled.append(commission)
+            } else {
+                remaining.append(commission)
+            }
         }
 
-        return ordered.filter { $0.isHighPriorityValue }
-            + ordered.filter {
-                !$0.isHighPriorityValue && isToday($0)
-            }
-            + ordered.filter {
-                !$0.isHighPriorityValue
-                    && $0.acceptedAppointmentFrom != nil
-                    && !isToday($0)
-            }
-            + ordered.filter {
-                !$0.isHighPriorityValue
-                    && $0.acceptedAppointmentFrom == nil
-            }
-    }
+        var result: [Commission] = []
+        result.reserveCapacity(ordered.count)
+        result.append(contentsOf: urgent)
+        result.append(contentsOf: today)
+        result.append(contentsOf: scheduled)
+        result.append(contentsOf: remaining)
 
+        return result
+    }
+    
     var body: some View {
+        let items = sortedCommissions
         NavigationStack(path: $navigation.commissionPath) {
             VStack(spacing: 0) {
                 if pushNotifications.isDenied {
@@ -145,7 +183,7 @@ struct CommissionListView: View {
                     sortMode: $sortMode,
                     users: commissionUsers,
                     currentUserId: session.user?.id,
-                    resultCount: sortedCommissions.count
+                    resultCount: items.count
                 )
 
                 if isSearchVisible {
@@ -182,11 +220,11 @@ struct CommissionListView: View {
                     if isLoading && commissions.isEmpty {
                         ProgressView("Aufträge werden geladen …")
                             .frame(maxWidth: .infinity, maxHeight: .infinity)
-                    } else if sortedCommissions.isEmpty {
+                    } else if items.isEmpty {
                         ContentUnavailableView("Keine Aufträge", systemImage: "tray", description: Text("Es sind aktuell keine passenden Aufträge vorhanden."))
                             .frame(maxWidth: .infinity, maxHeight: .infinity)
                     } else {
-                        List(sortedCommissions) { commission in
+                        List(items) { commission in
                             Button {
                                 navigation.commissionPath.append(
                                     commission.id
@@ -271,7 +309,7 @@ struct CommissionListView: View {
                     }
 
                     NavigationLink {
-                        CommissionMapView(commissions: sortedCommissions)
+                        CommissionMapView(commissions: items)
                     } label: {
                         Image(systemName: "map")
                     }
@@ -307,7 +345,7 @@ struct CommissionListView: View {
                 locationStore.requestLocation()
                 await loadInitialData()
             }
-            .onChange(of: sortedCommissions) { _, items in
+            .onChange(of: items) { _, items in
                 if navigation.mapCommissions != nil {
                     navigation.mapCommissions = items
                 }
@@ -410,6 +448,7 @@ struct CommissionListView: View {
             return
         }
 
+        locationStore.requestLocation()
         isLoading = true
 
         defer {

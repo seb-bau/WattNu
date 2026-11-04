@@ -1,4 +1,6 @@
 import SwiftUI
+import CoreLocation
+
 
 struct InspectionBuildingId: Hashable {
     let level: String
@@ -33,6 +35,17 @@ struct InspectionBuildingGroup: Identifiable {
 
     private var representative: SafetyInspectionJob {
         jobs.first { $0.object.level == "building" } ?? jobs[0]
+    }
+    
+    var coordinate: CLLocationCoordinate2D? {
+        if let coordinate = representative.coordinate,
+           CLLocationCoordinate2DIsValid(coordinate) {
+            return coordinate
+        }
+
+        return jobs.lazy.compactMap(\.coordinate).first {
+            CLLocationCoordinate2DIsValid($0)
+        }
     }
 
     var title: String {

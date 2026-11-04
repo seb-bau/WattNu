@@ -1,9 +1,12 @@
 import SwiftUI
+import SwiftUI
+import CoreLocation
 
 struct SafetyInspectionListView: View {
     @EnvironmentObject private var session: SessionStore
     @EnvironmentObject private var navigation: AppNavigationStore
     @EnvironmentObject private var inspections: SafetyInspectionOfflineStore
+    @EnvironmentObject private var locationStore: LocationStore
     @Environment(\.scenePhase) private var scenePhase
 
     @State private var jobs: [SafetyInspectionJob] = []
@@ -76,28 +79,54 @@ struct SafetyInspectionListView: View {
 
     private var visibleBuildings: [InspectionBuildingGroup] {
         let grouped = Dictionary(grouping: filteredJobs, by: \.inspectionBuildingId)
-        var seen: Set<InspectionBuildingId> = []
 
-        return filteredJobs.compactMap { job in
-            let id = job.inspectionBuildingId
+        return grouped.map { entry -> (
+            building: InspectionBuildingGroup,
+            distance: Double,
+            title: String
+        ) in
+            let building = InspectionBuildingGroup(
+                id: entry.key,
+                jobs: entry.value.sorted { $0.id < $1.id }
+            )
+            let coordinate = building.coordinate
 
-            guard seen.insert(id).inserted,
-                  let items = grouped[id] else {
-                return nil
-            }
-
-            return InspectionBuildingGroup(
-                id: id,
-                jobs: items.sorted { $0.id < $1.id }
+            return (
+                building: building,
+                distance: locationStore.distanceMeters(
+                    latitude: coordinate?.latitude,
+                    longitude: coordinate?.longitude
+                ) ?? .infinity,
+                title: building.title
             )
         }
+        .sorted { left, right in
+            if left.distance != right.distance {
+                return left.distance < right.distance
+            }
+
+            let comparison = left.title.localizedStandardCompare(right.title)
+            if comparison != .orderedSame {
+                return comparison == .orderedAscending
+            }
+
+            if left.building.id.level != right.building.id.level {
+                return left.building.id.level < right.building.id.level
+            }
+
+            return left.building.id.objectId < right.building.id.objectId
+        }
+        .map { $0.building }
     }
 
     private var filteredJobs: [SafetyInspectionJob] {
         let today = Formatters.apiDateText(Date())
-        let selectedJobs = jobs.filter { job in
+        let searchText = navigation.safetyInspectionSearchText
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+
+        return jobs.filter { job in
             let matchesOwner: Bool
-            
+
             switch ownerFilter {
             case .mine:
                 matchesOwner = job.assignedUser?.id == session.user?.id
@@ -106,23 +135,12 @@ struct SafetyInspectionListView: View {
             case .all:
                 matchesOwner = true
             }
-            
+
             return matchesOwner
-            && (selectedTemplateId == nil || job.template.id == selectedTemplateId)
-            && statusFilter.matches(job)
-            && visitFilter.matches(job, today: today)
-            && job.matchesSearch(
-                navigation.safetyInspectionSearchText
-            )
-        }
-        
-        return selectedJobs.sorted { left, right in
-            let comparison = left.objectTitle
-                .localizedStandardCompare(right.objectTitle)
-            
-            return comparison == .orderedSame
-            ? left.id < right.id
-            : comparison == .orderedAscending
+                && (selectedTemplateId == nil || job.template.id == selectedTemplateId)
+                && statusFilter.matches(job)
+                && visitFilter.matches(job, today: today)
+                && (searchText.isEmpty || job.matchesSearch(searchText))
         }
     }
 
@@ -143,27 +161,27 @@ struct SafetyInspectionListView: View {
             return parts.joined(separator: " · ")
         }
 
-        private var filterHeader: some View {
-            HStack(spacing: 8) {
-                Text(filterSummary)
-                    .lineLimit(1)
-                    .truncationMode(.tail)
+    private func filterHeader(buildingCount: Int, jobCount: Int) -> some View {
+        HStack(spacing: 8) {
+            Text(filterSummary)
+                .lineLimit(1)
+                .truncationMode(.tail)
 
-                Spacer(minLength: 4)
+            Spacer(minLength: 4)
 
-                Text(
-                    isLoading || isLoadingUsers
-                        ? "Wird geladen …"
-                        : "\(visibleBuildings.count) Gebäude · \(filteredJobs.count) Prüfungen"
-                )
-                .layoutPriority(1)
-            }
-            .font(.caption)
-            .foregroundStyle(.secondary)
-            .padding(.horizontal)
-            .padding(.vertical, 8)
-            .background(Color(.systemGroupedBackground))
+            Text(
+                isLoading || isLoadingUsers
+                    ? "Wird geladen …"
+                    : "\(buildingCount) Gebäude · \(jobCount) Prüfungen"
+            )
+            .layoutPriority(1)
         }
+        .font(.caption)
+        .foregroundStyle(.secondary)
+        .padding(.horizontal)
+        .padding(.vertical, 8)
+        .background(Color(.systemGroupedBackground))
+    }
 
         private var filterSheet: some View {
             NavigationStack {
@@ -250,9 +268,14 @@ struct SafetyInspectionListView: View {
         }
 
     var body: some View {
+        let buildings = visibleBuildings
+        let jobCount = buildings.reduce(0) { $0 + $1.jobs.count }
         NavigationStack(path: $navigation.safetyInspectionPath) {
             VStack(spacing: 0) {
-                filterHeader
+                filterHeader(
+                    buildingCount: buildings.count,
+                    jobCount: jobCount
+                )
                 
                 if isSearchExpanded {
                     HStack(spacing: 8) {
@@ -285,13 +308,13 @@ struct SafetyInspectionListView: View {
                 }
 
                 Group {
-                    if (isLoading || isLoadingUsers) && visibleBuildings.isEmpty {
+                    if (isLoading || isLoadingUsers) && buildings.isEmpty {
                         ProgressView("Prüfaufträge werden geladen …")
                             .frame(
                                 maxWidth: .infinity,
                                 maxHeight: .infinity
                             )
-                    } else if visibleBuildings.isEmpty {
+                    } else if buildings.isEmpty {
                         ContentUnavailableView(
                             "Keine passenden Gebäude",
                             systemImage: "checklist",
@@ -305,7 +328,7 @@ struct SafetyInspectionListView: View {
                         )
                     } else {
                         List {
-                            ForEach(visibleBuildings) { building in
+                            ForEach(buildings) { building in
                                 Section {
                                     NavigationLink(value: building.route(
                                         scope: ownerFilter.scope.rawValue,
@@ -454,6 +477,8 @@ struct SafetyInspectionListView: View {
     @MainActor
     private func loadInitialData() async {
         guard !Task.isCancelled else { return }
+
+        locationStore.requestLocation()
 
         async let userLoad: Void = loadInspectionUsers()
         async let jobLoad: Void = loadJobs()

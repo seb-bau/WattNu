@@ -4,10 +4,19 @@ import Combine
 
 @MainActor
 final class LocationStore: NSObject, ObservableObject, CLLocationManagerDelegate {
-    @Published var currentLocation: CLLocation?
-    @Published var authorizationStatus: CLAuthorizationStatus?
+    @Published private(set) var currentLocation: CLLocation?
+    @Published private(set) var authorizationStatus: CLAuthorizationStatus?
+
+    private struct CoordinateKey: Hashable {
+        let latitude: Double
+        let longitude: Double
+    }
 
     private let manager = CLLocationManager()
+    private var distances: [CoordinateKey: Double] = [:]
+    private var isRequestPending = false
+    private var hasRequestedAuthorization = false
+    private var lastRequestedAt = Date.distantPast
 
     override init() {
         super.init()
@@ -17,44 +26,82 @@ final class LocationStore: NSObject, ObservableObject, CLLocationManagerDelegate
 
     func requestLocation() {
         let status = manager.authorizationStatus
-        authorizationStatus = status
+        if authorizationStatus != status {
+            authorizationStatus = status
+        }
 
         if status == .notDetermined {
-            manager.requestWhenInUseAuthorization()
+            if !hasRequestedAuthorization {
+                hasRequestedAuthorization = true
+                manager.requestWhenInUseAuthorization()
+            }
             return
         }
 
-        if status == .authorizedWhenInUse || status == .authorizedAlways {
-            manager.requestLocation()
+        guard status == .authorizedWhenInUse || status == .authorizedAlways else {
+            clearLocation()
+            return
         }
+
+        if let currentLocation, !isUsable(currentLocation) {
+            distances.removeAll(keepingCapacity: true)
+            self.currentLocation = nil
+        }
+
+        if let cachedLocation = manager.location {
+            accept(cachedLocation)
+        }
+
+        guard !isRequestPending,
+              Date().timeIntervalSince(lastRequestedAt) >= 15 else {
+            return
+        }
+
+        isRequestPending = true
+        lastRequestedAt = Date()
+        manager.requestLocation()
     }
 
     func locationManagerDidChangeAuthorization(_ manager: CLLocationManager) {
-        authorizationStatus = manager.authorizationStatus
+        let status = manager.authorizationStatus
+        if authorizationStatus != status {
+            authorizationStatus = status
+        }
 
-        if manager.authorizationStatus == .authorizedWhenInUse || manager.authorizationStatus == .authorizedAlways {
-            manager.requestLocation()
+        switch status {
+        case .authorizedWhenInUse, .authorizedAlways:
+            requestLocation()
+        case .denied, .restricted:
+            clearLocation()
+        default:
+            break
         }
     }
 
-    func locationManager(_ manager: CLLocationManager, didUpdateLocations locations: [CLLocation]) {
-        currentLocation = locations.last
+    func locationManager(
+        _ manager: CLLocationManager,
+        didUpdateLocations locations: [CLLocation]
+    ) {
+        isRequestPending = false
+
+        guard manager.authorizationStatus == .authorizedWhenInUse
+                || manager.authorizationStatus == .authorizedAlways,
+              let location = locations.last(where: { isUsable($0) }) else {
+            return
+        }
+
+        accept(location)
     }
 
-    func locationManager(_ manager: CLLocationManager, didFailWithError error: Error) {
+    func locationManager(
+        _ manager: CLLocationManager,
+        didFailWithError error: Error
+    ) {
+        isRequestPending = false
     }
 
     func distanceText(to commission: Commission) -> String? {
-        guard let currentLocation else {
-            return nil
-        }
-
-        guard let latitude = commission.latitude, let longitude = commission.longitude else {
-            return nil
-        }
-
-        let target = CLLocation(latitude: latitude, longitude: longitude)
-        let meters = currentLocation.distance(from: target)
+        guard let meters = distanceMeters(to: commission) else { return nil }
 
         if meters < 1000 {
             return "\(Int(meters.rounded())) m"
@@ -64,14 +111,56 @@ final class LocationStore: NSObject, ObservableObject, CLLocationManagerDelegate
     }
 
     func distanceMeters(to commission: Commission) -> Double? {
-        guard let currentLocation else {
+        distanceMeters(
+            latitude: commission.latitude,
+            longitude: commission.longitude
+        )
+    }
+
+    func distanceMeters(latitude: Double?, longitude: Double?) -> Double? {
+        guard let currentLocation, let latitude, let longitude,
+              latitude.isFinite, longitude.isFinite,
+              (-90.0...90.0).contains(latitude),
+              (-180.0...180.0).contains(longitude) else {
             return nil
         }
 
-        guard let latitude = commission.latitude, let longitude = commission.longitude else {
-            return nil
+        let key = CoordinateKey(latitude: latitude, longitude: longitude)
+        if let cachedDistance = distances[key] {
+            return cachedDistance
         }
 
-        return currentLocation.distance(from: CLLocation(latitude: latitude, longitude: longitude))
+        let target = CLLocation(latitude: latitude, longitude: longitude)
+        let meters = currentLocation.distance(from: target)
+        distances[key] = meters
+        return meters
+    }
+
+    private func isUsable(_ location: CLLocation) -> Bool {
+        CLLocationCoordinate2DIsValid(location.coordinate)
+            && location.horizontalAccuracy.isFinite
+            && location.horizontalAccuracy >= 0
+            && abs(location.timestamp.timeIntervalSinceNow) <= 300
+    }
+
+    private func accept(_ location: CLLocation) {
+        guard isUsable(location) else { return }
+        if let currentLocation, currentLocation.timestamp >= location.timestamp {
+            return
+        }
+
+        distances.removeAll(keepingCapacity: true)
+        currentLocation = location
+    }
+
+    private func clearLocation() {
+        manager.stopUpdatingLocation()
+        isRequestPending = false
+        lastRequestedAt = .distantPast
+        distances.removeAll(keepingCapacity: true)
+
+        if currentLocation != nil {
+            currentLocation = nil
+        }
     }
 }

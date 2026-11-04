@@ -8,6 +8,37 @@
 import Foundation
 
 enum Formatters {
+    private static let appointmentDateCache: NSCache<NSString, NSDate> = {
+        let cache = NSCache<NSString, NSDate>()
+        cache.countLimit = 4096
+        return cache
+    }()
+
+    private static let appointmentISOFormatters: [ISO8601DateFormatter] = {
+        let fractionalFormatter = ISO8601DateFormatter()
+        fractionalFormatter.formatOptions = [
+            .withInternetDateTime,
+            .withFractionalSeconds
+        ]
+
+        let plainFormatter = ISO8601DateFormatter()
+        plainFormatter.formatOptions = [.withInternetDateTime]
+        return [fractionalFormatter, plainFormatter]
+    }()
+
+    private static let appointmentLocalFormatters: [DateFormatter] = [
+        "yyyy-MM-dd'T'HH:mm:ss.SSSSSS",
+        "yyyy-MM-dd'T'HH:mm:ss.SSS",
+        "yyyy-MM-dd'T'HH:mm:ss",
+        "yyyy-MM-dd"
+    ].map { format in
+        let formatter = DateFormatter()
+        formatter.locale = Locale(identifier: "en_US_POSIX")
+        formatter.timeZone = .autoupdatingCurrent
+        formatter.dateFormat = format
+        return formatter
+    }
+    
     static func dateTimeText(_ value: String?) -> String {
         guard let value, !value.isEmpty else {
             return "-"
@@ -91,46 +122,25 @@ enum Formatters {
     }
 
     private static func appointmentDate(from value: String?) -> Date? {
-        guard let value, !value.isEmpty else {
-            return nil
+        guard let value, !value.isEmpty else { return nil }
+
+        let key = "\(TimeZone.current.identifier)|\(value)" as NSString
+        if let cachedDate = appointmentDateCache.object(forKey: key) {
+            return cachedDate as Date
         }
 
-        let isoFormatter = ISO8601DateFormatter()
-        isoFormatter.formatOptions = [
-            .withInternetDateTime,
-            .withFractionalSeconds
-        ]
+        let parsedDate = appointmentISOFormatters.lazy
+            .compactMap { $0.date(from: value) }
+            .first
+            ?? appointmentLocalFormatters.lazy
+                .compactMap { $0.date(from: value) }
+                .first
 
-        if let date = isoFormatter.date(from: value) {
-            return date
+        if let parsedDate {
+            appointmentDateCache.setObject(parsedDate as NSDate, forKey: key)
         }
 
-        isoFormatter.formatOptions = [.withInternetDateTime]
-
-        if let date = isoFormatter.date(from: value) {
-            return date
-        }
-
-        let dateFormatter = DateFormatter()
-        dateFormatter.locale = Locale(identifier: "en_US_POSIX")
-        dateFormatter.timeZone = .current
-
-        let formats = [
-            "yyyy-MM-dd'T'HH:mm:ss.SSSSSS",
-            "yyyy-MM-dd'T'HH:mm:ss.SSS",
-            "yyyy-MM-dd'T'HH:mm:ss",
-            "yyyy-MM-dd"
-        ]
-
-        for format in formats {
-            dateFormatter.dateFormat = format
-
-            if let date = dateFormatter.date(from: value) {
-                return date
-            }
-        }
-
-        return nil
+        return parsedDate
     }
 
     static func percentText(_ value: Double) -> String {
