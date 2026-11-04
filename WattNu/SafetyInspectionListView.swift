@@ -97,7 +97,7 @@ struct SafetyInspectionListView: View {
         let today = Formatters.apiDateText(Date())
         let selectedJobs = jobs.filter { job in
             let matchesOwner: Bool
-
+            
             switch ownerFilter {
             case .mine:
                 matchesOwner = job.assignedUser?.id == session.user?.id
@@ -106,24 +106,25 @@ struct SafetyInspectionListView: View {
             case .all:
                 matchesOwner = true
             }
-
+            
             return matchesOwner
-                && (selectedTemplateId == nil || job.template.id == selectedTemplateId)
-                && statusFilter.matches(job)
-                && visitFilter.matches(job, today: today)
-                && job.matchesSearch(
-                    navigation.safetyInspectionSearchText
-                )
+            && (selectedTemplateId == nil || job.template.id == selectedTemplateId)
+            && statusFilter.matches(job)
+            && visitFilter.matches(job, today: today)
+            && job.matchesSearch(
+                navigation.safetyInspectionSearchText
+            )
         }
-
+        
         return selectedJobs.sorted { left, right in
             let comparison = left.objectTitle
                 .localizedStandardCompare(right.objectTitle)
-
+            
             return comparison == .orderedSame
-                ? left.id < right.id
-                : comparison == .orderedAscending
+            ? left.id < right.id
+            : comparison == .orderedAscending
         }
+    }
 
         private var filterSummary: String {
             var parts = [ownerFilterLabel, statusFilter.label]
