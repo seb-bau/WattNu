@@ -36,6 +36,10 @@ final class SessionStore: ObservableObject {
         mobileConfig?.microsoft != nil
     }
     
+    var timeComponentsEnabled: Bool {
+        mobileConfig?.timeComponentsEnabled ?? true
+    }
+    
     var showServiceTargetTimes: Bool {
         mobileConfig?.showServiceTargetTimes ?? true
     }

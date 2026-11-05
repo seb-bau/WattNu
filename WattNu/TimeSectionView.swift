@@ -34,7 +34,11 @@ struct TimeSectionView: View {
     }
 
     private var componentTexts: [String] {
-        [
+        guard session.timeComponentsEnabled else {
+            return []
+        }
+
+        return [
             workMinutesText,
             waitingMinutesText,
             materialMinutesText,
@@ -158,13 +162,23 @@ struct TimeSectionView: View {
                     .keyboardType(.numberPad)
                     .disabled(commission.canEditValue == false)
 
-                DisclosureGroup("Zeitbausteine") {
-                    minuteField("Arbeitszeit vor Ort", text: $workMinutesText)
-                    minuteField("Wartezeit", text: $waitingMinutesText)
-                    minuteField("Materialbeschaffung", text: $materialMinutesText)
-                    minuteField("Fahrt / Wegezeit", text: $travelMinutesText)
-                    minuteField("Dokumentation / Rücksprache", text: $documentationMinutesText)
-                    minuteField("Zusatzarbeit", text: $extraMinutesText)
+                if session.timeComponentsEnabled {
+                    DisclosureGroup("Zeitbausteine") {
+                        minuteField("Arbeitszeit vor Ort", text: $workMinutesText)
+                        minuteField("Wartezeit", text: $waitingMinutesText)
+                        minuteField("Materialbeschaffung", text: $materialMinutesText)
+                        minuteField("Fahrt / Wegezeit", text: $travelMinutesText)
+                        minuteField("Dokumentation / Rücksprache", text: $documentationMinutesText)
+                        minuteField("Zusatzarbeit", text: $extraMinutesText)
+                    }
+                }
+
+                if !session.timeComponentsEnabled,
+                   let editingEntry,
+                   hasComponents(editingEntry) {
+                    Text("Eine Änderung der Gesamtzeit ersetzt die bisherige Aufteilung.")
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
                 }
 
                 TextField("Notiz / Erläuterung", text: $note, axis: .vertical)
@@ -203,6 +217,7 @@ struct TimeSectionView: View {
             }
         }
         .task {
+            await session.loadMobileConfig()
             await loadData()
         }
         .refreshable {
@@ -211,6 +226,11 @@ struct TimeSectionView: View {
         }
         .onChange(of: taskSearchText) { _, newValue in
             handleTaskSearchTextChange(newValue)
+        }
+        .onChange(of: session.timeComponentsEnabled) { _, enabled in
+            if !enabled {
+                useTotalTimeInput()
+            }
         }
         .confirmationDialog("Zeiterfassung löschen?", isPresented: Binding(
             get: { entryToDelete != nil },
@@ -427,7 +447,7 @@ struct TimeSectionView: View {
         taskSuggestions = []
         taskSearchText = entry.taskTemplate?.title ?? ""
 
-        if hasComponents(entry) {
+        if session.timeComponentsEnabled && hasComponents(entry) {
             minutesText = ""
             workMinutesText = minutesText(for: entry.workMinutes)
             waitingMinutesText = minutesText(for: entry.waitingMinutes)
@@ -466,7 +486,9 @@ struct TimeSectionView: View {
         }
 
         if !values.hasComponentInput && (values.totalMinutes ?? 0) <= 0 {
-            errorMessage = "Bitte eine Gesamtzeit oder Zeitbausteine eingeben."
+            errorMessage = session.timeComponentsEnabled
+                ? "Bitte eine Gesamtzeit oder Zeitbausteine eingeben."
+                : "Bitte eine gültige Gesamtzeit eingeben."
             return
         }
 
@@ -566,6 +588,20 @@ struct TimeSectionView: View {
             documentationMinutes: documentationMinutes,
             extraMinutes: extraMinutes
         )
+    }
+    
+    private func useTotalTimeInput() {
+        let componentSum = parsedTimeInput().componentSum
+        if componentSum > 0 {
+            minutesText = "\(componentSum)"
+        }
+
+        workMinutesText = ""
+        waitingMinutesText = ""
+        materialMinutesText = ""
+        travelMinutesText = ""
+        documentationMinutesText = ""
+        extraMinutesText = ""
     }
 
     private func integerValue(_ value: String) -> Int? {
