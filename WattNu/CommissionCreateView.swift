@@ -1,4 +1,6 @@
+import PhotosUI
 import SwiftUI
+import UIKit
 
 struct CommissionCreateView: View {
     @Environment(\.dismiss) private var dismiss
@@ -6,311 +8,380 @@ struct CommissionCreateView: View {
 
     let onCreated: () -> Void
 
-    @State private var options: CommissionCreateOptions?
-    @State private var tasks: [TimeTask] = []
+    @State private var options: SimpleCommissionCreateOptions?
     @State private var selectedCommissionTypeId = 0
+    @State private var selectedCraftActivityId = 0
+    @State private var selectedCraftsmanUserId = 0
     @State private var objectSearchText = ""
     @State private var objectSearchResults: [CommissionObjectChoice] = []
     @State private var selectedObject: CommissionObjectChoice?
     @State private var isSearchingObjects = false
     @State private var title = ""
-    @State private var damageLocation = ""
+    @State private var commissionText = ""
+    @State private var automaticTextField: OrderTextField?
     @State private var contactPerson = ""
-    @State private var hasExecutionPeriod = false
     @State private var notifyTenants: Bool?
-    @State private var executionFrom = Date()
-    @State private var executionTo = Date()
-        .addingTimeInterval(60 * 60)
-    @State private var positions = [
-        DraftCommissionPosition()
-    ]
+    @State private var hasExecutionDate = false
+    @State private var executionDate = Date()
+    @State private var photos: [DraftPhoto] = []
+    @State private var selectedPhotoItems: [PhotosPickerItem] = []
+    @State private var cameraPresented = false
+    @State private var isImportingPhotos = false
     @State private var isLoading = true
     @State private var isSaving = false
+    @State private var requestId = UUID().uuidString
+    @State private var submittedRequest: SimpleCommissionCreateRequest?
     @State private var errorMessage: String?
 
-    private var commissionTypes: [CommissionTypeOption] {
-        options?.commissionTypes ?? []
+    private enum OrderTextField: Equatable {
+        case title, text
+    }
+
+    private struct DraftPhoto: Identifiable {
+        let id = UUID()
+        let data: Data
+        let preview: UIImage
+    }
+
+    private var selectedCraft: SimpleCommissionCraftOption? {
+        options?.craftActivities.first { $0.id == selectedCraftActivityId }
+    }
+
+    private var craftError: String? {
+        guard let selectedCraft else { return nil }
+
+        if !selectedCraft.fallbackAvailable {
+            return "Für dieses Gewerk fehlt eine gültige Fallback-Leistungsposition unter KI-Auftragsvorgaben."
+        }
+
+        if selectedCommissionTypeId != 0,
+           !selectedCraft.commissionTypeIds.contains(selectedCommissionTypeId) {
+            return "Die Auftragsart passt nicht zur Fallback-Leistungsposition dieses Gewerks."
+        }
+
+        return nil
+    }
+
+    private var effectiveTitle: String {
+        normalizedText(title) ?? normalizedText(commissionText) ?? ""
     }
 
     private var canSubmit: Bool {
-        guard !isLoading,
-              !isSaving,
-              selectedObject != nil,
-              selectedCommissionTypeId != 0,
-              options?.canCreate == true else {
-            return false
-        }
+        guard !isLoading, !isSaving, !isImportingPhotos else { return false }
 
-        if hasExecutionPeriod
-            && executionTo < executionFrom {
-            return false
-        }
+        if submittedRequest != nil { return true }
 
-        let craftActivityIds = Set(
-            positions.compactMap {
-                $0.task?.craftActivity?.id
-            }
-        )
-
-        return craftActivityIds.count == 1
-            && positions.isEmpty == false
-            && positions.allSatisfy { position in
-                position.task?.serviceCatalogId != nil
-                    && normalizedText(
-                        position.commissionText
-                    ) != nil
-                    && parsedQuantity(
-                        position.quantity
-                    ).map { $0 > 0 } == true
-            }
+        return options?.canCreate == true
+            && selectedObject != nil
+            && (options?.commissionTypes.contains(where: { $0.id == selectedCommissionTypeId }) ?? false)
+            && selectedCraft != nil
+            && craftError == nil
+            && (options?.craftsmen.contains(where: { $0.id == selectedCraftsmanUserId }) ?? false)
+            && !effectiveTitle.isEmpty
+            && effectiveTitle.unicodeScalars.count <= 255
+            && (normalizedText(contactPerson)?.unicodeScalars.count ?? 0) <= 255
     }
 
-    var body: some View {
-        Form {
-            Section("Zuordnung") {
-                Picker(
-                    "Auftragsart",
-                    selection: $selectedCommissionTypeId
-                ) {
-                    Text("Bitte auswählen")
-                        .tag(0)
+    private var assignmentSection: some View {
+        Section("Zuordnung") {
+            Picker("Auftragsart", selection: $selectedCommissionTypeId) {
+                Text("Bitte auswählen").tag(0)
 
-                    ForEach(commissionTypes) { item in
-                        Text(item.displayName)
-                            .tag(item.id)
-                    }
+                ForEach(options?.commissionTypes ?? []) { item in
+                    Text(item.displayName).tag(item.id)
                 }
-
-                Text(
-                    "Handwerker und Buchwerk werden automatisch aus Objekt, Gewerk und Wowiport-Zuständigkeit ermittelt."
-                )
-                .font(.caption)
-                .foregroundStyle(.secondary)
             }
 
-            Section("Objektbezug") {
-                HStack {
-                    TextField(
-                        "Mieter, Vertrag oder Adresse",
-                        text: $objectSearchText
-                    )
+            Picker("Gewerk", selection: $selectedCraftActivityId) {
+                Text("Bitte auswählen").tag(0)
+
+                ForEach(options?.craftActivities ?? []) { item in
+                    Text(item.name).tag(item.id)
+                }
+            }
+
+            Picker("Handwerker", selection: $selectedCraftsmanUserId) {
+                Text("Bitte auswählen").tag(0)
+
+                ForEach(options?.craftsmen ?? []) { item in
+                    Text(item.displayName).tag(item.id)
+                }
+            }
+
+            if let craftError {
+                Text(craftError)
+                    .font(.caption)
+                    .foregroundStyle(.red)
+            }
+
+            if options?.canCreate == false {
+                Text("Für die Auftragserfassung müssen eine freigegebene Auftragsart, ein Gewerk mit gültiger Fallback-Leistungsposition und ein interner Handwerker verfügbar sein.")
+                    .font(.caption)
+                    .foregroundStyle(.red)
+            }
+        }
+    }
+
+    private var objectSection: some View {
+        Section("Objektbezug") {
+            HStack {
+                TextField("Mieter, Vertrag oder Adresse", text: $objectSearchText)
                     .textInputAutocapitalization(.never)
                     .autocorrectionDisabled()
                     .submitLabel(.search)
                     .onSubmit {
-                        Task {
-                            await searchObjects()
-                        }
+                        Task { await searchObjects() }
                     }
-
-                    Button {
-                        Task {
-                            await searchObjects()
-                        }
-                    } label: {
-                        if isSearchingObjects {
-                            ProgressView()
-                        } else {
-                            Image(
-                                systemName: "magnifyingglass"
-                            )
-                        }
-                    }
-                    .disabled(
-                        isSearchingObjects
-                        || objectSearchText
-                            .trimmingCharacters(
-                                in: .whitespacesAndNewlines
-                            )
-                            .count < 2
-                    )
-                }
-
-                ForEach(objectSearchResults) { item in
-                    Button {
-                        selectObject(item)
-                    } label: {
-                        VStack(
-                            alignment: .leading,
-                            spacing: 4
-                        ) {
-                            Text(item.label)
-                                .foregroundStyle(.primary)
-
-                            Text(
-                                objectDescription(item)
-                            )
-                            .font(.caption)
-                            .foregroundStyle(.secondary)
-                            .multilineTextAlignment(
-                                .leading
-                            )
-                        }
-                        .frame(
-                            maxWidth: .infinity,
-                            alignment: .leading
-                        )
-                    }
-                    .buttonStyle(.plain)
-                }
-
-                if let selectedObject {
-                    SelectedCommissionObjectView(
-                        item: selectedObject
-                    )
-                } else {
-                    Text(
-                        "Es kann ein Mietvertrag, ein Leerstand, eine Nutzungseinheit ohne Vertrag oder direkt ein Gebäude gewählt werden."
-                    )
-                    .font(.caption)
-                    .foregroundStyle(.secondary)
-                }
-            }
-
-            Section("Auftrag") {
-                TextField(
-                    "Kurztitel",
-                    text: $title
-                )
-
-                TextField(
-                    "Schadensort",
-                    text: $damageLocation
-                )
-
-                TextField(
-                    "Ansprechpartner vor Ort",
-                    text: $contactPerson
-                )
-                
-                Toggle(
-                    "Mieter über Beauftragung informieren",
-                    isOn: Binding(
-                        get: { notifyTenants ?? options?.notifyTenantsDefault ?? false },
-                        set: { notifyTenants = $0 }
-                    )
-                )
-                .disabled(isLoading || isSaving)
-            }
-
-            Section("Ausführungszeitraum") {
-                Toggle(
-                    "Ausführungszeitraum angeben",
-                    isOn: $hasExecutionPeriod
-                )
-
-                if hasExecutionPeriod {
-                    DatePicker(
-                        "Von",
-                        selection: $executionFrom
-                    )
-
-                    DatePicker(
-                        "Bis",
-                        selection: $executionTo
-                    )
-
-                    if executionTo < executionFrom {
-                        Text(
-                            "Das Ende darf nicht vor dem Beginn liegen."
-                        )
-                        .font(.caption)
-                        .foregroundStyle(.red)
-                    }
-                }
-            }
-
-            Section {
-                ForEach($positions) { $position in
-                    CommissionPositionEditor(
-                        position: $position,
-                        tasks: compatibleTasks,
-                        canRemove: positions.count > 1,
-                        removeAction: {
-                            removePosition(
-                                id: position.id
-                            )
-                        }
-                    )
-                }
 
                 Button {
-                    positions.append(
-                        DraftCommissionPosition()
-                    )
+                    Task { await searchObjects() }
                 } label: {
-                    Label(
-                        "Position hinzufügen",
-                        systemImage: "plus"
-                    )
+                    if isSearchingObjects {
+                        ProgressView()
+                    } else {
+                        Image(systemName: "magnifyingglass")
+                    }
                 }
-            } header: {
-                Text("Auftragspositionen")
-            } footer: {
-                Text(
-                    "Alle Positionen müssen demselben Gewerk angehören."
+                .disabled(
+                    isSearchingObjects
+                    || objectSearchText.trimmingCharacters(in: .whitespacesAndNewlines).count < 2
+                )
+            }
+
+            ForEach(objectSearchResults) { item in
+                Button {
+                    selectObject(item)
+                } label: {
+                    VStack(alignment: .leading, spacing: 4) {
+                        Text(item.label)
+                            .foregroundStyle(.primary)
+
+                        Text(objectDescription(item))
+                            .font(.caption)
+                            .foregroundStyle(.secondary)
+                            .multilineTextAlignment(.leading)
+                    }
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                }
+                .buttonStyle(.plain)
+            }
+
+            if let selectedObject {
+                SelectedCommissionObjectView(item: selectedObject)
+            } else {
+                Text("Es kann ein Mietvertrag, ein Leerstand, eine Nutzungseinheit ohne Vertrag oder direkt ein Gebäude gewählt werden.")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+            }
+        }
+    }
+
+    private var orderSection: some View {
+        Section("Auftrag") {
+            TextField(
+                "Kurztitel",
+                text: Binding(get: { title }, set: updateTitle)
+            )
+
+            TextField(
+                "Auftragstext",
+                text: Binding(
+                    get: { commissionText },
+                    set: updateCommissionText
+                ),
+                axis: .vertical
+            )
+            .lineLimit(3...8)
+
+            if effectiveTitle.unicodeScalars.count > 255 {
+                Text("Bitte den Kurztitel auf höchstens 255 Zeichen kürzen.")
+                    .font(.caption)
+                    .foregroundStyle(.red)
+            }
+
+            TextField("Ansprechpartner vor Ort", text: $contactPerson)
+
+            if (normalizedText(contactPerson)?.unicodeScalars.count ?? 0) > 255 {
+                Text("Der Ansprechpartner darf höchstens 255 Zeichen enthalten.")
+                    .font(.caption)
+                    .foregroundStyle(.red)
+            }
+
+            Toggle(
+                "Mieter über Beauftragung informieren",
+                isOn: Binding(
+                    get: {
+                        notifyTenants ?? options?.notifyTenantsDefault ?? false
+                    },
+                    set: {
+                        notifyTenants = $0
+                    }
+                )
+            )
+        }
+    }
+
+    private var executionSection: some View {
+        Section("Ausführungsdatum") {
+            Toggle("Ausführungsdatum angeben", isOn: $hasExecutionDate)
+
+            if hasExecutionDate {
+                DatePicker(
+                    "Datum",
+                    selection: $executionDate,
+                    displayedComponents: .date
                 )
             }
         }
-        .navigationTitle("Auftrag erfassen")
-        .navigationBarTitleDisplayMode(.inline)
-        .disabled(isSaving)
-        .toolbar {
-            ToolbarItem(
-                placement: .cancellationAction
-            ) {
-                Button("Abbrechen") {
-                    dismiss()
+    }
+
+    private var photosSection: some View {
+        Section("Fotos") {
+            if !photos.isEmpty {
+                LazyVGrid(
+                    columns: [GridItem(.adaptive(minimum: 100))],
+                    spacing: 10
+                ) {
+                    ForEach(photos) { photo in
+                        ZStack(alignment: .topTrailing) {
+                            Image(uiImage: photo.preview)
+                                .resizable()
+                                .scaledToFill()
+                                .frame(height: 110)
+                                .clipped()
+                                .clipShape(
+                                    RoundedRectangle(cornerRadius: 10)
+                                )
+
+                            Button(role: .destructive) {
+                                photos.removeAll { $0.id == photo.id }
+                            } label: {
+                                Image(systemName: "xmark.circle.fill")
+                                    .symbolRenderingMode(.palette)
+                                    .foregroundStyle(
+                                        .white,
+                                        .black.opacity(0.7)
+                                    )
+                                    .font(.title2)
+                                    .padding(5)
+                            }
+                            .buttonStyle(.plain)
+                            .accessibilityLabel("Foto entfernen")
+                        }
+                    }
                 }
             }
 
-            ToolbarItem(
-                placement: .confirmationAction
+            PhotosPicker(
+                selection: $selectedPhotoItems,
+                matching: .images
             ) {
-                Button("Erfassen") {
-                    Task {
-                        await submit()
+                Label("Fotos auswählen", systemImage: "photo.on.rectangle")
+            }
+
+            if UIImagePickerController.isSourceTypeAvailable(.camera) {
+                Button {
+                    cameraPresented = true
+                } label: {
+                    Label("Foto aufnehmen", systemImage: "camera")
+                }
+            }
+        }
+    }
+
+    var body: some View {
+        Form {
+            Group {
+                if !isLoading && options == nil {
+                    Section {
+                        Button("Erneut laden") {
+                            Task { await loadData() }
+                        }
                     }
+                }
+
+                assignmentSection
+                objectSection
+                orderSection
+                executionSection
+                photosSection
+            }
+            .disabled(
+                isLoading
+                || isSaving
+                || isImportingPhotos
+                || submittedRequest != nil
+            )
+        }
+        .navigationTitle("Auftrag erfassen")
+        .navigationBarTitleDisplayMode(.inline)
+        .toolbar {
+            ToolbarItem(placement: .cancellationAction) {
+                Button(
+                    submittedRequest == nil ? "Abbrechen" : "Schließen"
+                ) {
+                    dismiss()
+                }
+                .disabled(isSaving || isImportingPhotos)
+            }
+
+            ToolbarItem(placement: .confirmationAction) {
+                Button(
+                    submittedRequest == nil ? "Erfassen" : "Erneut versuchen"
+                ) {
+                    Task { await submit() }
                 }
                 .disabled(!canSubmit)
             }
         }
+        .interactiveDismissDisabled(
+            isSaving || isImportingPhotos || submittedRequest != nil
+        )
         .overlay {
-            if isLoading || isSaving {
+            if isLoading || isSaving || isImportingPhotos {
                 ProgressView(
                     isSaving
-                    ? "Auftrag wird erfasst …"
+                    ? "Auftrag und Fotos werden gespeichert …"
+                    : isImportingPhotos
+                    ? "Fotos werden vorbereitet …"
                     : "Daten werden geladen …"
                 )
                 .padding()
                 .background(.regularMaterial)
-                .clipShape(
-                    RoundedRectangle(
-                        cornerRadius: 14
-                    )
-                )
+                .clipShape(RoundedRectangle(cornerRadius: 14))
             }
         }
         .task {
             await loadData()
         }
+        .onChange(of: selectedPhotoItems) { _, items in
+            guard !items.isEmpty else { return }
+
+            isImportingPhotos = true
+            Task { await importPhotos(items) }
+        }
+        .sheet(isPresented: $cameraPresented) {
+            CameraImagePicker { image in
+                if let photo = makeDraftPhoto(image) {
+                    photos.append(photo)
+                } else {
+                    errorMessage = "Das Foto konnte nicht vorbereitet werden."
+                }
+            }
+            .ignoresSafeArea()
+        }
         .alert(
             "Fehler",
             isPresented: Binding(
-                get: {
-                    errorMessage != nil
-                },
-                set: { newValue in
-                    if !newValue {
+                get: { errorMessage != nil },
+                set: {
+                    if !$0 {
                         errorMessage = nil
                     }
                 }
             )
         ) {
-            Button(
-                "OK",
-                role: .cancel
-            ) {
+            Button("OK", role: .cancel) {
                 errorMessage = nil
             }
         } message: {
@@ -318,136 +389,194 @@ struct CommissionCreateView: View {
         }
     }
 
-    private func loadData() async {
-        isLoading = true
+    private func updateTitle(_ value: String) {
+        title = value
 
-        defer {
-            isLoading = false
+        if automaticTextField == .title {
+            automaticTextField = nil
         }
 
+        if normalizedText(commissionText) == nil
+            || automaticTextField == .text {
+            commissionText = value
+            automaticTextField = .text
+        }
+    }
+
+    private func updateCommissionText(_ value: String) {
+        commissionText = value
+
+        if automaticTextField == .text {
+            automaticTextField = nil
+        }
+
+        if normalizedText(title) == nil
+            || automaticTextField == .title {
+            title = value
+            automaticTextField = .title
+        }
+    }
+
+    private func loadData() async {
+        guard options == nil else { return }
+
+        isLoading = true
+        defer { isLoading = false }
+
         do {
-            async let loadedOptions = session.apiClient
-                .fetchCommissionCreateOptions()
-            async let loadedTasks = session.apiClient
-                .fetchCommissionCreateTasks()
+            let loaded = try await session.apiClient
+                .fetchSimpleCommissionCreateOptions()
 
-            let result = try await (
-                loadedOptions,
-                loadedTasks
-            )
-
-            options = result.0
-            tasks = result.1.filter {
-                $0.serviceCatalogId != nil
-            }
-
-            if selectedCommissionTypeId == 0 {
-                selectedCommissionTypeId = result.0
-                    .commissionTypes
-                    .first?
-                    .id ?? 0
-            }
-
-            if !result.0.canCreate {
-                errorMessage = """
-                Die automatische Auftragszuordnung ist noch nicht vollständig konfiguriert.
-                """
-            } else if result.0.commissionTypes.isEmpty {
-                errorMessage = """
-                Es sind keine freigegebenen Auftragsarten verfügbar.
-                """
-            } else if tasks.isEmpty {
-                errorMessage = """
-                Es sind keine Leistungspositionen mit Gewerk-Zuständigkeit verfügbar.
-                """
-            }
+            options = loaded
+            selectedCommissionTypeId = loaded.commissionTypes.first?.id ?? 0
+            selectedCraftsmanUserId = loaded.defaultCraftsmanUserId ?? 0
         } catch {
             errorMessage = error.localizedDescription
         }
     }
 
     private func submit() async {
-        guard canSubmit else {
-            errorMessage = """
-            Bitte alle erforderlichen Angaben prüfen.
-            """
-            return
-        }
+        guard canSubmit else { return }
 
-        var positionRequests: [CommissionPositionRequest] = []
+        if submittedRequest == nil {
+            guard let selectedObject else { return }
 
-        for position in positions {
-            guard let task = position.task,
-                  let serviceCatalogId = task.serviceCatalogId,
-                  let commissionText = normalizedText(
-                    position.commissionText
-                  ),
-                  let quantity = parsedQuantity(
-                    position.quantity
-                  ),
-                  quantity > 0 else {
-                errorMessage = """
-                Mindestens eine Auftragsposition ist unvollständig.
-                """
-                return
-            }
+            title = effectiveTitle
+            commissionText = normalizedText(commissionText) ?? title
 
-            positionRequests.append(
-                CommissionPositionRequest(
-                    code: normalizedText(task.code),
-                    commissionText: commissionText,
-                    internalDescription: normalizedText(
-                        position.internalDescription
-                    ),
-                    units: quantity,
-                    serviceCatalogId: serviceCatalogId
-                )
+            submittedRequest = SimpleCommissionCreateRequest(
+                clientRequestId: requestId,
+                objectType: selectedObject.objectType,
+                objectId: selectedObject.objectId,
+                commissionTypeId: selectedCommissionTypeId,
+                craftActivityId: selectedCraftActivityId,
+                craftsmanUserId: selectedCraftsmanUserId,
+                title: title,
+                commissionText: commissionText,
+                contactPerson: normalizedText(contactPerson),
+                executionDate: hasExecutionDate
+                    ? formattedExecutionDate()
+                    : nil,
+                notifyTenants: notifyTenants
+                    ?? options?.notifyTenantsDefault
+                    ?? false
             )
         }
 
-        guard let selectedObject else {
-            errorMessage = "Bitte ein Objekt auswählen."
-            return
-        }
-
-        let request = CommissionCreateRequest(
-            objectType: selectedObject.objectType,
-            objectId: selectedObject.objectId,
-            commissionTypeId: selectedCommissionTypeId,
-            title: normalizedText(title),
-            damageLocation: normalizedText(
-                damageLocation
-            ),
-            contactPerson: normalizedText(
-                contactPerson
-            ),
-            executionFrom: hasExecutionPeriod
-                ? formattedDate(executionFrom)
-                : nil,
-            executionTo: hasExecutionPeriod
-                ? formattedDate(executionTo)
-                : nil,
-            positions: positionRequests,
-            notifyTenants: notifyTenants ?? options?.notifyTenantsDefault ?? false
-        )
+        guard let submittedRequest else { return }
 
         isSaving = true
-
-        defer {
-            isSaving = false
-        }
+        defer { isSaving = false }
 
         do {
-            _ = try await session.apiClient
-                .createCommission(
-                    body: request
-                )
+            _ = try await session.apiClient.createSimpleCommission(
+                body: submittedRequest,
+                photos: photos.map(\.data)
+            )
 
             onCreated()
             dismiss()
         } catch {
-            errorMessage = error.localizedDescription
+            if let apiError = error as? APIError {
+                switch apiError {
+                case .serverStatus(let status, _)
+                    where [400, 403, 404, 409, 413, 422].contains(status):
+                    self.submittedRequest = nil
+                    requestId = UUID().uuidString
+
+                case .unauthorized, .missingToken, .invalidBaseURL:
+                    self.submittedRequest = nil
+
+                default:
+                    break
+                }
+            }
+
+            if self.submittedRequest == nil {
+                errorMessage = error.localizedDescription
+            } else {
+                errorMessage = "Die Speicherung konnte nicht bestätigt werden. Der Auftrag wurde möglicherweise bereits gespeichert. Mit „Erneut versuchen“ wird dieselbe Anfrage wiederholt.\n\n\(error.localizedDescription)"
+            }
         }
+    }
+
+    private func formattedExecutionDate() -> String {
+        let formatter = DateFormatter()
+        formatter.locale = Locale(identifier: "en_US_POSIX")
+        formatter.calendar = Calendar(identifier: .gregorian)
+        formatter.timeZone = .current
+        formatter.dateFormat = "yyyy-MM-dd"
+        return formatter.string(from: executionDate)
+    }
+
+    private func importPhotos(_ items: [PhotosPickerItem]) async {
+        defer {
+            selectedPhotoItems = []
+            isImportingPhotos = false
+        }
+
+        var failedCount = 0
+
+        for item in items {
+            do {
+                if let data = try await item.loadTransferable(type: Data.self),
+                   let image = UIImage(data: data),
+                   let photo = makeDraftPhoto(image) {
+                    photos.append(photo)
+                } else {
+                    failedCount += 1
+                }
+            } catch {
+                failedCount += 1
+            }
+        }
+
+        if failedCount > 0 {
+            errorMessage = "\(failedCount) Foto(s) konnten nicht eingelesen werden. Bitte erneut auswählen."
+        }
+    }
+
+    private func makeDraftPhoto(_ image: UIImage) -> DraftPhoto? {
+        let dimension = max(image.size.width, image.size.height)
+        guard dimension > 0 else { return nil }
+
+        let scale = min(1, 2560 / dimension)
+        let size = CGSize(
+            width: image.size.width * scale,
+            height: image.size.height * scale
+        )
+
+        let format = UIGraphicsImageRendererFormat()
+        format.scale = 1
+        format.opaque = true
+
+        let resized = UIGraphicsImageRenderer(
+            size: size,
+            format: format
+        ).image { _ in
+            image.draw(in: CGRect(origin: .zero, size: size))
+        }
+
+        guard let data = resized.jpegData(
+            compressionQuality: 0.82
+        ) else {
+            return nil
+        }
+
+        let previewScale = min(1, 240 / max(size.width, size.height))
+        let previewSize = CGSize(
+            width: size.width * previewScale,
+            height: size.height * previewScale
+        )
+
+        let preview = UIGraphicsImageRenderer(
+            size: previewSize,
+            format: format
+        ).image { _ in
+            resized.draw(in: CGRect(origin: .zero, size: previewSize))
+        }
+
+        return DraftPhoto(data: data, preview: preview)
     }
 
     private func searchObjects() async {
@@ -461,31 +590,22 @@ struct CommissionCreateView: View {
         }
 
         isSearchingObjects = true
-
-        defer {
-            isSearchingObjects = false
-        }
+        defer { isSearchingObjects = false }
 
         do {
             objectSearchResults = try await session.apiClient
-                .searchCommissionObjects(
-                    query: query
-                )
+                .searchCommissionObjects(query: query)
         } catch {
             objectSearchResults = []
             errorMessage = error.localizedDescription
         }
     }
 
-    private func selectObject(
-        _ item: CommissionObjectChoice
-    ) {
+    private func selectObject(_ item: CommissionObjectChoice) {
         selectedObject = item
         objectSearchResults = []
 
-        if contactPerson.trimmingCharacters(
-            in: .whitespacesAndNewlines
-        ).isEmpty,
+        if normalizedText(contactPerson) == nil,
            let tenantName = item.tenantName {
             contactPerson = tenantName
         }
@@ -523,56 +643,11 @@ struct CommissionCreateView: View {
         return values.joined(separator: " · ")
     }
 
-    private var compatibleTasks: [TimeTask] {
-        guard let craftActivityId = positions
-            .compactMap({
-                $0.task?.craftActivity?.id
-            })
-            .first else {
-            return tasks
-        }
-
-        return tasks.filter {
-            $0.craftActivity?.id == craftActivityId
-        }
-    }
-
-    private func removePosition(id: UUID) {
-        guard positions.count > 1 else {
-            return
-        }
-
-        positions.removeAll {
-            $0.id == id
-        }
-    }
-
-    private func normalizedText(
-        _ value: String
-    ) -> String? {
+    private func normalizedText(_ value: String) -> String? {
         let result = value.trimmingCharacters(
             in: .whitespacesAndNewlines
         )
-
         return result.isEmpty ? nil : result
-    }
-
-    private func parsedQuantity(
-        _ value: String
-    ) -> Double? {
-        Double(
-            value.replacingOccurrences(
-                of: ",",
-                with: "."
-            )
-        )
-    }
-
-    private func formattedDate(
-        _ value: Date
-    ) -> String {
-        ISO8601DateFormatter()
-            .string(from: value)
     }
 }
 

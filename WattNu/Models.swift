@@ -890,6 +890,75 @@ struct TimeEntry: Codable, Identifiable, Equatable {
     }
 }
 
+struct SimpleCommissionCreateOptions: Decodable {
+    let canCreate: Bool
+    let notifyTenantsDefault: Bool?
+    let defaultCraftsmanUserId: Int?
+    let commissionTypes: [CommissionTypeOption]
+    let craftActivities: [SimpleCommissionCraftOption]
+    let craftsmen: [SimpleCommissionCraftsmanOption]
+
+    enum CodingKeys: String, CodingKey {
+        case canCreate = "can_create"
+        case notifyTenantsDefault = "notify_tenants_default"
+        case defaultCraftsmanUserId = "default_craftsman_user_id"
+        case commissionTypes = "commission_types"
+        case craftActivities = "craft_activities"
+        case craftsmen
+    }
+}
+
+struct SimpleCommissionCraftOption: Decodable, Identifiable {
+    let id: Int
+    let name: String
+    let fallbackAvailable: Bool
+    let commissionTypeIds: [Int]
+
+    enum CodingKeys: String, CodingKey {
+        case id, name
+        case fallbackAvailable = "fallback_available"
+        case commissionTypeIds = "commission_type_ids"
+    }
+}
+
+struct SimpleCommissionCraftsmanOption: Decodable, Identifiable {
+    let id: Int
+    let displayName: String
+
+    enum CodingKeys: String, CodingKey {
+        case id
+        case displayName = "display_name"
+    }
+}
+
+struct SimpleCommissionCreateRequest: Encodable {
+    let clientRequestId: String
+    let objectType: String
+    let objectId: Int
+    let commissionTypeId: Int
+    let craftActivityId: Int
+    let craftsmanUserId: Int
+    let title: String
+    let commissionText: String
+    let contactPerson: String?
+    let executionDate: String?
+    let notifyTenants: Bool
+
+    enum CodingKeys: String, CodingKey {
+        case clientRequestId = "client_request_id"
+        case objectType = "object_type"
+        case objectId = "object_id"
+        case commissionTypeId = "commission_type_id"
+        case craftActivityId = "craft_activity_id"
+        case craftsmanUserId = "craftsman_user_id"
+        case title
+        case commissionText = "commission_text"
+        case contactPerson = "contact_person"
+        case executionDate = "execution_date"
+        case notifyTenants = "notify_tenants"
+    }
+}
+
 struct CommissionCreateOptions: Decodable {
     let canCreate: Bool
     let notifyTenantsDefault: Bool?

@@ -164,6 +164,52 @@ final class APIClient {
         return response.items
     }
     
+    func fetchSimpleCommissionCreateOptions() async throws -> SimpleCommissionCreateOptions {
+        try requireToken()
+        return try await request(path: "/api/commissions/simple-create-options")
+    }
+
+    func createSimpleCommission(
+        body: SimpleCommissionCreateRequest,
+        photos: [Data]
+    ) async throws -> Commission {
+        try requireToken()
+
+        let boundary = "WattNu-\(UUID().uuidString)"
+        var data = Data()
+
+        data.appendUTF8("--\(boundary)\r\n")
+        data.appendUTF8("Content-Disposition: form-data; name=\"data\"\r\n")
+        data.appendUTF8("Content-Type: application/json\r\n\r\n")
+        data.append(try encoder.encode(body))
+        data.appendUTF8("\r\n")
+
+        for (index, photo) in photos.enumerated() {
+            data.appendUTF8("--\(boundary)\r\n")
+            data.appendUTF8(
+                "Content-Disposition: form-data; name=\"photos\"; filename=\"foto-\(index + 1).jpg\"\r\n"
+            )
+            data.appendUTF8("Content-Type: image/jpeg\r\n\r\n")
+            data.append(photo)
+            data.appendUTF8("\r\n")
+        }
+
+        data.appendUTF8("--\(boundary)--\r\n")
+
+        let responseData = try await performRaw(
+            path: "/api/commissions/simple",
+            method: "POST",
+            contentType: "multipart/form-data; boundary=\(boundary)",
+            accept: "application/json",
+            bodyData: data
+        )
+
+        return try decoder.decode(
+            ItemResponse<Commission>.self,
+            from: responseData
+        ).item
+    }
+    
     func fetchCommissionCreateOptions() async throws -> CommissionCreateOptions {
         try requireToken()
 
