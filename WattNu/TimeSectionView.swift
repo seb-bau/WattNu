@@ -6,9 +6,6 @@ struct TimeSectionView: View {
     let commission: Commission
 
     @State private var entries: [TimeEntry] = []
-    @State private var taskSearchText = ""
-    @State private var selectedTask: TimeTask?
-    @State private var taskSuggestions: [TimeTask] = []
     @State private var hoursText = ""
     @State private var workHoursText = ""
     @State private var waitingHoursText = ""
@@ -22,8 +19,32 @@ struct TimeSectionView: View {
     @State private var entryToDelete: TimeEntry?
     @State private var isLoading = false
     @State private var errorMessage: String?
-    @State private var suggestionTask: Task<Void, Never>?
     @State private var commissionTasks: [TimeTask] = []
+    @State private var isLoadingTasks = true
+    @FocusState private var focusedField: InputField?
+
+    private enum InputField: Hashable {
+        case totalHours
+        case workHours
+        case waitingHours
+        case materialHours
+        case travelHours
+        case documentationHours
+        case extraHours
+        case note
+    }
+
+    private var selectedTask: TimeTask? {
+        if let editingEntry {
+            return editingEntry.taskTemplate
+        }
+
+        guard commissionTasks.count == 1 else {
+            return nil
+        }
+
+        return commissionTasks.first
+    }
 
     private var formTitle: String {
         editingEntry == nil ? "Zeit erfassen" : "Zeit bearbeiten"
@@ -59,7 +80,7 @@ struct TimeSectionView: View {
             return true
         }
 
-        if editingEntry == nil && selectedTask == nil {
+        if selectedTask == nil {
             return true
         }
 
@@ -81,95 +102,47 @@ struct TimeSectionView: View {
                     displayedComponents: .date
                 )
                 .disabled(
-                    commission.canEditValue == false
+                    isLoading || commission.canEditValue == false
                 )
 
-                TextField("Position eintippen", text: $taskSearchText)
-                    .textInputAutocapitalization(.never)
-                    .autocorrectionDisabled()
-                    .disabled(commission.canEditValue == false)
-
                 if let selectedTask {
-                    HStack(alignment: .top) {
-                        VStack(alignment: .leading, spacing: 4) {
-                            Text(selectedTask.title)
-                                .font(.headline)
+                    VStack(alignment: .leading, spacing: 4) {
+                        Text(selectedTask.title)
+                            .font(.headline)
 
-                            Text(selectedTask.code)
-                                .font(.caption)
-                                .foregroundStyle(.secondary)
-
-                            if session.showServiceTargetTimes,
-                               let suggestedMinutes = selectedTask.suggestedMinutes,
-                               suggestedMinutes > 0 {
-                                Text("SOLL-Zeit: \(WorkTimeText.duration(suggestedMinutes))")
-                                    .font(.caption)
-                                    .foregroundStyle(.secondary)
-                            }
-                        }
-
-                        Spacer()
-
-                        Button {
-                            clearSelectedTask()
-                        } label: {
-                            Image(systemName: "xmark.circle.fill")
-                                .foregroundStyle(.secondary)
-                        }
-                        .disabled(commission.canEditValue == false)
-                    }
-                    .padding(.vertical, 4)
-                }
-
-                if !taskSuggestions.isEmpty {
-                    VStack(alignment: .leading, spacing: 8) {
-                        Text("Vorschläge")
+                        Text(selectedTask.code)
                             .font(.caption)
                             .foregroundStyle(.secondary)
 
-                        ForEach(taskSuggestions) { task in
-                            Button {
-                                selectTask(task)
-                            } label: {
-                                HStack(alignment: .top) {
-                                    VStack(alignment: .leading, spacing: 4) {
-                                        Text(task.title)
-                                            .foregroundStyle(.primary)
-
-                                        Text(task.code)
-                                            .font(.caption)
-                                            .foregroundStyle(.secondary)
-                                    }
-
-                                    Spacer()
-
-                                    Image(systemName: "checkmark.circle")
-                                        .foregroundStyle(.blue)
-                                }
-                            }
-                            .buttonStyle(.plain)
-                            .disabled(commission.canEditValue == false)
-
-                            if task.id != taskSuggestions.last?.id {
-                                Divider()
-                            }
+                        if session.showServiceTargetTimes,
+                           let suggestedMinutes = selectedTask.suggestedMinutes,
+                           suggestedMinutes > 0 {
+                            Text("SOLL-Zeit: \(WorkTimeText.duration(suggestedMinutes))")
+                                .font(.caption)
+                                .foregroundStyle(.secondary)
                         }
                     }
                     .padding(.vertical, 4)
+                } else if isLoadingTasks {
+                    ProgressView("Leistungsposition wird geladen …")
+                } else {
+                    Text("Diesem Auftrag ist keine eindeutige Leistungsposition zugeordnet.")
+                        .foregroundStyle(.secondary)
                 }
 
                 TextField("Gesamtzeit in Stunden", text: $hoursText)
                     .keyboardType(.decimalPad)
-                    .disabled(commission.canEditValue == false)
+                    .focused($focusedField, equals: .totalHours)
+                    .disabled(isLoading || commission.canEditValue == false)
 
                 if session.timeComponentsEnabled {
                     DisclosureGroup("Zeitbausteine") {
-                        hourField("Arbeitszeit vor Ort", text: $workHoursText)
-                        hourField("Wartezeit", text: $waitingHoursText)
-                        hourField("Materialbeschaffung", text: $materialHoursText)
-                        hourField("Fahrt / Wegezeit", text: $travelHoursText)
-                        hourField("Dokumentation / Rücksprache", text: $documentationHoursText)
-                        hourField("Zusatzarbeit", text: $extraHoursText)
+                        hourField("Arbeitszeit vor Ort", text: $workHoursText, field: .workHours)
+                        hourField("Wartezeit", text: $waitingHoursText, field: .waitingHours)
+                        hourField("Materialbeschaffung", text: $materialHoursText, field: .materialHours)
+                        hourField("Fahrt / Wegezeit", text: $travelHoursText, field: .travelHours)
+                        hourField("Dokumentation / Rücksprache", text: $documentationHoursText, field: .documentationHours)
+                        hourField("Zusatzarbeit", text: $extraHoursText, field: .extraHours)
                     }
                 }
 
@@ -182,9 +155,11 @@ struct TimeSectionView: View {
                 }
 
                 TextField("Notiz / Erläuterung", text: $note, axis: .vertical)
-                    .disabled(commission.canEditValue == false)
+                    .focused($focusedField, equals: .note)
+                    .disabled(isLoading || commission.canEditValue == false)
 
                 Button {
+                    focusedField = nil
                     Task {
                         await saveTimeEntry()
                     }
@@ -223,9 +198,6 @@ struct TimeSectionView: View {
         .refreshable {
             await session.loadMobileConfig()
             await loadData()
-        }
-        .onChange(of: taskSearchText) { _, newValue in
-            handleTaskSearchTextChange(newValue)
         }
         .onChange(of: session.timeComponentsEnabled) { _, enabled in
             if !enabled {
@@ -315,6 +287,7 @@ struct TimeSectionView: View {
                 }
                 .font(.caption)
                 .buttonStyle(.borderless)
+                .disabled(isLoading)
             }
         }
         .padding(.vertical, 4)
@@ -322,14 +295,22 @@ struct TimeSectionView: View {
 
     private func hourField(
         _ title: String,
-        text: Binding<String>
+        text: Binding<String>,
+        field: InputField
     ) -> some View {
         TextField("\(title) (Std.)", text: text)
             .keyboardType(.decimalPad)
-            .disabled(commission.canEditValue == false)
+            .focused($focusedField, equals: field)
+            .disabled(isLoading || commission.canEditValue == false)
     }
     
     private func loadData() async {
+        isLoadingTasks = true
+
+        defer {
+            isLoadingTasks = false
+        }
+
         do {
             async let loadedEntries =
                 session.apiClient.fetchTimeEntries(
@@ -349,25 +330,8 @@ struct TimeSectionView: View {
                     in: result.1
                 )
             )
-            restoreTaskSelection()
         } catch {
             errorMessage = error.localizedDescription
-        }
-    }
-
-    private func restoreTaskSelection() {
-        guard editingEntry == nil else {
-            return
-        }
-
-        if commissionTasks.count == 1,
-           let task = commissionTasks.first {
-            selectTask(task)
-        } else if (
-            selectedTask == nil
-            && taskSearchText.isEmpty
-        ) {
-            taskSuggestions = commissionTasks
         }
     }
 
@@ -379,65 +343,8 @@ struct TimeSectionView: View {
         }
     }
 
-    private func handleTaskSearchTextChange(_ value: String) {
-        if selectedTask?.title == value || selectedTask?.code == value {
-            return
-        }
-
-        selectedTask = nil
-        scheduleTaskSearch(for: value)
-    }
-
-    private func scheduleTaskSearch(for value: String) {
-        suggestionTask?.cancel()
-
-        let searchText = value.trimmingCharacters(in: .whitespacesAndNewlines)
-
-        guard searchText.count >= 2 else {
-            taskSuggestions = []
-            return
-        }
-
-        suggestionTask = Task { @MainActor in
-            try? await Task.sleep(nanoseconds: 300_000_000)
-
-            if Task.isCancelled {
-                return
-            }
-
-            do {
-                let items = try await session.apiClient.searchTimeTasks(query: searchText)
-
-                if Task.isCancelled {
-                    return
-                }
-
-                taskSuggestions = items
-            } catch {
-                if Task.isCancelled {
-                    return
-                }
-
-                taskSuggestions = []
-            }
-        }
-    }
-
-    private func selectTask(_ task: TimeTask) {
-        suggestionTask?.cancel()
-        selectedTask = task
-        taskSuggestions = []
-        taskSearchText = task.title
-    }
-
-    private func clearSelectedTask() {
-        suggestionTask?.cancel()
-        selectedTask = nil
-        taskSearchText = ""
-        taskSuggestions = []
-    }
-
     private func beginEditing(_ entry: TimeEntry) {
+        focusedField = nil
         editingEntry = entry
         serviceDate = (
             Formatters.dateFromApiDate(
@@ -445,10 +352,6 @@ struct TimeSectionView: View {
             )
             ?? Date()
         )
-        suggestionTask?.cancel()
-        selectedTask = entry.taskTemplate
-        taskSuggestions = []
-        taskSearchText = entry.taskTemplate?.title ?? ""
 
         if session.timeComponentsEnabled && hasComponents(entry) {
             hoursText = ""
@@ -473,7 +376,7 @@ struct TimeSectionView: View {
 
     private func saveTimeEntry() async {
         guard let selectedTask else {
-            errorMessage = "Bitte zuerst eine Leistungsposition auswählen."
+            errorMessage = "Diesem Auftrag ist keine eindeutige Leistungsposition zugeordnet."
             return
         }
 
@@ -665,6 +568,7 @@ struct TimeSectionView: View {
     }
 
     private func clearTimeInput() {
+        focusedField = nil
         hoursText = ""
         workHoursText = ""
         waitingHoursText = ""
@@ -675,8 +579,6 @@ struct TimeSectionView: View {
         note = ""
         editingEntry = nil
         serviceDate = Date()
-        clearSelectedTask()
-        restoreTaskSelection()
     }
 }
 
