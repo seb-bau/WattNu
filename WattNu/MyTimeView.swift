@@ -264,7 +264,7 @@ struct MyTimeView: View {
         VStack(alignment: .leading, spacing: 5) {
             HStack(alignment: .firstTextBaseline) {
                 Text(
-                    entry.taskTemplate?.title
+                    entry.taskTemplate?.displayTitle
                     ?? "Keine Leistungsposition"
                 )
                 .font(.headline)
@@ -350,7 +350,7 @@ private struct FreeTimeEntryFormView: View {
     @State private var tasks: [TimeTask] = []
     @State private var selectedTaskId: Int?
     @State private var serviceDate: Date
-    @State private var minutesText = ""
+    @State private var hoursText = ""
     @State private var note = ""
     @State private var isLoading = false
     @State private var isSaving = false
@@ -391,7 +391,7 @@ private struct FreeTimeEntryFormView: View {
                             .tag(nil as Int?)
 
                         ForEach(tasks) { task in
-                            Text(task.title)
+                            Text(task.displayTitle)
                                 .tag(task.id as Int?)
                         }
                     }
@@ -403,10 +403,10 @@ private struct FreeTimeEntryFormView: View {
                     )
 
                     TextField(
-                        "Minuten",
-                        text: $minutesText
+                        "Stunden",
+                        text: $hoursText
                     )
-                    .keyboardType(.numberPad)
+                    .keyboardType(.decimalPad)
 
                     TextField(
                         "Notiz (optional)",
@@ -468,11 +468,8 @@ private struct FreeTimeEntryFormView: View {
     }
 
     private var parsedMinutes: Int? {
-        guard let value = Int(
-            minutesText.trimmingCharacters(
-                in: .whitespacesAndNewlines
-            )
-        ), 1...1440 ~= value else {
+        guard let value = WorkTimeText.minutes(fromHours: hoursText),
+              1...1440 ~= value else {
             return nil
         }
 
@@ -487,8 +484,8 @@ private struct FreeTimeEntryFormView: View {
         }
 
         do {
-            tasks = try await session.apiClient
-                .fetchFreeTimeTasks()
+            let loadedTasks = try await session.apiClient.fetchFreeTimeTasks()
+            tasks = TimeTask.sortedForFreeTime(loadedTasks)
 
             if tasks.count == 1 {
                 selectedTaskId = tasks[0].id
@@ -506,10 +503,7 @@ private struct FreeTimeEntryFormView: View {
         guard let selectedTaskId,
               let parsedMinutes
         else {
-            errorMessage = (
-                "Bitte Leistungsposition und gültige "
-                + "Minuten angeben."
-            )
+            errorMessage = "Bitte Leistungsposition und gültige Stunden angeben."
             return
         }
 
@@ -538,37 +532,6 @@ private struct FreeTimeEntryFormView: View {
         }
     }
 }
-
-
-private enum WorkTimeText {
-    static func duration(
-        _ minutes: Int
-    ) -> String {
-        let hours = minutes / 60
-        let remainingMinutes = minutes % 60
-
-        if hours == 0 {
-            return "\(remainingMinutes) Min."
-        }
-
-        if remainingMinutes == 0 {
-            return "\(hours) Std."
-        }
-
-        return (
-            "\(hours) Std. "
-            + "\(remainingMinutes) Min."
-        )
-    }
-
-    static func signedDuration(
-        _ minutes: Int
-    ) -> String {
-        let prefix = minutes >= 0 ? "+" : "−"
-        return prefix + duration(abs(minutes))
-    }
-}
-
 
 private extension MyTimeDay {
     var statusLabel: String {
