@@ -6,13 +6,13 @@ struct TimeSectionView: View {
     let commission: Commission
 
     @State private var entries: [TimeEntry] = []
-    @State private var minutesText = ""
-    @State private var workMinutesText = ""
-    @State private var waitingMinutesText = ""
-    @State private var materialMinutesText = ""
-    @State private var travelMinutesText = ""
-    @State private var documentationMinutesText = ""
-    @State private var extraMinutesText = ""
+    @State private var hoursText = ""
+    @State private var workHoursText = ""
+    @State private var waitingHoursText = ""
+    @State private var materialHoursText = ""
+    @State private var travelHoursText = ""
+    @State private var documentationHoursText = ""
+    @State private var extraHoursText = ""
     @State private var note = ""
     @State private var serviceDate = Date()
     @State private var editingEntry: TimeEntry?
@@ -24,13 +24,13 @@ struct TimeSectionView: View {
     @FocusState private var focusedField: InputField?
 
     private enum InputField: Hashable {
-        case totalMinutes
-        case workMinutes
-        case waitingMinutes
-        case materialMinutes
-        case travelMinutes
-        case documentationMinutes
-        case extraMinutes
+        case totalHours
+        case workHours
+        case waitingHours
+        case materialHours
+        case travelHours
+        case documentationHours
+        case extraHours
         case note
     }
 
@@ -60,12 +60,12 @@ struct TimeSectionView: View {
         }
 
         return [
-            workMinutesText,
-            waitingMinutesText,
-            materialMinutesText,
-            travelMinutesText,
-            documentationMinutesText,
-            extraMinutesText
+            workHoursText,
+            waitingHoursText,
+            materialHoursText,
+            travelHoursText,
+            documentationHoursText,
+            extraHoursText
         ]
     }
 
@@ -84,7 +84,7 @@ struct TimeSectionView: View {
             return true
         }
 
-        let hasTotalInput = !minutesText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+        let hasTotalInput = !hoursText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
         return !hasTotalInput && !hasComponentInput
     }
 
@@ -117,7 +117,7 @@ struct TimeSectionView: View {
                         if session.showServiceTargetTimes,
                            let suggestedMinutes = selectedTask.suggestedMinutes,
                            suggestedMinutes > 0 {
-                            Text("SOLL-Zeit: \(suggestedMinutes) Min.")
+                            Text("SOLL-Zeit: \(WorkTimeText.duration(suggestedMinutes))")
                                 .font(.caption)
                                 .foregroundStyle(.secondary)
                         }
@@ -130,19 +130,19 @@ struct TimeSectionView: View {
                         .foregroundStyle(.secondary)
                 }
 
-                TextField("Gesamtzeit in Minuten", text: $minutesText)
-                    .keyboardType(.numberPad)
-                    .focused($focusedField, equals: .totalMinutes)
+                TextField("Gesamtzeit in Stunden", text: $hoursText)
+                    .keyboardType(.decimalPad)
+                    .focused($focusedField, equals: .totalHours)
                     .disabled(isLoading || commission.canEditValue == false)
 
                 if session.timeComponentsEnabled {
                     DisclosureGroup("Zeitbausteine") {
-                        minuteField("Arbeitszeit vor Ort", text: $workMinutesText, field: .workMinutes)
-                        minuteField("Wartezeit", text: $waitingMinutesText, field: .waitingMinutes)
-                        minuteField("Materialbeschaffung", text: $materialMinutesText, field: .materialMinutes)
-                        minuteField("Fahrt / Wegezeit", text: $travelMinutesText, field: .travelMinutes)
-                        minuteField("Dokumentation / Rücksprache", text: $documentationMinutesText, field: .documentationMinutes)
-                        minuteField("Zusatzarbeit", text: $extraMinutesText, field: .extraMinutes)
+                        hourField("Arbeitszeit vor Ort", text: $workHoursText, field: .workHours)
+                        hourField("Wartezeit", text: $waitingHoursText, field: .waitingHours)
+                        hourField("Materialbeschaffung", text: $materialHoursText, field: .materialHours)
+                        hourField("Fahrt / Wegezeit", text: $travelHoursText, field: .travelHours)
+                        hourField("Dokumentation / Rücksprache", text: $documentationHoursText, field: .documentationHours)
+                        hourField("Zusatzarbeit", text: $extraHoursText, field: .extraHours)
                     }
                 }
 
@@ -250,7 +250,7 @@ struct TimeSectionView: View {
 
                 Spacer()
 
-                Text("\(entry.minutes) Min.")
+                Text(WorkTimeText.duration(entry.minutes))
                     .font(.subheadline.bold())
             }
 
@@ -293,9 +293,13 @@ struct TimeSectionView: View {
         .padding(.vertical, 4)
     }
 
-    private func minuteField(_ title: String, text: Binding<String>, field: InputField) -> some View {
-        TextField(title, text: text)
-            .keyboardType(.numberPad)
+    private func hourField(
+        _ title: String,
+        text: Binding<String>,
+        field: InputField
+    ) -> some View {
+        TextField("\(title) (Std.)", text: text)
+            .keyboardType(.decimalPad)
             .focused($focusedField, equals: field)
             .disabled(isLoading || commission.canEditValue == false)
     }
@@ -350,21 +354,21 @@ struct TimeSectionView: View {
         )
 
         if session.timeComponentsEnabled && hasComponents(entry) {
-            minutesText = ""
-            workMinutesText = minutesText(for: entry.workMinutes)
-            waitingMinutesText = minutesText(for: entry.waitingMinutes)
-            materialMinutesText = minutesText(for: entry.materialMinutes)
-            travelMinutesText = minutesText(for: entry.travelMinutes)
-            documentationMinutesText = minutesText(for: entry.documentationMinutes)
-            extraMinutesText = minutesText(for: entry.extraMinutes)
+            hoursText = ""
+            workHoursText = hoursText(for: entry.workMinutes)
+            waitingHoursText = hoursText(for: entry.waitingMinutes)
+            materialHoursText = hoursText(for: entry.materialMinutes)
+            travelHoursText = hoursText(for: entry.travelMinutes)
+            documentationHoursText = hoursText(for: entry.documentationMinutes)
+            extraHoursText = hoursText(for: entry.extraMinutes)
         } else {
-            minutesText = "\(entry.minutes)"
-            workMinutesText = ""
-            waitingMinutesText = ""
-            materialMinutesText = ""
-            travelMinutesText = ""
-            documentationMinutesText = ""
-            extraMinutesText = ""
+            hoursText = WorkTimeText.hoursInput(entry.minutes)
+            workHoursText = ""
+            waitingHoursText = ""
+            materialHoursText = ""
+            travelHoursText = ""
+            documentationHoursText = ""
+            extraHoursText = ""
         }
 
         note = entry.note ?? ""
@@ -378,7 +382,7 @@ struct TimeSectionView: View {
 
         let values = parsedTimeInput()
         if values.hasInvalidComponent {
-            errorMessage = "Bitte gültige Minuten in den Zeitbausteinen eingeben."
+            errorMessage = "Bitte gültige Stunden in den Zeitbausteinen eingeben."
             return
         }
 
@@ -467,19 +471,34 @@ struct TimeSectionView: View {
     }
 
     private func parsedTimeInput() -> ParsedTimeInput {
-        let workMinutes = integerValue(workMinutesText) ?? 0
-        let waitingMinutes = integerValue(waitingMinutesText) ?? 0
-        let materialMinutes = integerValue(materialMinutesText) ?? 0
-        let travelMinutes = integerValue(travelMinutesText) ?? 0
-        let documentationMinutes = integerValue(documentationMinutesText) ?? 0
-        let extraMinutes = integerValue(extraMinutesText) ?? 0
-        let hasInvalidComponent = componentTexts.contains { value in
-            integerValue(value) == nil && !value.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+        let workMinutes = minutesFromHours(workHoursText) ?? 0
+        let waitingMinutes = minutesFromHours(waitingHoursText) ?? 0
+        let materialMinutes = minutesFromHours(materialHoursText) ?? 0
+        let travelMinutes = minutesFromHours(travelHoursText) ?? 0
+        let documentationMinutes = minutesFromHours(documentationHoursText) ?? 0
+        let extraMinutes = minutesFromHours(extraHoursText) ?? 0
+        var hasInvalidComponent = componentTexts.contains { value in
+            minutesFromHours(value) == nil
+                && !value.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
         }
-        let componentSum = workMinutes + waitingMinutes + materialMinutes + travelMinutes + documentationMinutes + extraMinutes
+
+        var componentSum = 0
+
+        for value in [
+            workMinutes,
+            waitingMinutes,
+            materialMinutes,
+            travelMinutes,
+            documentationMinutes,
+            extraMinutes
+        ] {
+            let result = componentSum.addingReportingOverflow(value)
+            hasInvalidComponent = hasInvalidComponent || result.overflow
+            componentSum = result.partialValue
+        }
 
         return ParsedTimeInput(
-            totalMinutes: integerValue(minutesText),
+            totalMinutes: minutesFromHours(hoursText),
             hasComponentInput: hasComponentInput,
             hasInvalidComponent: hasInvalidComponent,
             componentSum: componentSum,
@@ -495,31 +514,27 @@ struct TimeSectionView: View {
     private func useTotalTimeInput() {
         let componentSum = parsedTimeInput().componentSum
         if componentSum > 0 {
-            minutesText = "\(componentSum)"
+            hoursText = WorkTimeText.hoursInput(componentSum)
         }
 
-        workMinutesText = ""
-        waitingMinutesText = ""
-        materialMinutesText = ""
-        travelMinutesText = ""
-        documentationMinutesText = ""
-        extraMinutesText = ""
+        workHoursText = ""
+        waitingHoursText = ""
+        materialHoursText = ""
+        travelHoursText = ""
+        documentationHoursText = ""
+        extraHoursText = ""
     }
 
-    private func integerValue(_ value: String) -> Int? {
-        let trimmedValue = value.trimmingCharacters(in: .whitespacesAndNewlines)
-        if trimmedValue.isEmpty {
-            return nil
-        }
-        return Int(trimmedValue)
+    private func minutesFromHours(_ value: String) -> Int? {
+        WorkTimeText.minutes(fromHours: value)
     }
 
-    private func minutesText(for value: Int?) -> String {
+    private func hoursText(for value: Int?) -> String {
         guard let value, value > 0 else {
             return ""
         }
 
-        return "\(value)"
+        return WorkTimeText.hoursInput(value)
     }
 
     private func hasComponents(_ entry: TimeEntry) -> Bool {
@@ -538,14 +553,14 @@ struct TimeSectionView: View {
     }
 
     private func componentSummary(for entry: TimeEntry) -> String {
-        let workMinutes = entry.workMinutes ?? 0
-        let waitingMinutes = entry.waitingMinutes ?? 0
-        let materialMinutes = entry.materialMinutes ?? 0
-        let travelMinutes = entry.travelMinutes ?? 0
-        let documentationMinutes = entry.documentationMinutes ?? 0
-        let extraMinutes = entry.extraMinutes ?? 0
-
-        return "Arbeit \(workMinutes) · Warten \(waitingMinutes) · Material \(materialMinutes) · Fahrt \(travelMinutes) · Doku \(documentationMinutes) · Zusatz \(extraMinutes)"
+        [
+            "Arbeit \(WorkTimeText.duration(entry.workMinutes ?? 0))",
+            "Warten \(WorkTimeText.duration(entry.waitingMinutes ?? 0))",
+            "Material \(WorkTimeText.duration(entry.materialMinutes ?? 0))",
+            "Fahrt \(WorkTimeText.duration(entry.travelMinutes ?? 0))",
+            "Doku \(WorkTimeText.duration(entry.documentationMinutes ?? 0))",
+            "Zusatz \(WorkTimeText.duration(entry.extraMinutes ?? 0))"
+        ].joined(separator: " · ")
     }
 
     private func canEdit(_ entry: TimeEntry) -> Bool {
@@ -554,13 +569,13 @@ struct TimeSectionView: View {
 
     private func clearTimeInput() {
         focusedField = nil
-        minutesText = ""
-        workMinutesText = ""
-        waitingMinutesText = ""
-        materialMinutesText = ""
-        travelMinutesText = ""
-        documentationMinutesText = ""
-        extraMinutesText = ""
+        hoursText = ""
+        workHoursText = ""
+        waitingHoursText = ""
+        materialHoursText = ""
+        travelHoursText = ""
+        documentationHoursText = ""
+        extraHoursText = ""
         note = ""
         editingEntry = nil
         serviceDate = Date()

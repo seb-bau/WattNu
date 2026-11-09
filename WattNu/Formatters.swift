@@ -203,3 +203,44 @@ enum Formatters {
         )
     }
 }
+
+enum WorkTimeText {
+    static func minutes(fromHours text: String) -> Int? {
+        let normalizedText = text
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+            .replacingOccurrences(of: ",", with: ".")
+
+        guard normalizedText.range(
+            of: #"^(?:[0-9]+(?:\.[0-9]*)?|\.[0-9]+)$"#,
+            options: .regularExpression
+        ) != nil,
+              let hours = Double(normalizedText),
+              hours.isFinite else {
+            return nil
+        }
+
+        return Int(exactly: (hours * 60).rounded())
+    }
+
+    static func hoursInput(_ minutes: Int) -> String {
+        let formatter = NumberFormatter()
+        formatter.locale = Locale(identifier: "de_DE")
+        formatter.numberStyle = .decimal
+        formatter.usesGroupingSeparator = false
+        formatter.minimumFractionDigits = 0
+        formatter.maximumFractionDigits = 2
+
+        return formatter.string(
+            from: NSNumber(value: Double(minutes) / 60)
+        ) ?? "0"
+    }
+
+    static func duration(_ minutes: Int) -> String {
+        "\(hoursInput(minutes)) Std."
+    }
+
+    static func signedDuration(_ minutes: Int) -> String {
+        let prefix = minutes >= 0 ? "+" : "−"
+        return prefix + duration(abs(minutes))
+    }
+}

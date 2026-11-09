@@ -767,6 +767,46 @@ struct TimeTask: Codable, Identifiable, Hashable {
     }
 }
 
+extension TimeTask {
+    var craftTitle: String {
+        for candidate in [craftActivity?.name, craftActivity?.code] {
+            if let value = candidate?.trimmingCharacters(
+                in: .whitespacesAndNewlines
+            ), !value.isEmpty {
+                return value
+            }
+        }
+
+        return "Ohne Gewerk"
+    }
+
+    var displayTitle: String {
+        "\(craftTitle) · \(title)"
+    }
+
+    static func sortedForFreeTime(_ tasks: [TimeTask]) -> [TimeTask] {
+        tasks.sorted { left, right in
+            for (leftValue, rightValue) in [
+                (left.craftTitle, right.craftTitle),
+                (left.title, right.title),
+                (left.code, right.code)
+            ] {
+                let comparison = leftValue.compare(
+                    rightValue,
+                    options: [.caseInsensitive, .diacriticInsensitive, .numeric],
+                    locale: Locale(identifier: "de_DE")
+                )
+
+                if comparison != .orderedSame {
+                    return comparison == .orderedAscending
+                }
+            }
+
+            return left.id < right.id
+        }
+    }
+}
+
 struct CraftActivity: Codable, Identifiable, Hashable {
     let id: Int
     let erpId: Int?
