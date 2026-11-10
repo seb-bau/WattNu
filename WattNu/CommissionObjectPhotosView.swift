@@ -116,6 +116,7 @@ struct CommissionObjectPhotosView: View {
             }
             .padding()
         }
+        .refreshForCommissionChanges { await loadPhotos() }
         .task(id: commission.id) {
             await loadPhotos()
         }

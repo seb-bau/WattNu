@@ -72,6 +72,7 @@ struct CommissionAttachmentsSectionView: View {
                 .padding(.top, 18)
             }
         }
+        .refreshForCommissionChanges { await loadAttachments() }
         .task(id: commission.id) {
             await loadAttachments()
         }

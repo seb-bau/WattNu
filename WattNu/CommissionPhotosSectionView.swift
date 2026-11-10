@@ -94,6 +94,7 @@ struct CommissionPhotosSectionView: View {
                 .padding(.top, 18)
             }
         }
+        .refreshForCommissionChanges { await loadPhotos() }
         .task(id: commission.id) {
             await loadPhotos()
         }

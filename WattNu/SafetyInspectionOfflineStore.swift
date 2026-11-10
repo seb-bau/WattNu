@@ -2087,6 +2087,7 @@ final class SafetyInspectionOfflineStore: ObservableObject {
                         }
 
                         try updateLists(response.item)
+                        try put(Date(), key: "last_sync", kind: "metadata")
                     }
 
                     jobRevisions[jobId, default: 0] += 1
@@ -2291,10 +2292,27 @@ final class SafetyInspectionOfflineStore: ObservableObject {
                     from: value.data
                 )
                 operation.error = nil
+                operation.retryAfter = nil
                 value.data = try encoder.encode(operation)
             }
         }
         changed()
         requestSync()
+    }
+}
+
+extension SafetyInspectionOfflineStore {
+    var lastSynchronizationDate: Date? {
+        guard let value = try? row("last_sync") else { return nil }
+        return try? decoder.decode(Date.self, from: value.data)
+    }
+
+    var synchronizationItems: [SynchronizationItem] {
+        guard let entries = try? rows("operation") else { return [] }
+        return entries.compactMap { entry in
+            guard let operation = try? decoder.decode(InspectionPendingOperation.self, from: entry.data) else { return nil }
+            let titles = ["result": "Prüfergebnis", "photo": "Foto hinzufügen", "delete_photo": "Foto löschen", "complete": "Prüfung abschließen", "visit": "Besuchsvermerk"]
+            return SynchronizationItem(id: operation.request.operationId, entityID: operation.request.jobId, title: titles[operation.request.kind] ?? "Änderung", createdAt: entry.createdAt, error: operation.error, details: nil)
+        }
     }
 }

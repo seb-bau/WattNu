@@ -1,0 +1,48 @@
+name: iOS prüfen
+
+on:
+  pull_request:
+    paths: ['WattNu/**', 'WattNuTests/**', 'WattNu.xcodeproj/**', '.github/workflows/ios-tests.yml']
+  push:
+    branches: [main]
+    paths: ['WattNu/**', 'WattNuTests/**', 'WattNu.xcodeproj/**', '.github/workflows/ios-tests.yml']
+
+permissions:
+  contents: read
+
+jobs:
+  ios-tests:
+    runs-on: macos-26
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803
+        with:
+          persist-credentials: false
+      - name: Xcode auswählen
+        run: sudo xcode-select -s /Applications/Xcode.app/Contents/Developer
+      - name: Simulator einrichten
+        run: |
+          xcrun simctl list runtimes --json > "$RUNNER_TEMP/runtimes.json"
+          RUNTIME_ID=$(python3 - "$RUNNER_TEMP/runtimes.json" <<'PY'
+          import json, sys
+          runtimes = [item for item in json.load(open(sys.argv[1]))['runtimes'] if item.get('isAvailable') and item['name'].startswith('iOS 26')]
+          runtimes.sort(key=lambda item: tuple(map(int, item['version'].split('.'))))
+          if not runtimes:
+              raise SystemExit('Keine verfügbare iOS-26-Laufzeit gefunden.')
+          print(runtimes[-1]['identifier'])
+          PY
+          )
+          SIMULATOR_ID=$(xcrun simctl create 'WattNu Tests' com.apple.CoreSimulator.SimDeviceType.iPhone-17 "$RUNTIME_ID")
+          echo "SIMULATOR_ID=$SIMULATOR_ID" >> "$GITHUB_ENV"
+      - name: Unit-Tests ausführen
+        run: >-
+          xcodebuild -project WattNu.xcodeproj -scheme WattNu
+          -destination "platform=iOS Simulator,id=$SIMULATOR_ID"
+          -resultBundlePath "$RUNNER_TEMP/OfflineTests.xcresult"
+          -only-testing:WattNuTests CODE_SIGNING_ALLOWED=NO test
+      - name: Testergebnisse auswerten
+        if: always()
+        run: |
+          if [ -d "$RUNNER_TEMP/OfflineTests.xcresult" ]; then
+            xcrun xcresulttool get test-results summary --path "$RUNNER_TEMP/OfflineTests.xcresult"
+          fi

@@ -17,6 +17,7 @@ final class SessionStore: ObservableObject {
     let localSettings: LocalAppSettings
     let apiClient: APIClient
     let inspectionStore = SafetyInspectionOfflineStore()
+    let commissionStore = CommissionOfflineStore()
     
     private let tokenStore = KeychainTokenStore()
     private var lastRegisteredDeviceKey: String?
@@ -382,7 +383,9 @@ final class SessionStore: ObservableObject {
     
     private func configureInspectionStorage() {
         apiClient.safetyInspectionStore = inspectionStore
+        apiClient.commissionStore = commissionStore
         do {
+            try commissionStore.bind(user: user, baseURL: apiClient.baseURL, token: accessToken)
             try inspectionStore.bind(
                 user: user,
                 baseURL: apiClient.baseURL,

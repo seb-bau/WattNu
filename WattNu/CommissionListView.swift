@@ -341,6 +341,7 @@ struct CommissionListView: View {
                 }
                 .environmentObject(session)
             }
+            .refreshForCommissionChanges { await loadCommissions() }
             .task {
                 locationStore.requestLocation()
                 await loadInitialData()

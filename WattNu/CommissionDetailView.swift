@@ -160,6 +160,7 @@ struct CommissionDetailView: View {
                 }
             }
         }
+        .refreshForCommissionChanges { await loadCommission() }
         .task {
             if processInfos.consumeInfoRequest(
                 commissionId: commissionId

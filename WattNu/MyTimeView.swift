@@ -127,7 +127,8 @@ struct MyTimeView: View {
                     )
                 }
             }
-            .task(id: selectedDate) {
+            .refreshForCommissionChanges { await loadSummary() }
+        .task(id: selectedDate) {
                 await loadSummary()
             }
             .sheet(isPresented: $isMonthPresented) {

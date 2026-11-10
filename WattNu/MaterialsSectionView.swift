@@ -494,6 +494,7 @@ struct MaterialsSectionView: View {
                 }
             }
         }
+        .refreshForCommissionChanges { await loadMaterials() }
         .task {
             await loadData()
         }

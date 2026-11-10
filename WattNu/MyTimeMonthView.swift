@@ -2,6 +2,7 @@ import SwiftUI
 
 struct MyTimeMonthView: View {
     @EnvironmentObject private var session: SessionStore
+    @EnvironmentObject private var offlineCommissions: CommissionOfflineStore
     @Environment(\.dismiss) private var dismiss
 
     let onSelectDate: (Date) -> Void
@@ -99,6 +100,9 @@ struct MyTimeMonthView: View {
                     dismiss()
                 }
             }
+        }
+        .onChange(of: offlineCommissions.revision) { _, _ in
+            if let totals = offlineCommissions.cachedMonthTotals(displayedMonth) { recordedMinutes = totals }
         }
         .task(id: displayedMonth.startDate) {
             await loadMonth()
