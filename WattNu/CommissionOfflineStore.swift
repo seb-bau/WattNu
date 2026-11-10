@@ -222,9 +222,14 @@ final class CommissionOfflineStore: ObservableObject {
                 let query = (item["query"] as? [[String: String]] ?? []).map { CommissionOfflineQuery(name: $0["name"] ?? "", value: $0["value"] ?? "") }
                 let key = CommissionOfflineResource.key(path, query)
                 if status < 400, let value = item["payload"], !(value is NSNull) {
-                    let resource = CommissionOfflineResource(path: path, query: query, data: try CommissionOfflineJSON.data(value), fetchedAt: Date())
+                    var visibleValue = value
+                    if var object = value as? [String: Any], let error = object["sync_error"] as? String, !error.isEmpty {
+                        snapshot.preparationErrors[key] = error
+                        object["sync_error"] = NSNull()
+                        visibleValue = object
+                    } else { snapshot.preparationErrors[key] = nil }
+                    let resource = CommissionOfflineResource(path: path, query: query, data: try CommissionOfflineJSON.data(visibleValue), fetchedAt: Date())
                     snapshot.resources[key] = resource
-                    snapshot.preparationErrors[key] = nil
                     snapshot.preparation.removeAll { $0 == key }
                     if path == "/api/commissions" { try prepare(resource) }
                     collectMedia(value)
@@ -333,7 +338,7 @@ final class CommissionOfflineStore: ObservableObject {
                 let text = ["title", "name", "code", "item_number", "description", "address", "idnum", "label", "tenant_name"].compactMap { item[$0] as? String }.joined(separator: " ")
                 let exactMatch = ((item["item_number"] as? String)?.caseInsensitiveCompare(term) == .orderedSame) || ((item["barcodes"] as? [String])?.contains(term) == true)
                 let selected = path.hasSuffix("/lookup") ? exactMatch : (term.isEmpty || text.range(of: term, options: [.caseInsensitive, .diacriticInsensitive]) != nil)
-                let requestedType = query.first { $0.name == "item_type_id" }?.value.flatMap(Int.init)
+                let requestedType = query.first { $0.name == "item_type_id" }.flatMap { Int($0.value) }
                 let actualType = (item["item_type"] as? [String: Any])?["id"] as? Int
                 if selected && (requestedType == nil || requestedType == actualType) {
                     let identity = item["id"].map { String(describing: $0) } ?? "\(item["object_type"] ?? ""):\(item["object_id"] ?? text)"
@@ -374,6 +379,7 @@ private extension CommissionOfflineStore {
             guard !commission.isEmpty else { snapshot = previous; throw InspectionOfflineError.message("Bitte den Auftrag zuerst vollständig öffnen.") }
             var basePath = parent
             var targetID: Int?
+            if method == "POST", path.hasSuffix("/appointments") { basePath = parent + "/appointments" }
             if ["PATCH", "DELETE"].contains(method), parts.count > 4, let target = Int(parts[4]), ["time", "photos"].contains(parts[3]) {
                 basePath = parent + "/" + parts[3]
                 targetID = target
@@ -470,7 +476,18 @@ private extension CommissionOfflineStore {
                 }
                 result = method == "DELETE" ? [:] : ["item": item, "duplicate": false]
             } else if section == "infos" {
-                if path.hasSuffix("/read") { result = ["total": 0, "by_commission": [:]] }
+                if path.hasSuffix("/read") {
+                    let requested = fields["items"] as? [[String: Any]] ?? []
+                    let messages = source["items"] as? [[String: Any]] ?? []
+                    let readCount = messages.filter { message in
+                        message["is_unread"] as? Bool == true && requested.contains {
+                            $0["id"] as? String == message["id"] as? String && $0["version"] as? Int == message["version"] as? Int
+                        }
+                    }.count
+                    var counts = ProcessInfoStore.shared.unreadByCommission
+                    if let parentID { counts[parentID] = max(0, (counts[parentID] ?? readCount) - readCount) }
+                    result = ["total": max(counts.values.reduce(0, +), ProcessInfoStore.shared.unreadTotal - readCount), "by_commission": Dictionary(uniqueKeysWithValues: counts.map { (String($0.key), $0.value) })]
+                }
                 else {
                     item = ["id": fields["request_id"] ?? UUID().uuidString, "process_erp_id": 0, "body": fields["body"] ?? "", "author_name": user.displayName, "direction": "craftsman", "created_at": createdAt.ISO8601Format(), "version": 1, "state": "pending", "mail_state": "not_required", "is_unread": false]
                     result = ["item": item]
@@ -482,6 +499,7 @@ private extension CommissionOfflineStore {
             }
         }
         guard !result.isEmpty || method == "DELETE" else { snapshot = previous; throw InspectionOfflineError.message("Dieser Vorgang kann nicht gespeichert werden.") }
+        if path.hasSuffix("/infos") || path.hasSuffix("/infos/read") || method == "POST" && ["/time", "/materials", "/photos"].contains(where: { path.hasSuffix($0) }) { base = nil }
         let response = try CommissionOfflineJSON.data(result)
         let operationID = UUID().uuidString.lowercased()
         if !multipart.isEmpty {
@@ -634,7 +652,7 @@ private extension CommissionOfflineStore {
         func equal(_ lhs: Any?, _ rhs: Any?) throws -> Bool { try CommissionOfflineJSON.data(lhs ?? NSNull()) == CommissionOfflineJSON.data(rhs ?? NSNull()) }
         let remoteChanges = try Set(keys.filter { try !equal(original[$0], current[$0]) })
         let localChanges = try Set(keys.filter { try !equal(original[$0], local[$0]) })
-        guard localChanges.isDisjoint(with: remoteChanges) else { return false }
+        guard try localChanges.intersection(remoteChanges).allSatisfy({ try equal(local[$0], current[$0]) }) else { return false }
         var body = try CommissionOfflineJSON.object(operation.body)
         for key in remoteChanges {
             item[key] = current[key]
@@ -719,6 +737,7 @@ private extension CommissionOfflineStore {
             if let owner = (new?["user"] as? [String: Any])?["id"] as? Int, owner != user?.id { continue }
             let base = try operation.base.map(CommissionOfflineJSON.object)
             let old = base?["value"] as? [String: Any]
+            if let owner = (old?["user"] as? [String: Any])?["id"] as? Int, owner != user?.id { continue }
             let oldDate = old?["service_date"] as? String
             if oldDate == date { minutes -= old?["minutes"] as? Int ?? 0 }
             if let id = old?["id"] as? Int { items.removeAll { ($0["id"] as? Int) == id } }

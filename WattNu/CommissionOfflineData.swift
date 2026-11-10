@@ -93,7 +93,7 @@ enum CommissionOfflineJSON {
         }
         if let targetID {
             guard let item = (payload["items"] as? [[String: Any]])?.first(where: { ($0["id"] as? Int) == targetID }) else { return NSNull() }
-            let keys = ["id", "task_template", "service_date", "minutes", "note", "work_minutes", "waiting_minutes", "material_minutes", "travel_minutes", "documentation_minutes", "extra_minutes", "review_status", "review_level", "quantity", "usage_status", "cancelled", "caption", "source", "updated_at"]
+            let keys = ["id", "user", "task_template", "service_date", "minutes", "note", "work_minutes", "waiting_minutes", "material_minutes", "travel_minutes", "documentation_minutes", "extra_minutes", "review_status", "review_level", "quantity", "usage_status", "cancelled", "caption", "source", "updated_at"]
             return item.filter { keys.contains($0.key) }
         }
         return payload
@@ -145,7 +145,14 @@ enum CommissionOfflineJSON {
                     if resource.path == parent + "/" + section {
                         var items = payload["items"] as? [[String: Any]] ?? []
                         let targetID = parts.count > 4 ? Int(parts[4]) : operation.localID
-                        if section == "materials", operation.path.hasSuffix("/cancel"),
+                        if section == "infos", operation.path.hasSuffix("/read") {
+                            let requested = try object(operation.body)["items"] as? [[String: Any]] ?? []
+                            for index in items.indices where requested.contains(where: {
+                                $0["id"] as? String == items[index]["id"] as? String && $0["version"] as? Int == items[index]["version"] as? Int
+                            }) {
+                                items[index]["is_unread"] = false
+                            }
+                        } else if section == "materials", operation.path.hasSuffix("/cancel"),
                            let index = items.firstIndex(where: { ($0["id"] as? Int) == targetID }) {
                             items[index]["is_cancelled"] = true
                             items[index]["can_cancel"] = false

@@ -25,6 +25,9 @@ struct CommissionOfflineTests {
         let photo: [String: Any] = ["id": 50, "commission_id": 10, "source": "app", "context": "order", "original_filename": "foto.jpg", "mime_type": "image/jpeg", "size_bytes": 5, "caption": "Alt", "content_path": photosPath + "/50/content", "thumbnail_path": photosPath + "/50/thumbnail"]
         let photoResource = CommissionOfflineResource(path: photosPath, query: photosQuery, data: try CommissionOfflineJSON.data(["items": [photo]]), fetchedAt: Date())
         snapshot.resources[photoResource.key] = photoResource
+        let infosPath = "/api/commissions/10/infos"
+        let messages: [[String: Any]] = ["first", "second"].map { ["id": $0, "process_erp_id": 1, "body": "Nachricht", "direction": "office", "created_at": "2026-11-10T08:00:00Z", "version": 1, "state": "synced", "mail_state": "not_required", "is_unread": true] }
+        snapshot.resources[infosPath] = CommissionOfflineResource(path: infosPath, query: [], data: try CommissionOfflineJSON.data(["items": messages]), fetchedAt: Date())
         let day = CommissionOfflineResource(path: "/api/my-time", query: [CommissionOfflineQuery(name: "date", value: "2026-11-10")], data: try CommissionOfflineJSON.data(["date": "2026-11-10", "recorded_minutes": 0, "status": "missing", "items": []]), fetchedAt: Date())
         snapshot.resources[day.key] = day
         let key = SHA256.hash(data: Data("\(baseURL.absoluteString)|1".utf8)).map { String(format: "%02x", $0) }.joined()
@@ -142,6 +145,32 @@ struct CommissionOfflineTests {
     @Test func emptyQueryUsesTheSamePersistentResourceKey() {
         #expect(CommissionOfflineResource.key("/api/commissions/10") == "/api/commissions/10")
         #expect(CommissionOfflineResource.key("/api/commissions/10", []) == "/api/commissions/10")
+    }
+
+    @Test func readingOneMessagePreservesAllMessages() async throws {
+        let directory = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+        defer { try? FileManager.default.removeItem(at: directory) }
+        let store = try fixture(directory)
+        _ = try await store.execute(path: "/api/commissions/10/infos/read", method: "POST", body: CommissionOfflineJSON.data(["items": [["id": "first", "version": 1]]]), contentType: "application/json", accept: "application/json")
+        let data = try await store.execute(path: "/api/commissions/10/infos", method: "GET", body: nil, contentType: nil, accept: "application/json")
+        let messages = try JSONDecoder().decode(ProcessInfoListResponse.self, from: data).items
+        #expect(messages.count == 2)
+        #expect(messages.first { $0.id == "first" }?.isUnread == false)
+        #expect(messages.first { $0.id == "second" }?.isUnread == true)
+        store.stop()
+    }
+
+    @Test func deletingAnotherUsersTimePreservesMyDayTotal() async throws {
+        let directory = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+        defer { try? FileManager.default.removeItem(at: directory) }
+        let store = try fixture(directory)
+        let item: [String: Any] = ["id": 90, "user": ["id": 2], "service_date": "2026-11-10", "minutes": 45]
+        let base = try CommissionOfflineJSON.data(["path": "/api/commissions/10/time", "target_id": 90, "value": item])
+        let operation = CommissionOfflineOperation(path: "/api/commissions/10/time/90", method: "DELETE", body: Data("{}".utf8), contentType: "application/json", bodyFilename: nil, base: base, localResponse: Data("{}".utf8), localID: -1, createdAt: Date())
+        let day = try #require(store.snapshot.resources.values.first { $0.path == "/api/my-time" })
+        let data = try store.myTime(day, operations: [operation])
+        #expect(try JSONDecoder().decode(MyTimeDay.self, from: data).recordedMinutes == 0)
+        store.stop()
     }
 }
 
