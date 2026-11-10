@@ -24,7 +24,9 @@ struct CommissionOfflineTests {
         let root = directory.appendingPathComponent(key)
         try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
         try JSONEncoder().encode(snapshot).write(to: root.appendingPathComponent("state.json"))
-        let store = CommissionOfflineStore(storageDirectory: directory)
+        let configuration = URLSessionConfiguration.ephemeral
+        configuration.protocolClasses = [OfflineTestURLProtocol.self]
+        let store = CommissionOfflineStore(storageDirectory: directory, session: URLSession(configuration: configuration))
         store.setActive(false)
         try store.bind(user: user, baseURL: baseURL, token: "test")
         return store
@@ -104,4 +106,18 @@ struct CommissionOfflineTests {
         #expect(parts.first?.0 == "photo")
         #expect(parts.first?.1 == bytes)
     }
+}
+
+private final class OfflineTestURLProtocol: URLProtocol, @unchecked Sendable {
+    override class func canInit(with request: URLRequest) -> Bool { true }
+    override class func canonicalRequest(for request: URLRequest) -> URLRequest { request }
+    override func startLoading() {
+        guard let url = request.url else { return }
+        let missing = url.path.contains("/offline-operations/")
+        let response = HTTPURLResponse(url: url, statusCode: missing ? 404 : 200, httpVersion: nil, headerFields: ["Content-Type": "application/json"])!
+        client?.urlProtocol(self, didReceive: response, cacheStoragePolicy: .notAllowed)
+        client?.urlProtocol(self, didLoad: Data((missing ? "{\"message\":\"Nicht bestätigt\"}" : "{\"items\":[]}").utf8))
+        client?.urlProtocolDidFinishLoading(self)
+    }
+    override func stopLoading() {}
 }

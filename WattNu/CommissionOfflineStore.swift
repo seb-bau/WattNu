@@ -24,9 +24,11 @@ final class CommissionOfflineStore: ObservableObject {
     private var refreshTasks: [String: Task<Void, Never>] = [:]
     private let monitor = NWPathMonitor()
     private let storageDirectory: URL?
+    private let networkSession: URLSession
 
-    init(storageDirectory: URL? = nil) {
+    init(storageDirectory: URL? = nil, session: URLSession = .shared) {
         self.storageDirectory = storageDirectory
+        networkSession = session
         monitor.pathUpdateHandler = { [weak self] path in
             if path.status == .satisfied {
                 Task { @MainActor [weak self] in self?.resume() }
@@ -52,7 +54,7 @@ final class CommissionOfflineStore: ObservableObject {
             revision += 1
         }
         self.user = user
-        let client = APIClient(baseURL: baseURL)
+        let client = APIClient(baseURL: baseURL, session: networkSession)
         client.accessToken = token
         transport = client
         resume()
@@ -115,7 +117,8 @@ final class CommissionOfflineStore: ObservableObject {
         if accept != "application/json" || path.hasPrefix("offline-commission-photo/") { return try await binary(path) }
         let query = queryItems.map { CommissionOfflineQuery(name: $0.name, value: $0.value ?? "") }
         let key = CommissionOfflineResource.key(path, query)
-        if let cached = try effectiveResources()[key] {
+        let available = try effectiveResources()
+        if let cached = available[key] ?? fallbackResource(path: path, query: query, resources: available) {
             if cached.fetchedAt.timeIntervalSinceNow < -30 { refreshInBackground(path, query: query) }
             return try presented(cached)
         }
@@ -127,6 +130,29 @@ final class CommissionOfflineStore: ObservableObject {
         }
         guard let cached = try effectiveResources()[key] else { throw InspectionOfflineError.message("Die angeforderten Daten konnten nicht geladen werden.") }
         return try presented(cached)
+    }
+
+    private func fallbackResource(path: String, query: [CommissionOfflineQuery], resources: [String: CommissionOfflineResource]) -> CommissionOfflineResource? {
+        if path.hasSuffix("/photos"), let base = resources[path], var payload = try? CommissionOfflineJSON.object(base.data) {
+            let context = query.first { $0.name == "context" }?.value
+            let entity = query.first { $0.name == "entity" }?.value
+            payload["items"] = (payload["items"] as? [[String: Any]] ?? []).filter { item in
+                (context == nil || context == "" || context == item["context"] as? String) && (entity == nil || entity == "" || entity?.lowercased() == (item["external_entity_name"] as? String)?.lowercased())
+            }
+            guard let data = try? CommissionOfflineJSON.data(payload) else { return nil }
+            return CommissionOfflineResource(path: path, query: query, data: data, fetchedAt: base.fetchedAt)
+        }
+        if path == "/api/commissions" {
+            var items: [Int: [String: Any]] = [:]
+            for resource in resources.values where resource.path == path || resource.path.split(separator: "/").count == 3 && resource.path.hasPrefix(path + "/") {
+                guard let payload = try? CommissionOfflineJSON.object(resource.data) else { continue }
+                let values = payload["items"] as? [[String: Any]] ?? (payload["item"] as? [String: Any]).map { [$0] } ?? []
+                for item in values { if let id = item["id"] as? Int { items[id] = item } }
+            }
+            guard !items.isEmpty, let data = try? CommissionOfflineJSON.data(["items": Array(items.values)]) else { return nil }
+            return CommissionOfflineResource(path: path, query: query, data: data, fetchedAt: .distantPast)
+        }
+        return nil
     }
 
     private func presented(_ resource: CommissionOfflineResource) throws -> Data {
@@ -257,7 +283,7 @@ final class CommissionOfflineStore: ObservableObject {
                 do {
                     let documents = selected.filter { !$0.contains("/content") && !$0.contains("/thumbnail") }
                     if !documents.isEmpty {
-                        try await refresh(documents.map { resourceForKey($0) })
+                        try await refresh(documents.map { self.resourceForKey($0) })
                     }
                     for path in selected where path.contains("/content") || path.contains("/thumbnail") { _ = try await binary(path) }
                 } catch {
@@ -311,6 +337,7 @@ private extension CommissionOfflineStore {
         var result: [String: Any] = [:]
         var file: String?
         var base: Data?
+        var photoIDs: [Int] = []
         var commission = parent.flatMap { resources[$0] }.flatMap { try? CommissionOfflineJSON.object($0.data)["item"] as? [String: Any] } ?? [:]
         if let parent {
             guard !commission.isEmpty else { snapshot = previous; throw InspectionOfflineError.message("Bitte den Auftrag zuerst vollständig öffnen.") }
@@ -333,6 +360,23 @@ private extension CommissionOfflineStore {
             commission["contact_person"] = fields["contact_person"]
             commission["commission_type_id"] = fields["commission_type_id"]
             result = ["item": commission]
+            for suffix in ["time", "materials", "photos", "attachments", "appointments", "infos", "history"] {
+                let resourcePath = "/api/commissions/\(id)/" + suffix
+                snapshot.resources[resourcePath] = CommissionOfflineResource(path: resourcePath, query: [], data: try CommissionOfflineJSON.data(["items": []]), fetchedAt: Date())
+            }
+            var photos: [[String: Any]] = []
+            for part in multipart where part.0 == "photos" {
+                let photoID = snapshot.nextID
+                snapshot.nextID -= 1
+                photoIDs.append(photoID)
+                let imagePath = "offline-commission-photo/" + UUID().uuidString
+                let imageFile = filename(imagePath) + ".media"
+                try part.1.write(to: rootURL.appendingPathComponent(imageFile), options: [.atomic, .completeFileProtectionUntilFirstUserAuthentication])
+                snapshot.media[imagePath] = imageFile
+                photos.append(["id": photoID, "commission_id": id, "source": "app", "context": "order", "original_filename": "foto.jpg", "mime_type": "image/jpeg", "size_bytes": part.1.count, "content_path": imagePath, "thumbnail_path": imagePath, "uploaded_by": userValue])
+            }
+            let photosPath = "/api/commissions/\(id)/photos"
+            snapshot.resources[photosPath] = CommissionOfflineResource(path: photosPath, query: [], data: try CommissionOfflineJSON.data(["items": photos]), fetchedAt: Date())
         } else if path.hasSuffix("/start") || path.hasSuffix("/reject") || path.hasSuffix("/complete") {
             if path.hasSuffix("/start") { commission["local_status"] = "in_progress" }
             else {
@@ -411,10 +455,17 @@ private extension CommissionOfflineStore {
             file = operationID + ".request"
             try body.write(to: rootURL.appendingPathComponent(file!), options: [.atomic, .completeFileProtectionUntilFirstUserAuthentication])
         }
-        let previousID = snapshot.operations.last { $0.commissionID == parentID }?.id ?? parent.flatMap { snapshot.lastOperations[$0] }
-        let operation = CommissionOfflineOperation(id: operationID, path: path, method: method, body: try CommissionOfflineJSON.data(fields), contentType: contentType, bodyFilename: file, base: base, predecessorID: previousID, localResponse: response, localID: id, createdAt: createdAt)
+        let previousID = snapshot.operations.last { $0.commissionID == parentID || ($0.path == "/api/commissions/simple" && $0.localID == parentID) }?.id ?? parent.flatMap { snapshot.lastOperations[$0] }
+        var operation = CommissionOfflineOperation(id: operationID, path: path, method: method, body: try CommissionOfflineJSON.data(fields), contentType: contentType, bodyFilename: file, base: base, predecessorID: previousID, localResponse: response, localID: id, createdAt: createdAt)
+        operation.photoIDs = photoIDs
         snapshot.operations.append(operation)
-        do { try persist() } catch { snapshot = previous; if let file { try? FileManager.default.removeItem(at: rootURL.appendingPathComponent(file)) }; throw error }
+        do { try persist() } catch {
+            let addedFiles = Set(snapshot.media.values).subtracting(previous.media.values)
+            snapshot = previous
+            for name in addedFiles { try? FileManager.default.removeItem(at: rootURL.appendingPathComponent(name)) }
+            if let file { try? FileManager.default.removeItem(at: rootURL.appendingPathComponent(file)) }
+            throw error
+        }
         resume()
         return response
     }
@@ -462,7 +513,7 @@ private extension CommissionOfflineStore {
                 let group = queued.commissionID ?? queued.localID
                 if blocked.contains(group) || queued.blocked || (queued.retryAfter ?? .distantPast) > Date() { blocked.insert(group); continue }
                 do {
-                    var value: [String: Any] = ["id": queued.id, "path": queued.path, "method": queued.method, "body": try CommissionOfflineJSON.object(queued.body), "content_type": queued.contentType]
+                    var value: [String: Any] = ["id": queued.id, "path": queued.path, "method": queued.method, "body": try CommissionOfflineJSON.object(queued.body), "content_type": queued.contentType, "local_photo_ids": queued.photoIDs]
                     if let base = queued.base { value["base"] = try CommissionOfflineJSON.object(base) }
                     if let predecessor = queued.predecessorID { value["predecessor_id"] = predecessor }
                     let operationData = try CommissionOfflineJSON.data(value)
@@ -479,7 +530,7 @@ private extension CommissionOfflineStore {
                     guard generation == expected, !Task.isCancelled else { return }
                     let response = try CommissionOfflineJSON.object(data)
                     guard response["id"] as? String == queued.id, let payload = response["payload"] as? [String: Any] else { throw APIError.invalidResponse }
-                    try acknowledge(queued, payload: payload, timeDays: response["my_time"] as? [String: Any] ?? [:])
+                    try acknowledge(queued, payload: payload, timeDays: response["my_time"] as? [String: Any] ?? [:], references: response["references"] as? [String: Int] ?? [:])
                     message = ""
                 } catch {
                     guard generation == expected, !error.isRequestCancellation else { return }
@@ -487,10 +538,10 @@ private extension CommissionOfflineStore {
                     snapshot.operations[index].error = error.localizedDescription
                     snapshot.operations[index].attempts += 1
                     if case APIError.serverStatus(let status, let details) = error {
-                        if status == 409, let data = details.data(using: .utf8), try autoMerge(index: index, details: data) {
+                        if status == 409, let data = details.data(using: .utf8), (try? autoMerge(index: index, details: data)) == true {
                             syncRequested = true
                             blocked.insert(group)
-                            try persist()
+                            do { try persist() } catch { message = error.localizedDescription; return }
                             continue
                         }
                         snapshot.operations[index].blocked = [400, 403, 404, 409, 413, 422].contains(status)
@@ -538,12 +589,13 @@ private extension CommissionOfflineStore {
         return true
     }
 
-    func acknowledge(_ operation: CommissionOfflineOperation, payload: [String: Any], timeDays: [String: Any]) throws {
+    func acknowledge(_ operation: CommissionOfflineOperation, payload: [String: Any], timeDays: [String: Any], references: [String: Int]) throws {
         let previous = snapshot
         var acknowledged = operation
         acknowledged.localResponse = try CommissionOfflineJSON.data(payload)
         if let item = payload["item"] as? [String: Any], let serverID = item["id"] as? Int, operation.localID < 0, operation.method == "POST" {
             let localID = operation.localID
+            snapshot.idMappings.merge(references) { _, new in new }
             snapshot.idMappings[String(localID)] = serverID
             var movedResources: [String: CommissionOfflineResource] = [:]
             for resource in snapshot.resources.values {
@@ -551,16 +603,12 @@ private extension CommissionOfflineStore {
                 movedResources[moved.key] = moved
             }
             snapshot.resources = movedResources
-            let oldSegment = "/\(localID)"
-            let newSegment = "/\(serverID)"
             for index in snapshot.operations.indices {
-                snapshot.operations[index].path = snapshot.operations[index].path.replacingOccurrences(of: oldSegment + "/", with: newSegment + "/")
-                if snapshot.operations[index].path.hasSuffix(oldSegment) { snapshot.operations[index].path = String(snapshot.operations[index].path.dropLast(oldSegment.count)) + newSegment }
+                snapshot.operations[index].path = resolvedPath(snapshot.operations[index].path)
                 snapshot.operations[index].localResponse = try CommissionOfflineJSON.data(remapped(CommissionOfflineJSON.object(snapshot.operations[index].localResponse)))
                 snapshot.operations[index].body = try CommissionOfflineJSON.data(remapped(CommissionOfflineJSON.object(snapshot.operations[index].body)))
                 if var base = try snapshot.operations[index].base.map(CommissionOfflineJSON.object) {
-                    if let path = base["path"] as? String { base["path"] = path.replacingOccurrences(of: oldSegment, with: newSegment) }
-                    if base["target_id"] as? Int == localID { base["target_id"] = serverID }
+                    base = remapped(base) as? [String: Any] ?? base
                     snapshot.operations[index].base = try CommissionOfflineJSON.data(base)
                 }
             }
@@ -583,7 +631,7 @@ private extension CommissionOfflineStore {
         dataEpoch += 1
         do { try persist() } catch { snapshot = previous; throw error }
         if let file = operation.bodyFilename, let rootURL { try? FileManager.default.removeItem(at: rootURL.appendingPathComponent(file)) }
-        if let parent = operation.commissionID {
+        if let parent = operation.commissionID ?? ((payload["item"] as? [String: Any])?["id"] as? Int), operation.path == "/api/commissions/simple" || operation.commissionID != nil {
             for suffix in ["", "/time", "/materials", "/photos", "/appointments", "/infos"] {
                 let path = "/api/commissions/\(parent)" + suffix
                 if snapshot.resources[path] != nil { refreshInBackground(path, query: []) }
@@ -666,11 +714,37 @@ extension CommissionOfflineStore {
             guard let currentIndex = snapshot.operations.firstIndex(where: { $0.id == operationID }) else { return }
             snapshot.operations[currentIndex].blocked = false; snapshot.operations[currentIndex].error = nil; snapshot.operations[currentIndex].retryAfter = nil
         } else {
-            let group = operation.commissionID ?? operation.localID
+            guard let transport else { throw APIError.missingToken }
+            do {
+                let data = try await transport.commissionRemoteData(path: "/api/mobile/offline-operations/" + operation.id)
+                guard generation == expected else { throw CancellationError() }
+                let receipt = try CommissionOfflineJSON.object(data)
+                guard receipt["id"] as? String == operation.id, let payload = receipt["payload"] as? [String: Any] else { throw APIError.invalidResponse }
+                try acknowledge(operation, payload: payload, timeDays: receipt["my_time"] as? [String: Any] ?? [:], references: receipt["references"] as? [String: Int] ?? [:])
+            } catch APIError.serverStatus(404, _) {
+            }
+            guard generation == expected else { throw CancellationError() }
+            let group = snapshot.idMappings[String(operation.commissionID ?? operation.localID)] ?? operation.commissionID ?? operation.localID
+            if group > 0 {
+                let parent = "/api/commissions/\(group)"
+                let paths = [parent] + ["/time", "/materials", "/photos", "/appointments", "/infos"].map { parent + $0 }
+                try await refresh(paths.map { CommissionOfflineResource(path: $0, query: [], data: Data(), fetchedAt: .distantPast) })
+                guard generation == expected else { throw CancellationError() }
+            }
             let discarded = snapshot.operations.filter { $0.id == operationID || (($0.commissionID ?? $0.localID) == group && $0.createdAt >= operation.createdAt) }
             snapshot.operations.removeAll { queued in discarded.contains { $0.id == queued.id } }
         }
         try persist(); resume()
+    }
+
+    func retryServerDeliveries() async {
+        guard let transport else { return }
+        let expected = generation
+        do {
+            _ = try await transport.commissionRemoteData(path: "/api/mobile/delivery-issues/retry", method: "POST", body: Data("{}".utf8))
+            guard generation == expected else { return }
+            await loadDeliveryIssues()
+        } catch { if generation == expected { message = error.localizedDescription } }
     }
 
     func loadDeliveryIssues() async {

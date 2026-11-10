@@ -75,7 +75,7 @@ struct SynchronizationView: View {
                         try commissions.retrySynchronization()
                         try inspections.retry()
                     } catch { errorMessage = error.localizedDescription }
-                    Task { await commissions.loadDeliveryIssues() }
+                    Task { await commissions.retryServerDeliveries() }
                 }
                 .disabled(commissions.isSyncing || inspections.isSyncing || isResolving)
             } footer: {

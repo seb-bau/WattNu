@@ -42,6 +42,7 @@ struct CommissionOfflineOperation: Codable, Identifiable {
     var attempts = 0
     var retryAfter: Date?
     var blocked = false
+    var photoIDs: [Int] = []
 
     var commissionID: Int? {
         let parts = path.split(separator: "/")
