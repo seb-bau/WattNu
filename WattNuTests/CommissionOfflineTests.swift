@@ -8,7 +8,7 @@ struct CommissionOfflineTests {
     private let baseURL = URL(string: "https://example.invalid")!
     private let user = AppUser(id: 1, email: "one@example.invalid", displayName: "One", craftsmanErpId: nil, isAdmin: false, isForeman: false)
 
-    private func fixture(_ directory: URL, otherUserTime: Bool = false) throws -> CommissionOfflineStore {
+    private func fixture(_ directory: URL, otherUserTime: Bool = false, acknowledge: Bool = false) throws -> CommissionOfflineStore {
         var snapshot = CommissionOfflineSnapshot()
         let userData = try CommissionOfflineJSON.object(JSONEncoder().encode(user))
         for id in [10, 11] {
@@ -33,6 +33,8 @@ struct CommissionOfflineTests {
         let infosPath = "/api/commissions/10/infos"
         let messages: [[String: Any]] = ["first", "second"].map { ["id": $0, "process_erp_id": 1, "body": "Nachricht", "direction": "office", "created_at": "2026-11-10T08:00:00Z", "version": 1, "state": "synced", "mail_state": "not_required", "is_unread": true] }
         snapshot.resources[infosPath] = CommissionOfflineResource(path: infosPath, query: [], data: try CommissionOfflineJSON.data(["items": messages]), fetchedAt: Date())
+        let windowsPath = "/api/appointment-windows"
+        snapshot.resources[windowsPath] = CommissionOfflineResource(path: windowsPath, query: [], data: try CommissionOfflineJSON.data(["items": [["id": 1, "name": "Vormittag", "start_time": "08:00", "end_time": "12:00"]], "custom_time_duration_minutes": 60]), fetchedAt: Date())
         let day = CommissionOfflineResource(path: "/api/my-time", query: [CommissionOfflineQuery(name: "date", value: "2026-11-10")], data: try CommissionOfflineJSON.data(["date": "2026-11-10", "recorded_minutes": 0, "status": "missing", "items": []]), fetchedAt: Date())
         snapshot.resources[day.key] = day
         let key = SHA256.hash(data: Data("\(baseURL.absoluteString)|1".utf8)).map { String(format: "%02x", $0) }.joined()
@@ -43,7 +45,7 @@ struct CommissionOfflineTests {
         configuration.protocolClasses = [OfflineTestURLProtocol.self]
         let store = CommissionOfflineStore(storageDirectory: directory, session: URLSession(configuration: configuration))
         store.setActive(false)
-        try store.bind(user: user, baseURL: baseURL, token: "test")
+        try store.bind(user: user, baseURL: baseURL, token: acknowledge ? "acknowledge" : "test")
         return store
     }
 
@@ -174,6 +176,44 @@ struct CommissionOfflineTests {
         #expect(try JSONDecoder().decode(MyTimeDay.self, from: data).recordedMinutes == 0)
         store.stop()
     }
+
+    @Test func appointmentProposalsRemainVisibleOffline() async throws {
+        let directory = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+        defer { try? FileManager.default.removeItem(at: directory) }
+        let store = try fixture(directory)
+        let data = try await store.execute(path: "/api/commissions/10/appointments", method: "POST", body: CommissionOfflineJSON.data(["recipient_email": "tenant@example.invalid", "proposals": [["date": "2026-11-12", "window_id": 1]]]), contentType: "application/json", accept: "application/json")
+        let request = try JSONDecoder().decode(ItemResponse<CommissionAppointmentRequest>.self, from: data).item
+        #expect(request.proposals.count == 1)
+        #expect(request.proposals.first?.proposedDate == "2026-11-12")
+        #expect(request.proposals.first?.startTime == "08:00")
+        #expect(request.proposals.first?.endTime == "12:00")
+        #expect(request.createdBy?.id == user.id)
+        store.stop()
+    }
+
+    @Test func confirmedBookingReplacesItsLocalIDWithoutDoubleCounting() async throws {
+        let directory = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+        defer { try? FileManager.default.removeItem(at: directory) }
+        let store = try fixture(directory, acknowledge: true)
+        let entry = try await book(store)
+        #expect(entry.id < 0)
+        store.setActive(true)
+        for _ in 0..<300 {
+            if store.snapshot.operations.isEmpty { break }
+            try await Task.sleep(for: .milliseconds(10))
+        }
+        store.setActive(false)
+        #expect(store.snapshot.operations.isEmpty)
+        let list = try await store.execute(path: "/api/commissions/10/time", method: "GET", body: nil, contentType: nil, accept: "application/json")
+        let items = try JSONDecoder().decode(ListResponse<TimeEntry>.self, from: list).items
+        #expect(items.count == 1)
+        #expect(items.first?.id == 200)
+        let data = try await store.execute(path: "/api/my-time", method: "GET", queryItems: [URLQueryItem(name: "date", value: "2026-11-10")], body: nil, contentType: nil, accept: "application/json")
+        let day = try JSONDecoder().decode(MyTimeDay.self, from: data)
+        #expect(day.recordedMinutes == 60)
+        #expect(day.items.count == 1)
+        store.stop()
+    }
 }
 
 private final class OfflineTestURLProtocol: URLProtocol, @unchecked Sendable {
@@ -183,8 +223,27 @@ private final class OfflineTestURLProtocol: URLProtocol, @unchecked Sendable {
         guard let url = request.url else { return }
         let missing = url.path.contains("/offline-operations/")
         let response = HTTPURLResponse(url: url, statusCode: missing ? 404 : 200, httpVersion: nil, headerFields: ["Content-Type": "application/json"])!
+        var data = Data((missing ? "{\"message\":\"Nicht bestätigt\"}" : "{\"items\":[]}").utf8)
+        if url.path == "/api/mobile/offline-operations", request.value(forHTTPHeaderField: "Authorization") == "Bearer acknowledge" {
+            var body = request.httpBody ?? Data()
+            if let stream = request.httpBodyStream, body.isEmpty {
+                stream.open()
+                defer { stream.close() }
+                var buffer = [UInt8](repeating: 0, count: 8192)
+                while stream.hasBytesAvailable {
+                    let count = stream.read(&buffer, maxLength: buffer.count)
+                    if count <= 0 { break }
+                    body.append(contentsOf: buffer.prefix(count))
+                }
+            }
+            if let operation = try? JSONSerialization.jsonObject(with: body) as? [String: Any], let id = operation["id"] as? String {
+                let item: [String: Any] = ["id": 200, "commission_id": 10, "user": ["id": 1, "email": "one@example.invalid", "display_name": "One", "is_admin": false, "is_foreman": false], "minutes": 60, "service_date": "2026-11-10", "deviation_minutes": 0, "deviation_percent": 0, "review_status": "ok"]
+                let day: [String: Any] = ["date": "2026-11-10", "recorded_minutes": 60, "status": "complete", "items": [["id": 200, "minutes": 60, "service_date": "2026-11-10", "is_free_time": false, "commission": ["id": 10, "number": "10", "title": "Auftrag"]]]]
+                data = (try? JSONSerialization.data(withJSONObject: ["id": id, "payload": ["item": item], "my_time": ["2026-11-10": day], "references": [:]])) ?? data
+            }
+        }
         client?.urlProtocol(self, didReceive: response, cacheStoragePolicy: .notAllowed)
-        client?.urlProtocol(self, didLoad: Data((missing ? "{\"message\":\"Nicht bestätigt\"}" : "{\"items\":[]}").utf8))
+        client?.urlProtocol(self, didLoad: data)
         client?.urlProtocolDidFinishLoading(self)
     }
     override func stopLoading() {}

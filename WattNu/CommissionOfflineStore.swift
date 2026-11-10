@@ -493,7 +493,23 @@ private extension CommissionOfflineStore {
                     result = ["item": item]
                 }
             } else if section == "appointments" {
-                item["status"] = "pending"; item["proposals"] = []; item["created_at"] = createdAt.ISO8601Format()
+                let options = try snapshot.resources["/api/appointment-windows"].map { try CommissionOfflineJSON.object($0.data) } ?? [:]
+                let windows = options["items"] as? [[String: Any]] ?? []
+                let formatter = DateFormatter()
+                formatter.locale = Locale(identifier: "en_US_POSIX")
+                formatter.timeZone = TimeZone(secondsFromGMT: 0)
+                formatter.dateFormat = "HH:mm"
+                var proposals: [[String: Any]] = []
+                for proposal in fields["proposals"] as? [[String: Any]] ?? [] {
+                    let window = windows.first { $0["id"] as? Int == proposal["window_id"] as? Int }
+                    let start = window?["start_time"] as? String ?? proposal["start_time"] as? String ?? ""
+                    let duration = options["custom_time_duration_minutes"] as? Int ?? 60
+                    let end = window?["end_time"] as? String ?? formatter.date(from: start).map { formatter.string(from: $0.addingTimeInterval(Double(duration * 60))) } ?? start
+                    proposals.append(["id": snapshot.nextID, "window_id": proposal["window_id"] ?? NSNull(), "proposed_date": proposal["date"] ?? "", "start_time": start, "end_time": end, "window_name": window?["name"] ?? "Konkrete Uhrzeit", "accepted": false])
+                    snapshot.nextID -= 1
+                }
+                item["status"] = "pending"; item["proposals"] = proposals; item["created_at"] = createdAt.ISO8601Format()
+                item["created_by"] = userValue
                 item["recipient_email"] = fields["recipient_email"] ?? ""
                 result = ["item": item]
             }

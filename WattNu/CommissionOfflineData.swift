@@ -87,13 +87,13 @@ enum CommissionOfflineJSON {
     static func normalized(path: String, payload: [String: Any], targetID: Int? = nil) -> Any {
         if path.split(separator: "/").count == 3 {
             let item = payload["item"] as? [String: Any] ?? payload
-            return Dictionary(uniqueKeysWithValues: ["local_status", "assigned_user", "can_edit", "is_actionable", "accepted_appointment_from", "accepted_appointment_to", "accepted_appointment_comment", "accepted_appointment_is_manual"].map {
+            return Dictionary(uniqueKeysWithValues: ["local_status", "assigned_user", "can_edit", "is_actionable", "accepted_appointment_from", "accepted_appointment_to", "accepted_appointment_comment", "accepted_appointment_is_manual", "accepted_appointment_has_time"].map {
                 ($0, item[$0] ?? NSNull())
             })
         }
         if let targetID {
             guard let item = (payload["items"] as? [[String: Any]])?.first(where: { ($0["id"] as? Int) == targetID }) else { return NSNull() }
-            let keys = ["id", "user", "task_template", "service_date", "minutes", "note", "work_minutes", "waiting_minutes", "material_minutes", "travel_minutes", "documentation_minutes", "extra_minutes", "review_status", "review_level", "quantity", "usage_status", "cancelled", "caption", "source", "updated_at"]
+            let keys = ["id", "user", "task_template", "service_date", "minutes", "note", "deviation_reason", "work_minutes", "waiting_minutes", "material_minutes", "travel_minutes", "documentation_minutes", "extra_minutes", "review_status", "review_level", "quantity", "usage_status", "is_cancelled", "can_cancel", "caption", "source", "updated_at"]
             return item.filter { keys.contains($0.key) }
         }
         return payload
@@ -157,6 +157,9 @@ enum CommissionOfflineJSON {
                             items[index]["is_cancelled"] = true
                             items[index]["can_cancel"] = false
                         } else {
+                            if section == "appointments", operation.method == "POST" {
+                                for index in items.indices where items[index]["status"] as? String == "pending" { items[index]["status"] = "superseded" }
+                            }
                             items.removeAll { value in
                                 if let id = item?["id"] as? String { return (value["id"] as? String) == id }
                                 return (value["id"] as? Int) == (item?["id"] as? Int ?? targetID)

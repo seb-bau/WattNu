@@ -567,16 +567,6 @@ private struct ProcessInfoBubble: View {
                 HStack(spacing: 5) {
                     Text(displayDate)
 
-                    if message.state == "failed" {
-                        Text("Nicht übertragen")
-                            .foregroundStyle(.red)
-                    } else if message.state == "uncertain" {
-                        Text("Übertragung wird geprüft")
-                            .foregroundStyle(.orange)
-                    } else if message.isMine && message.mailState == "failed" {
-                        Text("E-Mail ausstehend")
-                            .foregroundStyle(.orange)
-                    }
                 }
                 .font(.caption2)
                 .foregroundStyle(.secondary)

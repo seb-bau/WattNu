@@ -58,7 +58,7 @@ struct SynchronizationView: View {
                     }
                 }
                 ForEach(Array(commissions.deliveryIssues.enumerated()), id: \.offset) { _, issue in
-                    Label(issue, systemImage: "envelope.badge").font(.footnote)
+                    Label(issue, systemImage: "exclamationmark.triangle").font(.footnote)
                 }
             }
 
