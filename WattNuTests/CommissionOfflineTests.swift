@@ -8,7 +8,7 @@ struct CommissionOfflineTests {
     private let baseURL = URL(string: "https://example.invalid")!
     private let user = AppUser(id: 1, email: "one@example.invalid", displayName: "One", craftsmanErpId: nil, isAdmin: false, isForeman: false)
 
-    private func fixture(_ directory: URL) throws -> CommissionOfflineStore {
+    private func fixture(_ directory: URL, otherUserTime: Bool = false) throws -> CommissionOfflineStore {
         var snapshot = CommissionOfflineSnapshot()
         let userData = try CommissionOfflineJSON.object(JSONEncoder().encode(user))
         for id in [10, 11] {
@@ -19,6 +19,11 @@ struct CommissionOfflineTests {
                 let key = path + "/" + suffix
                 snapshot.resources[key] = CommissionOfflineResource(path: key, query: [], data: try CommissionOfflineJSON.data(["items": []]), fetchedAt: Date())
             }
+        }
+        if otherUserTime {
+            let path = "/api/commissions/11/time"
+            let item: [String: Any] = ["id": 90, "user": ["id": 2], "service_date": "2026-11-10", "minutes": 45]
+            snapshot.resources[path] = CommissionOfflineResource(path: path, query: [], data: try CommissionOfflineJSON.data(["items": [item]]), fetchedAt: Date())
         }
         let photosPath = "/api/commissions/10/photos"
         let photosQuery = [CommissionOfflineQuery(name: "context", value: "order")]
@@ -163,12 +168,9 @@ struct CommissionOfflineTests {
     @Test func deletingAnotherUsersTimePreservesMyDayTotal() async throws {
         let directory = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
         defer { try? FileManager.default.removeItem(at: directory) }
-        let store = try fixture(directory)
-        let item: [String: Any] = ["id": 90, "user": ["id": 2], "service_date": "2026-11-10", "minutes": 45]
-        let base = try CommissionOfflineJSON.data(["path": "/api/commissions/10/time", "target_id": 90, "value": item])
-        let operation = CommissionOfflineOperation(path: "/api/commissions/10/time/90", method: "DELETE", body: Data("{}".utf8), contentType: "application/json", bodyFilename: nil, base: base, localResponse: Data("{}".utf8), localID: -1, createdAt: Date())
-        let day = try #require(store.snapshot.resources.values.first { $0.path == "/api/my-time" })
-        let data = try store.myTime(day, operations: [operation])
+        let store = try fixture(directory, otherUserTime: true)
+        _ = try await store.execute(path: "/api/commissions/11/time/90", method: "DELETE", body: nil, contentType: nil, accept: "application/json")
+        let data = try await store.execute(path: "/api/my-time", method: "GET", queryItems: [URLQueryItem(name: "date", value: "2026-11-10")], body: nil, contentType: nil, accept: "application/json")
         #expect(try JSONDecoder().decode(MyTimeDay.self, from: data).recordedMinutes == 0)
         store.stop()
     }
