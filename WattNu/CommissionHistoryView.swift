@@ -87,6 +87,7 @@ struct CommissionHistoryView: View {
                 }
             }
         }
+        .refreshForCommissionChanges { await loadHistory() }
         .task {
             await loadHistory()
         }

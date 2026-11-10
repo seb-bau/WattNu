@@ -52,6 +52,7 @@ struct CommissionContactsView: View {
                 }
             }
         }
+        .refreshForCommissionChanges { await loadContacts() }
         .task {
             await loadContacts()
         }

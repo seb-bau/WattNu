@@ -34,6 +34,7 @@ final class APIClient {
     var baseURL: URL
     var accessToken: String?
     weak var safetyInspectionStore: SafetyInspectionOfflineStore?
+    weak var commissionStore: CommissionOfflineStore?
     
     private let session: URLSession
     private let encoder: JSONEncoder
@@ -1243,6 +1244,10 @@ final class APIClient {
     }
 
     private func perform<Response: Decodable>(path: String, method: String, queryItems: [URLQueryItem], bodyData: Data?) async throws -> Response {
+        if let commissionStore, commissionStore.handles(path: path, method: method) {
+            let data = try await commissionStore.execute(path: path, method: method, queryItems: queryItems, body: bodyData, contentType: "application/json", accept: "application/json")
+            return try decoder.decode(Response.self, from: data)
+        }
         guard var components = URLComponents(url: baseURL.appendingPathComponent(path.trimmingCharacters(in: CharacterSet(charactersIn: "/"))), resolvingAgainstBaseURL: false) else {
             throw APIError.invalidBaseURL
         }
@@ -1307,9 +1312,14 @@ final class APIClient {
         method: String,
         contentType: String?,
         accept: String,
-        bodyData: Data?
+        bodyData: Data?,
+        queryItems: [URLQueryItem] = [],
+        preserveErrorResponse: Bool = false
     ) async throws -> Data {
-        guard let components = URLComponents(
+        if let commissionStore, commissionStore.handles(path: path, method: method) {
+            return try await commissionStore.execute(path: path, method: method, queryItems: queryItems, body: bodyData, contentType: contentType, accept: accept)
+        }
+        guard var components = URLComponents(
             url: baseURL.appendingPathComponent(
                 path.trimmingCharacters(
                     in: CharacterSet(
@@ -1321,6 +1331,8 @@ final class APIClient {
         ) else {
             throw APIError.invalidBaseURL
         }
+
+        if !queryItems.isEmpty { components.queryItems = queryItems }
 
         guard let url = components.url else {
             throw APIError.invalidBaseURL
@@ -1375,12 +1387,16 @@ final class APIClient {
 
             throw APIError.serverStatus(
                 response.statusCode,
-                errorResponse?.message
-                ?? fallbackMessage
+                preserveErrorResponse ? fallbackMessage : (errorResponse?.message ?? fallbackMessage)
             )
         }
 
         return data
+    }
+
+    func commissionRemoteData(path: String, method: String = "GET", query: [URLQueryItem] = [], body: Data? = nil, contentType: String = "application/json", accept: String = "application/json") async throws -> Data {
+        try requireToken()
+        return try await performRaw(path: path, method: method, contentType: contentType, accept: accept, bodyData: body, queryItems: query, preserveErrorResponse: true)
     }
 
     private func requireToken() throws {

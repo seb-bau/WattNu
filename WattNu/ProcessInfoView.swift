@@ -341,6 +341,7 @@ struct ProcessInfoView: View {
             .padding()
             .background(.bar)
         }
+        .refreshForCommissionChanges { await loadMessages(showLoading: false) }
         .task {
             await loadMessages()
 

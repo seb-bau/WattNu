@@ -206,6 +206,7 @@ struct CommissionAppointmentSectionView: View {
                 cornerRadius: 18
             )
         )
+        .refreshForCommissionChanges { await loadRequests() }
         .task(id: commission.acceptedAppointmentFrom) {
             if commission.acceptedAppointmentFrom == nil {
                 await loadRequests()

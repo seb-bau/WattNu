@@ -191,6 +191,7 @@ struct TimeSectionView: View {
                 }
             }
         }
+        .refreshForCommissionChanges { await loadEntries() }
         .task {
             await session.loadMobileConfig()
             await loadData()

@@ -60,6 +60,14 @@ struct AppSettingsView: View {
                     Text("Diese Auswahl gilt für den Benutzer auf allen Geräten. Die Systemberechtigung wird auf jedem Gerät separat verwaltet.")
                 }
 
+                Section {
+                    NavigationLink {
+                        SynchronizationView()
+                    } label: {
+                        Label("Synchronisierung", systemImage: "arrow.triangle.2.circlepath")
+                    }
+                }
+
                 Section("Darstellung") {
                     Picker("Design", selection: $localSettings.appearanceMode) {
                         ForEach(AppAppearanceMode.allCases) { mode in
