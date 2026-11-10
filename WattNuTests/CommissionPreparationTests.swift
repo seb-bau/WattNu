@@ -11,6 +11,9 @@ struct CommissionPreparationTests {
     private func fixture(dates: [String], cached: Bool = false, queued: Bool = true, oldErrors: Bool = false) throws -> PreparationFixture {
         let directory = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
         var snapshot = CommissionOfflineSnapshot()
+        let userData = try CommissionOfflineJSON.object(JSONEncoder().encode(user))
+        let parent = "/api/commissions/10"
+        snapshot.resources[parent] = CommissionOfflineResource(path: parent, query: [], data: try CommissionOfflineJSON.data(["item": ["id": 10, "local_status": "in_progress", "assigned_user": userData, "can_edit": true, "is_actionable": true, "positions": []]]), fetchedAt: Date())
         for date in dates {
             let query = [CommissionOfflineQuery(name: "date", value: date)]
             let key = CommissionOfflineResource.key("/api/my-time", query)
@@ -131,6 +134,35 @@ struct CommissionPreparationTests {
         #expect(fixture.store.message.isEmpty)
         #expect(fixture.store.snapshot.preparationErrors.isEmpty)
     }
+
+    @Test func olderDayResponseAfterBookingDoesNotOverwriteConfirmationOrReportCancellation() async throws {
+        let date = "2026-11-01"
+        let key = "/api/my-time?date=" + date
+        let fixture = try fixture(dates: [date], cached: true, queued: false)
+        defer { fixture.close() }
+        fixture.scenario.hold(key)
+        let store = fixture.store
+        store.setActive(true)
+        _ = try await store.execute(path: "/api/my-time", method: "GET", queryItems: [URLQueryItem(name: "date", value: date)], body: nil, contentType: nil, accept: "application/json")
+        try await waitUntil { fixture.scenario.hasHeldResponse(key) }
+        store.setActive(false)
+        _ = try await store.execute(path: "/api/commissions/10/time", method: "POST", body: CommissionOfflineJSON.data(["minutes": 60, "service_date": date]), contentType: "application/json", accept: "application/json")
+        let operation = try #require(store.snapshot.operations.first)
+        let userData = try CommissionOfflineJSON.object(JSONEncoder().encode(user))
+        let item: [String: Any] = ["id": 200, "commission_id": 10, "user": userData, "minutes": 60, "service_date": date, "deviation_minutes": 0, "deviation_percent": 0, "review_status": "ok"]
+        let day: [String: Any] = ["date": date, "recorded_minutes": 60, "status": "complete", "items": [["id": 200, "minutes": 60, "service_date": date, "is_free_time": false]]]
+        let receipt = try CommissionOfflineJSON.data(["id": operation.id, "payload": ["item": item], "my_time": [date: day], "references": [:]])
+        fixture.scenario.setReplies([.response(200, receipt)], for: "/api/mobile/offline-operations")
+        store.setActive(true)
+        try await waitUntil { store.snapshot.operations.isEmpty }
+        fixture.scenario.release(key)
+        try await Task.sleep(for: .milliseconds(100))
+        let data = try await store.execute(path: "/api/my-time", method: "GET", queryItems: [URLQueryItem(name: "date", value: date)], body: nil, contentType: nil, accept: "application/json")
+        #expect(try JSONDecoder().decode(MyTimeDay.self, from: data).recordedMinutes == 60)
+        #expect(store.message.isEmpty)
+        #expect(store.preparationMessage.isEmpty)
+        #expect(store.snapshot.preparationErrors.isEmpty)
+    }
 }
 
 @MainActor
@@ -158,6 +190,42 @@ private final class PreparationScenario: @unchecked Sendable {
     private let lock = NSLock()
     private var replies: [String: [PreparationReply]] = [:]
     private var requests: [String: Int] = [:]
+    private var heldKeys: Set<String> = []
+    private var heldResponses: [String: [(PreparationURLProtocol, PreparationReply)]] = [:]
+
+    static func key(for url: URL) -> String {
+        let components = URLComponents(url: url, resolvingAgainstBaseURL: false)
+        return url.path + (components?.percentEncodedQuery.map { "?" + $0 } ?? "")
+    }
+
+    func hold(_ key: String) {
+        lock.lock()
+        defer { lock.unlock() }
+        heldKeys.insert(key)
+    }
+
+    func hasHeldResponse(_ key: String) -> Bool {
+        lock.lock()
+        defer { lock.unlock() }
+        return !(heldResponses[key] ?? []).isEmpty
+    }
+
+    func deferIfHeld(_ reply: PreparationReply, for url: URL, connection: PreparationURLProtocol) -> Bool {
+        lock.lock()
+        defer { lock.unlock() }
+        let key = Self.key(for: url)
+        guard heldKeys.contains(key) else { return false }
+        heldResponses[key, default: []].append((connection, reply))
+        return true
+    }
+
+    func release(_ key: String) {
+        lock.lock()
+        let responses = heldResponses.removeValue(forKey: key) ?? []
+        heldKeys.remove(key)
+        lock.unlock()
+        for (connection, reply) in responses { connection.deliver(reply) }
+    }
 
     static func dayData(_ date: String) -> Data {
         try! JSONSerialization.data(withJSONObject: ["date": date, "recorded_minutes": 0, "status": "missing", "items": []])
@@ -177,7 +245,7 @@ private final class PreparationScenario: @unchecked Sendable {
 
     func reply(to url: URL) -> PreparationReply {
         let components = URLComponents(url: url, resolvingAgainstBaseURL: false)
-        let key = url.path + (components?.percentEncodedQuery.map { "?" + $0 } ?? "")
+        let key = Self.key(for: url)
         lock.lock()
         defer { lock.unlock() }
         requests[key, default: 0] += 1
@@ -229,7 +297,13 @@ private final class PreparationURLProtocol: URLProtocol, @unchecked Sendable {
             client?.urlProtocol(self, didFailWithError: URLError(.userAuthenticationRequired))
             return
         }
-        switch scenario.reply(to: url) {
+        let reply = scenario.reply(to: url)
+        if !scenario.deferIfHeld(reply, for: url, connection: self) { deliver(reply) }
+    }
+
+    func deliver(_ reply: PreparationReply) {
+        guard let url = request.url else { return }
+        switch reply {
         case .failure(let code):
             client?.urlProtocol(self, didFailWithError: URLError(code))
         case .response(let status, let data):
