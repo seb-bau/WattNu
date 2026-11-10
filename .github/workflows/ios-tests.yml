@@ -19,9 +19,23 @@ jobs:
         with:
           persist-credentials: false
       - name: Xcode auswählen
-        run: sudo xcode-select -s /Applications/Xcode_26.2.app/Contents/Developer
+        run: sudo xcode-select -s /Applications/Xcode.app/Contents/Developer
+      - name: Simulator einrichten
+        run: |
+          xcrun simctl list runtimes --json > "$RUNNER_TEMP/runtimes.json"
+          RUNTIME_ID=$(python3 - "$RUNNER_TEMP/runtimes.json" <<'PY'
+          import json, sys
+          runtimes = [item for item in json.load(open(sys.argv[1]))['runtimes'] if item.get('isAvailable') and item['name'].startswith('iOS 26')]
+          runtimes.sort(key=lambda item: tuple(map(int, item['version'].split('.'))))
+          if not runtimes:
+              raise SystemExit('Keine verfügbare iOS-26-Laufzeit gefunden.')
+          print(runtimes[-1]['identifier'])
+          PY
+          )
+          SIMULATOR_ID=$(xcrun simctl create 'WattNu Tests' com.apple.CoreSimulator.SimDeviceType.iPhone-17 "$RUNTIME_ID")
+          echo "SIMULATOR_ID=$SIMULATOR_ID" >> "$GITHUB_ENV"
       - name: Unit-Tests ausführen
         run: >-
           xcodebuild -project WattNu.xcodeproj -scheme WattNu
-          -destination 'platform=iOS Simulator,name=iPhone 17,OS=26.2'
+          -destination "platform=iOS Simulator,id=$SIMULATOR_ID"
           -only-testing:WattNuTests CODE_SIGNING_ALLOWED=NO test

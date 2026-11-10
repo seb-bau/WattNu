@@ -68,6 +68,7 @@ struct CommissionOfflineSnapshot: Codable {
     var preparation: [String] = []
     var preparationErrors: [String: String] = [:]
     var lastOperations: [String: String] = [:]
+    var idMappings: [String: Int] = [:]
     var nextID = -1
     var lastSynchronizedAt: Date?
 }
@@ -151,7 +152,10 @@ enum CommissionOfflineJSON {
                                 if let id = item?["id"] as? String { return (value["id"] as? String) == id }
                                 return (value["id"] as? Int) == (item?["id"] as? Int ?? targetID)
                             }
-                            if operation.method != "DELETE", let item { items.insert(item, at: 0) }
+                            if operation.method != "DELETE", let item {
+                                let context = resource.query.first { $0.name == "context" }?.value
+                                if section != "photos" || context == nil || context == "" || context == (item["context"] as? String) { items.insert(item, at: 0) }
+                            }
                         }
                         payload["items"] = items
                     }

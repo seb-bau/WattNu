@@ -18,6 +18,7 @@ final class CommissionOfflineStore: ObservableObject {
     private var dataEpoch = 0
     private var isActive = true
     private var syncTask: Task<Void, Never>?
+    private var syncRequested = false
     private var preparationTask: Task<Void, Never>?
     private var timerTask: Task<Void, Never>?
     private var refreshTasks: [String: Task<Void, Never>] = [:]
@@ -61,7 +62,7 @@ final class CommissionOfflineStore: ObservableObject {
         generation += 1
         syncTask?.cancel(); preparationTask?.cancel(); timerTask?.cancel()
         for task in refreshTasks.values { task.cancel() }
-        syncTask = nil; preparationTask = nil; timerTask = nil
+        syncTask = nil; preparationTask = nil; timerTask = nil; syncRequested = false
         refreshTasks = [:]
         snapshot = CommissionOfflineSnapshot()
         transport = nil; user = nil; rootURL = nil; accountKey = nil
@@ -90,12 +91,26 @@ final class CommissionOfflineStore: ObservableObject {
         SHA256.hash(data: Data(path.utf8)).map { String(format: "%02x", $0) }.joined()
     }
 
+    private func resolvedPath(_ path: String) -> String {
+        path.split(separator: "/", omittingEmptySubsequences: false).map { snapshot.idMappings[String($0)].map(String.init) ?? String($0) }.joined(separator: "/")
+    }
+
+    private func remapped(_ value: Any, field: String = "") -> Any {
+        if let object = value as? [String: Any] { return object.reduce(into: [String: Any]()) { result, pair in result[pair.key] = remapped(pair.value, field: pair.key) } }
+        if let items = value as? [Any] { return items.map { remapped($0) } }
+        if field == "id" || field.hasSuffix("_id"), let id = value as? Int, let mapped = snapshot.idMappings[String(id)] { return mapped }
+        if let text = value as? String, text.hasPrefix("/api/") { return resolvedPath(text) }
+        return value
+    }
+
     private func effectiveResources() throws -> [String: CommissionOfflineResource] {
         try CommissionOfflineJSON.overlay(snapshot.resources, operations: snapshot.operations)
     }
 
     func execute(path: String, method: String, queryItems: [URLQueryItem] = [], body: Data?, contentType: String?, accept: String) async throws -> Data {
         guard transport != nil, user != nil, rootURL != nil else { throw APIError.missingToken }
+        let resolved = resolvedPath(path)
+        if resolved != path { return try await execute(path: resolved, method: method, queryItems: queryItems, body: body, contentType: contentType, accept: accept) }
         if method != "GET" { return try enqueue(path: path, method: method, body: body ?? Data("{}".utf8), contentType: contentType ?? "application/json") }
         if accept != "application/json" || path.hasPrefix("offline-commission-photo/") { return try await binary(path) }
         let query = queryItems.map { CommissionOfflineQuery(name: $0.name, value: $0.value ?? "") }
@@ -432,12 +447,14 @@ private extension CommissionOfflineStore {
     }
 
     func requestSync() {
-        guard isActive, syncTask == nil, transport != nil else { return }
+        guard isActive, transport != nil else { return }
+        guard syncTask == nil else { syncRequested = true; return }
+        syncRequested = false
         let expected = generation
         syncTask = Task { [weak self] in
             guard let self else { return }
             isSyncing = true
-            defer { if generation == expected { isSyncing = false; syncTask = nil } }
+            defer { if generation == expected { isSyncing = false; syncTask = nil; if syncRequested { requestSync() } } }
             var blocked: Set<Int> = []
             for operationID in snapshot.operations.map(\.id) {
                 guard let queued = snapshot.operations.first(where: { $0.id == operationID }) else { continue }
@@ -470,6 +487,12 @@ private extension CommissionOfflineStore {
                     snapshot.operations[index].error = error.localizedDescription
                     snapshot.operations[index].attempts += 1
                     if case APIError.serverStatus(let status, let details) = error {
+                        if status == 409, let data = details.data(using: .utf8), try autoMerge(index: index, details: data) {
+                            syncRequested = true
+                            blocked.insert(group)
+                            try persist()
+                            continue
+                        }
                         snapshot.operations[index].blocked = [400, 403, 404, 409, 413, 422].contains(status)
                         snapshot.operations[index].errorDetails = details.data(using: .utf8)
                         if let data = details.data(using: .utf8), let text = try? CommissionOfflineJSON.object(data)["message"] as? String { snapshot.operations[index].error = text }
@@ -484,17 +507,57 @@ private extension CommissionOfflineStore {
         }
     }
 
+    func autoMerge(index: Int, details: Data) throws -> Bool {
+        let operation = snapshot.operations[index]
+        guard operation.method == "PATCH", let baseData = operation.base else { return false }
+        let error = try CommissionOfflineJSON.object(details)
+        guard error["code"] as? String == "conflict", let current = error["current"] as? [String: Any], let original = error["base"] as? [String: Any] else { return false }
+        var base = try CommissionOfflineJSON.object(baseData)
+        let response = try CommissionOfflineJSON.object(operation.localResponse)
+        guard var item = response["item"] as? [String: Any], let path = base["path"] as? String else { return false }
+        let local = CommissionOfflineJSON.normalized(path: path, payload: ["items": [item]], targetID: base["target_id"] as? Int) as? [String: Any] ?? [:]
+        let keys = Set(original.keys).union(current.keys).union(local.keys)
+        func equal(_ lhs: Any?, _ rhs: Any?) throws -> Bool { try CommissionOfflineJSON.data(lhs ?? NSNull()) == CommissionOfflineJSON.data(rhs ?? NSNull()) }
+        let remoteChanges = try Set(keys.filter { try !equal(original[$0], current[$0]) })
+        let localChanges = try Set(keys.filter { try !equal(original[$0], local[$0]) })
+        guard localChanges.isDisjoint(with: remoteChanges) else { return false }
+        var body = try CommissionOfflineJSON.object(operation.body)
+        for key in remoteChanges {
+            item[key] = current[key]
+            if body[key] != nil { body[key] = current[key] }
+            if key == "task_template" { body["task_template_id"] = (current[key] as? [String: Any])?["id"] ?? NSNull() }
+        }
+        base["value"] = current
+        snapshot.operations[index].base = try CommissionOfflineJSON.data(base)
+        snapshot.operations[index].body = try CommissionOfflineJSON.data(body)
+        snapshot.operations[index].localResponse = try CommissionOfflineJSON.data(["item": item])
+        snapshot.operations[index].predecessorID = nil
+        snapshot.operations[index].error = nil
+        snapshot.operations[index].blocked = false
+        snapshot.operations[index].retryAfter = nil
+        return true
+    }
+
     func acknowledge(_ operation: CommissionOfflineOperation, payload: [String: Any], timeDays: [String: Any]) throws {
         let previous = snapshot
         var acknowledged = operation
         acknowledged.localResponse = try CommissionOfflineJSON.data(payload)
         if let item = payload["item"] as? [String: Any], let serverID = item["id"] as? Int, operation.localID < 0, operation.method == "POST" {
             let localID = operation.localID
+            snapshot.idMappings[String(localID)] = serverID
+            var movedResources: [String: CommissionOfflineResource] = [:]
+            for resource in snapshot.resources.values {
+                let moved = CommissionOfflineResource(path: resolvedPath(resource.path), query: resource.query, data: try CommissionOfflineJSON.data(remapped(CommissionOfflineJSON.object(resource.data))), fetchedAt: resource.fetchedAt)
+                movedResources[moved.key] = moved
+            }
+            snapshot.resources = movedResources
             let oldSegment = "/\(localID)"
             let newSegment = "/\(serverID)"
             for index in snapshot.operations.indices {
                 snapshot.operations[index].path = snapshot.operations[index].path.replacingOccurrences(of: oldSegment + "/", with: newSegment + "/")
                 if snapshot.operations[index].path.hasSuffix(oldSegment) { snapshot.operations[index].path = String(snapshot.operations[index].path.dropLast(oldSegment.count)) + newSegment }
+                snapshot.operations[index].localResponse = try CommissionOfflineJSON.data(remapped(CommissionOfflineJSON.object(snapshot.operations[index].localResponse)))
+                snapshot.operations[index].body = try CommissionOfflineJSON.data(remapped(CommissionOfflineJSON.object(snapshot.operations[index].body)))
                 if var base = try snapshot.operations[index].base.map(CommissionOfflineJSON.object) {
                     if let path = base["path"] as? String { base["path"] = path.replacingOccurrences(of: oldSegment, with: newSegment) }
                     if base["target_id"] as? Int == localID { base["target_id"] = serverID }
