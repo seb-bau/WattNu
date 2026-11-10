@@ -20,6 +20,13 @@ struct CommissionOfflineTests {
                 snapshot.resources[key] = CommissionOfflineResource(path: key, query: [], data: try CommissionOfflineJSON.data(["items": []]), fetchedAt: Date())
             }
         }
+        let photosPath = "/api/commissions/10/photos"
+        let photosQuery = [CommissionOfflineQuery(name: "context", value: "order")]
+        let photo: [String: Any] = ["id": 50, "commission_id": 10, "source": "app", "context": "order", "original_filename": "foto.jpg", "mime_type": "image/jpeg", "size_bytes": 5, "caption": "Alt", "content_path": photosPath + "/50/content", "thumbnail_path": photosPath + "/50/thumbnail"]
+        let photoResource = CommissionOfflineResource(path: photosPath, query: photosQuery, data: try CommissionOfflineJSON.data(["items": [photo]]), fetchedAt: Date())
+        snapshot.resources[photoResource.key] = photoResource
+        let day = CommissionOfflineResource(path: "/api/my-time", query: [CommissionOfflineQuery(name: "date", value: "2026-11-10")], data: try CommissionOfflineJSON.data(["date": "2026-11-10", "recorded_minutes": 0, "status": "missing", "items": []]), fetchedAt: Date())
+        snapshot.resources[day.key] = day
         let key = SHA256.hash(data: Data("\(baseURL.absoluteString)|1".utf8)).map { String(format: "%02x", $0) }.joined()
         let root = directory.appendingPathComponent(key)
         try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
@@ -105,6 +112,31 @@ struct CommissionOfflineTests {
         #expect(parts.count == 1)
         #expect(parts.first?.0 == "photo")
         #expect(parts.first?.1 == bytes)
+    }
+
+    @Test func localEditsUpdateTheGlobalDayTotal() async throws {
+        let directory = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+        defer { try? FileManager.default.removeItem(at: directory) }
+        let store = try fixture(directory)
+        let entry = try await book(store)
+        _ = try await store.execute(path: "/api/commissions/10/time/\(entry.id)", method: "PATCH", body: CommissionOfflineJSON.data(["minutes": 120, "service_date": "2026-11-10"]), contentType: "application/json", accept: "application/json")
+        let data = try await store.execute(path: "/api/my-time", method: "GET", queryItems: [URLQueryItem(name: "date", value: "2026-11-10")], body: nil, contentType: nil, accept: "application/json")
+        let day = try JSONDecoder().decode(MyTimeDay.self, from: data)
+        #expect(day.recordedMinutes == 120)
+        #expect(day.items.count == 1)
+        store.stop()
+    }
+
+    @Test func editingAPhotoUsesItsQueriedCache() async throws {
+        let directory = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+        defer { try? FileManager.default.removeItem(at: directory) }
+        let store = try fixture(directory)
+        let data = try await store.execute(path: "/api/commissions/10/photos/50", method: "PATCH", body: CommissionOfflineJSON.data(["caption": "Neu"]), contentType: "application/json", accept: "application/json")
+        let photo = try JSONDecoder().decode(ItemResponse<CommissionPhoto>.self, from: data).item
+        #expect(photo.caption == "Neu")
+        #expect(photo.id == 50)
+        #expect(store.snapshot.operations.count == 1)
+        store.stop()
     }
 
     @Test func emptyQueryUsesTheSamePersistentResourceKey() {

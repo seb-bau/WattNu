@@ -105,6 +105,17 @@ final class CommissionOfflineStore: ObservableObject {
         return value
     }
 
+    private func collectionPayload(_ path: String, resources: [String: CommissionOfflineResource]) throws -> [String: Any] {
+        var items: [String: [String: Any]] = [:]
+        for resource in resources.values where resource.path == path {
+            let payload = try CommissionOfflineJSON.object(resource.data)
+            for item in payload["items"] as? [[String: Any]] ?? [] {
+                if let id = item["id"] { items[String(describing: id)] = item }
+            }
+        }
+        return ["items": Array(items.values)]
+    }
+
     private func effectiveResources() throws -> [String: CommissionOfflineResource] {
         try CommissionOfflineJSON.overlay(snapshot.resources, operations: snapshot.operations)
     }
@@ -122,11 +133,18 @@ final class CommissionOfflineStore: ObservableObject {
             if cached.fetchedAt.timeIntervalSinceNow < -30 { refreshInBackground(path, query: query) }
             return try presented(cached)
         }
-        do {
-            try await refresh([CommissionOfflineResource(path: path, query: query, data: Data(), fetchedAt: .distantPast)])
-        } catch {
-            if let result = try localSearch(path: path, query: query) { return result }
-            throw error
+        let expected = generation
+        for attempt in 0..<2 {
+            do {
+                try await refresh([CommissionOfflineResource(path: path, query: query, data: Data(), fetchedAt: .distantPast)])
+                break
+            } catch {
+                guard generation == expected, !Task.isCancelled else { throw CancellationError() }
+                if let cached = try effectiveResources()[key] { return try presented(cached) }
+                if error.isRequestCancellation && attempt == 0 { continue }
+                if let result = try localSearch(path: path, query: query) { return result }
+                throw error
+            }
         }
         guard let cached = try effectiveResources()[key] else { throw InspectionOfflineError.message("Die angeforderten Daten konnten nicht geladen werden.") }
         return try presented(cached)
@@ -144,7 +162,7 @@ final class CommissionOfflineStore: ObservableObject {
         }
         if path == "/api/commissions" {
             var items: [Int: [String: Any]] = [:]
-            for resource in resources.values where resource.path == path || resource.path.split(separator: "/").count == 3 && resource.path.hasPrefix(path + "/") {
+            for resource in resources.values where resource.path == path || resource.path.split(separator: "/").count == 3 && resource.path.hasPrefix(path + "/") && Int(resource.path.split(separator: "/").last.map(String.init) ?? "") != nil {
                 guard let payload = try? CommissionOfflineJSON.object(resource.data) else { continue }
                 let values = payload["items"] as? [[String: Any]] ?? (payload["item"] as? [String: Any]).map { [$0] } ?? []
                 for item in values { if let id = item["id"] as? Int { items[id] = item } }
@@ -315,7 +333,12 @@ final class CommissionOfflineStore: ObservableObject {
                 let text = ["title", "name", "code", "item_number", "description", "address", "idnum", "label", "tenant_name"].compactMap { item[$0] as? String }.joined(separator: " ")
                 let exactMatch = ((item["item_number"] as? String)?.caseInsensitiveCompare(term) == .orderedSame) || ((item["barcodes"] as? [String])?.contains(term) == true)
                 let selected = path.hasSuffix("/lookup") ? exactMatch : (term.isEmpty || text.range(of: term, options: [.caseInsensitive, .diacriticInsensitive]) != nil)
-                if selected { matches[String(describing: item["id"] ?? text)] = path.contains("inventory") ? stockAdjusted(item) : item }
+                let requestedType = query.first { $0.name == "item_type_id" }?.value.flatMap(Int.init)
+                let actualType = (item["item_type"] as? [String: Any])?["id"] as? Int
+                if selected && (requestedType == nil || requestedType == actualType) {
+                    let identity = item["id"].map { String(describing: $0) } ?? "\(item["object_type"] ?? ""):\(item["object_id"] ?? text)"
+                    matches[identity] = path.contains("inventory") ? stockAdjusted(item) : item
+                }
             }
         }
         if path.hasSuffix("/lookup") { return try matches.values.first.map { try CommissionOfflineJSON.data(["item": $0]) } }
@@ -358,7 +381,9 @@ private extension CommissionOfflineStore {
             if path.hasSuffix("/cancel"), parts.count > 4 {
                 basePath = parent + "/materials"; targetID = Int(parts[4])
             }
-            let source = try resources[basePath].map { try CommissionOfflineJSON.object($0.data) } ?? ["item": commission]
+            let source: [String: Any]
+            if basePath == parent { source = ["item": commission] }
+            else { source = try collectionPayload(basePath, resources: resources) }
             var value: [String: Any] = ["path": basePath, "query": [], "value": CommissionOfflineJSON.normalized(path: basePath, payload: source, targetID: targetID)]
             if let targetID { value["target_id"] = targetID }
             base = try CommissionOfflineJSON.data(value)
@@ -407,7 +432,7 @@ private extension CommissionOfflineStore {
         } else if parts.count >= 4, let parent {
             let section = parts[3]
             let targetID = parts.count > 4 ? Int(parts[4]) : nil
-            let source = try resources[parent + "/" + section].map { try CommissionOfflineJSON.object($0.data) } ?? [:]
+            let source = try collectionPayload(parent + "/" + section, resources: resources)
             let existing = (source["items"] as? [[String: Any]])?.first { ($0["id"] as? Int) == targetID } ?? [:]
             var item = existing.merging(fields) { _, new in new }
             item["id"] = targetID ?? id
