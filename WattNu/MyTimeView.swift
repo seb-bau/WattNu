@@ -2,6 +2,7 @@ import SwiftUI
 
 struct MyTimeView: View {
     @EnvironmentObject private var session: SessionStore
+    @Environment(\.horizontalSizeClass) private var horizontalSizeClass
 
     @State private var selectedDate =
         Calendar.current.startOfDay(for: Date())
@@ -9,6 +10,8 @@ struct MyTimeView: View {
     @State private var isLoading = false
     @State private var errorMessage: String?
     @State private var isEditorPresented = false
+    @State private var isMonthPresented = false
+    @State private var loadRequestID: UUID?
 
     var body: some View {
         NavigationStack {
@@ -99,9 +102,21 @@ struct MyTimeView: View {
             }
             .navigationTitle("Zeiten")
             .toolbar {
-                ToolbarItem(
+                ToolbarItemGroup(
                     placement: .topBarTrailing
                 ) {
+                    Button {
+                        isMonthPresented = true
+                    } label: {
+                        if horizontalSizeClass == .regular {
+                            Label("Monat", systemImage: "calendar")
+                                .labelStyle(.titleAndIcon)
+                        } else {
+                            Image(systemName: "calendar")
+                        }
+                    }
+                    .accessibilityLabel("Monatsübersicht öffnen")
+
                     Button {
                         isEditorPresented = true
                     } label: {
@@ -112,13 +127,16 @@ struct MyTimeView: View {
                     )
                 }
             }
-            .task {
+            .task(id: selectedDate) {
                 await loadSummary()
             }
-            .onChange(of: selectedDate) { _, _ in
-                Task {
-                    await loadSummary()
+            .sheet(isPresented: $isMonthPresented) {
+                NavigationStack {
+                    MyTimeMonthView { date in
+                        showDay(date)
+                    }
                 }
+                .environmentObject(session)
             }
             .sheet(
                 isPresented: $isEditorPresented
@@ -128,11 +146,7 @@ struct MyTimeView: View {
                         initialDate: selectedDate
                     ) { savedDate in
                         isEditorPresented = false
-                        selectedDate = savedDate
-
-                        Task {
-                            await loadSummary()
-                        }
+                        showDay(savedDate)
                     }
                 }
                 .environmentObject(session)
@@ -306,6 +320,18 @@ struct MyTimeView: View {
         .padding(.vertical, 3)
     }
 
+    private func showDay(_ date: Date) {
+        let day = Calendar.current.startOfDay(for: date)
+
+        if day == selectedDate {
+            Task {
+                await loadSummary()
+            }
+        } else {
+            selectedDate = day
+        }
+    }
+
     private func moveDate(by value: Int) {
         selectedDate = Calendar.current.date(
             byAdding: .day,
@@ -319,19 +345,40 @@ struct MyTimeView: View {
             return
         }
 
+        let date = selectedDate
+        let requestID = UUID()
+        loadRequestID = requestID
         isLoading = true
+        errorMessage = nil
+
+        if summary?.date != Formatters.apiDateText(date) {
+            summary = nil
+        }
 
         defer {
-            isLoading = false
+            if loadRequestID == requestID,
+               selectedDate == date {
+                isLoading = false
+            }
         }
 
         do {
-            summary = try await session.apiClient
+            let loadedSummary = try await session.apiClient
                 .fetchMyTime(
-                    date: selectedDate
+                    date: date
                 )
+            try Task.checkCancellation()
+
+            guard loadRequestID == requestID,
+                  selectedDate == date else {
+                return
+            }
+
+            summary = loadedSummary
         } catch {
-            if error.isRequestCancellation {
+            if error.isRequestCancellation
+                || loadRequestID != requestID
+                || selectedDate != date {
                 return
             }
 

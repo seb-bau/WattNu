@@ -929,6 +929,47 @@ final class APIClient {
         )
     }
 
+    func fetchMyTimeMonth(
+        _ month: MyTimeMonth
+    ) async throws -> [Date: Int] {
+        try requireToken()
+        try Task.checkCancellation()
+
+        return try await withThrowingTaskGroup(
+            of: (Date, Int).self
+        ) { group in
+            var remainingDates = month.dates.makeIterator()
+            var recordedMinutes: [Date: Int] = [:]
+
+            for _ in 0..<4 {
+                guard let date = remainingDates.next() else {
+                    break
+                }
+
+                group.addTask { @MainActor in
+                    let summary = try await self.fetchMyTime(date: date)
+                    return (date, summary.recordedMinutes)
+                }
+            }
+
+            while let (date, minutes) = try await group.next() {
+                try Task.checkCancellation()
+                recordedMinutes[date] = minutes
+
+                if let nextDate = remainingDates.next() {
+                    group.addTask { @MainActor in
+                        let summary = try await self.fetchMyTime(
+                            date: nextDate
+                        )
+                        return (nextDate, summary.recordedMinutes)
+                    }
+                }
+            }
+
+            return recordedMinutes
+        }
+    }
+
     func fetchFreeTimeTasks() async throws -> [TimeTask] {
         try requireToken()
 
