@@ -51,10 +51,17 @@ struct SynchronizationView: View {
                 ForEach(commissions.snapshot.operations) { operation in
                     entry(SynchronizationItem(id: operation.id, entityID: operation.commissionID ?? operation.localID, title: operation.title, createdAt: operation.createdAt, error: operation.error, details: operation.errorDetails.flatMap { String(data: $0, encoding: .utf8) }), module: "commissions")
                 }
-                ForEach(commissions.snapshot.preparationErrors.keys.sorted(), id: \.self) { key in
-                    DisclosureGroup("Daten konnten nicht aktualisiert werden") {
-                        Text(key).font(.caption).textSelection(.enabled)
-                        Text(commissions.snapshot.preparationErrors[key] ?? "").font(.footnote)
+                if !commissions.preparationMessage.isEmpty || !commissions.preparationIssues.isEmpty {
+                    Text("Datenaktualisierung").font(.subheadline).bold()
+                }
+                if !commissions.preparationMessage.isEmpty { Text(commissions.preparationMessage).font(.footnote).foregroundStyle(.secondary) }
+                ForEach(commissions.preparationIssues) { issue in
+                    DisclosureGroup(issue.title) {
+                        if issue.paths.count > 1 { Text("\(issue.paths.count) Tagesübersichten betroffen.").font(.footnote) }
+                        ForEach(issue.messages, id: \.self) { text in Text(text).font(.footnote) }
+                        DisclosureGroup("Technische Details") {
+                            ForEach(issue.paths, id: \.self) { path in Text(path).font(.caption).textSelection(.enabled) }
+                        }
                     }
                 }
                 ForEach(Array(commissions.deliveryIssues.enumerated()), id: \.offset) { _, issue in

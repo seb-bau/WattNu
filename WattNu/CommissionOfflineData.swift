@@ -75,6 +75,13 @@ struct CommissionOfflineSnapshot: Codable {
     var lastSynchronizedAt: Date?
 }
 
+struct SynchronizationPreparationIssue: Identifiable {
+    let id: String
+    let title: String
+    let messages: [String]
+    let paths: [String]
+}
+
 enum CommissionOfflineJSON {
     static func object(_ data: Data) throws -> [String: Any] {
         try JSONSerialization.jsonObject(with: data) as? [String: Any] ?? [:]
