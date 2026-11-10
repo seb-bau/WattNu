@@ -114,7 +114,7 @@ struct SynchronizationView: View {
     private func statusRow(isSyncing: Bool, pending: Int, lastSync: Date?) -> some View {
         VStack(alignment: .leading, spacing: 6) {
             Label(isSyncing ? "Übertragung läuft" : (pending == 0 ? "Keine ausstehenden Änderungen" : "\(pending) ausstehende Änderungen"), systemImage: isSyncing ? "arrow.triangle.2.circlepath" : "tray")
-            if let lastSync { Text("Zuletzt übertragen: \(lastSync.formatted(date: .abbreviated, time: .shortened))").font(.caption).foregroundStyle(.secondary) }
+            if let lastSync { Text("Zuletzt übertragen: \(lastSync.formatted(.dateTime.day().month(.abbreviated).year().hour().minute().locale(Locale(identifier: "de_DE"))))").font(.caption).foregroundStyle(.secondary) }
         }
     }
 
@@ -131,7 +131,7 @@ struct SynchronizationView: View {
             Text(item.createdAt, format: .dateTime.day().month().year().hour().minute()).font(.caption)
         } label: {
             VStack(alignment: .leading, spacing: 4) {
-                Text(item.entityID > 0 ? "Auftrag \(item.entityID) · \(item.title)" : item.title)
+                Text(item.entityID > 0 ? "\(module == "inspections" ? "Prüfauftrag" : "Auftrag") \(item.entityID) · \(item.title)" : item.title)
                 Text(item.error == nil ? "Ausstehend" : "Übertragung benötigt Prüfung").font(.caption).foregroundStyle(item.error == nil ? Color.secondary : Color.orange)
             }
         }

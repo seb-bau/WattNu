@@ -106,6 +106,11 @@ struct CommissionOfflineTests {
         #expect(parts.first?.0 == "photo")
         #expect(parts.first?.1 == bytes)
     }
+
+    @Test func emptyQueryUsesTheSamePersistentResourceKey() {
+        #expect(CommissionOfflineResource.key("/api/commissions/10") == "/api/commissions/10")
+        #expect(CommissionOfflineResource.key("/api/commissions/10", []) == "/api/commissions/10")
+    }
 }
 
 private final class OfflineTestURLProtocol: URLProtocol, @unchecked Sendable {

@@ -38,4 +38,11 @@ jobs:
         run: >-
           xcodebuild -project WattNu.xcodeproj -scheme WattNu
           -destination "platform=iOS Simulator,id=$SIMULATOR_ID"
+          -resultBundlePath "$RUNNER_TEMP/OfflineTests.xcresult"
           -only-testing:WattNuTests CODE_SIGNING_ALLOWED=NO test
+      - name: Testergebnisse auswerten
+        if: always()
+        run: |
+          if [ -d "$RUNNER_TEMP/OfflineTests.xcresult" ]; then
+            xcrun xcresulttool get test-results summary --path "$RUNNER_TEMP/OfflineTests.xcresult"
+          fi

@@ -157,6 +157,12 @@ final class CommissionOfflineStore: ObservableObject {
 
     private func presented(_ resource: CommissionOfflineResource) throws -> Data {
         if resource.path == "/api/my-time" { return try myTime(resource) }
+        if resource.path.hasPrefix("/api/inventory/") {
+            var payload = try CommissionOfflineJSON.object(resource.data)
+            if let item = payload["item"] as? [String: Any] { payload["item"] = stockAdjusted(item) }
+            if let items = payload["items"] as? [[String: Any]] { payload["items"] = items.map { stockAdjusted($0) } }
+            return try CommissionOfflineJSON.data(payload)
+        }
         guard resource.path == "/api/commissions" else { return resource.data }
         var payload = try CommissionOfflineJSON.object(resource.data)
         let query = Dictionary(resource.query.map { ($0.name, $0.value) }, uniquingKeysWith: { _, last in last })
@@ -306,8 +312,10 @@ final class CommissionOfflineStore: ObservableObject {
             let object = try CommissionOfflineJSON.object(resource.data)
             let items = object["items"] as? [[String: Any]] ?? (object["item"] as? [String: Any]).map { [$0] } ?? []
             for item in items {
-                let text = ["title", "name", "code", "item_number", "description", "address", "idnum"].compactMap { item[$0] as? String }.joined(separator: " ")
-                if term.isEmpty || text.range(of: term, options: [.caseInsensitive, .diacriticInsensitive]) != nil { matches[String(describing: item["id"] ?? text)] = item }
+                let text = ["title", "name", "code", "item_number", "description", "address", "idnum", "label", "tenant_name"].compactMap { item[$0] as? String }.joined(separator: " ")
+                let exactMatch = ((item["item_number"] as? String)?.caseInsensitiveCompare(term) == .orderedSame) || ((item["barcodes"] as? [String])?.contains(term) == true)
+                let selected = path.hasSuffix("/lookup") ? exactMatch : (term.isEmpty || text.range(of: term, options: [.caseInsensitive, .diacriticInsensitive]) != nil)
+                if selected { matches[String(describing: item["id"] ?? text)] = path.contains("inventory") ? stockAdjusted(item) : item }
             }
         }
         if path.hasSuffix("/lookup") { return try matches.values.first.map { try CommissionOfflineJSON.data(["item": $0]) } }
@@ -471,16 +479,46 @@ private extension CommissionOfflineStore {
     }
 
     func inventoryItem(code: String) throws -> [String: Any] {
-        for resource in snapshot.resources.values {
-            let value = try CommissionOfflineJSON.object(resource.data)
-            var items = value["items"] as? [[String: Any]] ?? []
-            if let item = value["item"] as? [String: Any] { items.append(item) }
-            for item in items {
-                if (item["item_number"] as? String) == code { return item }
-                if let product = item["item"] as? [String: Any], (product["item_number"] as? String) == code { return product }
+        func find(_ value: Any) -> [String: Any]? {
+            if let object = value as? [String: Any] {
+                if object["item_number"] as? String == code { return object }
+                for child in object.values { if let item = find(child) { return item } }
+            } else if let items = value as? [Any] {
+                for child in items { if let item = find(child) { return item } }
             }
+            return nil
+        }
+        for resource in snapshot.resources.values {
+            if let product = find(try CommissionOfflineJSON.object(resource.data)) { return stockAdjusted(product) }
         }
         throw InspectionOfflineError.message("Der Artikel muss zuerst geladen werden.")
+    }
+
+    func stockAdjusted(_ product: [String: Any]) -> [String: Any] {
+        guard product["item_number"] != nil else { return product }
+        var product = product
+        for operation in snapshot.operations where operation.path.contains("/materials") {
+            guard let result = try? CommissionOfflineJSON.object(operation.localResponse), let movement = result["item"] as? [String: Any], let item = movement["item"] as? [String: Any], item["id"] as? Int == product["id"] as? Int, ["warehouse", "vehicle"].contains(movement["source"] as? String ?? ""), let quantity = movement["quantity"] as? Double else { continue }
+            let delta = operation.path.hasSuffix("/cancel") ? quantity : -quantity
+            product["stock_quantity"] = max(0, (product["stock_quantity"] as? Double ?? 0) + delta)
+            let location = (movement["source_location"] as? [String: Any])?["id"] as? Int
+            if var stocks = product["stocks"] as? [[String: Any]] {
+                for index in stocks.indices where ((stocks[index]["location"] as? [String: Any])?["id"] as? Int) == location {
+                    stocks[index]["quantity"] = max(0, (stocks[index]["quantity"] as? Double ?? 0) + delta)
+                }
+                product["stocks"] = stocks
+            }
+        }
+        return product
+    }
+
+    func replacingInventory(_ value: Any, product: [String: Any]) -> Any {
+        if let object = value as? [String: Any] {
+            if object["item_number"] != nil, object["id"] as? Int == product["id"] as? Int { return product }
+            return object.mapValues { replacingInventory($0, product: product) }
+        }
+        if let items = value as? [Any] { return items.map { replacingInventory($0, product: product) } }
+        return value
     }
 
     func resume() {
@@ -549,7 +587,7 @@ private extension CommissionOfflineStore {
                         if let data = details.data(using: .utf8), let text = try? CommissionOfflineJSON.object(data)["message"] as? String { snapshot.operations[index].error = text }
                     }
                     snapshot.operations[index].retryAfter = Date().addingTimeInterval(min(300, 30 * pow(2, Double(min(snapshot.operations[index].attempts, 4)))))
-                    message = error.localizedDescription
+                    message = snapshot.operations[index].error ?? error.localizedDescription
                     try? persist()
                     blocked.insert(group)
                     if InspectionOfflineError.isConnectionError(error) || (error as? APIError).map({ if case .unauthorized = $0 { return true }; return false }) == true { return }
@@ -625,6 +663,12 @@ private extension CommissionOfflineStore {
             snapshot.resources[resource.key] = resource
         }
         snapshot.resources = try CommissionOfflineJSON.overlay(snapshot.resources, operations: [acknowledged])
+        if let product = payload["inventory_item"] as? [String: Any] {
+            for (key, var resource) in snapshot.resources {
+                resource.data = try CommissionOfflineJSON.data(replacingInventory(CommissionOfflineJSON.object(resource.data), product: product))
+                snapshot.resources[key] = resource
+            }
+        }
         snapshot.operations.removeAll { $0.id == operation.id }
         if let parent = operation.commissionID { snapshot.lastOperations["/api/commissions/\(parent)"] = operation.id }
         snapshot.lastSynchronizedAt = Date()

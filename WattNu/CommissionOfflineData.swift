@@ -16,6 +16,7 @@ struct CommissionOfflineResource: Codable {
     }
 
     static func key(_ path: String, _ query: [CommissionOfflineQuery] = []) -> String {
+        guard !query.isEmpty else { return path }
         var components = URLComponents()
         components.path = path
         components.queryItems = query.sorted { ($0.name, $0.value) < ($1.name, $1.value) }.map {
