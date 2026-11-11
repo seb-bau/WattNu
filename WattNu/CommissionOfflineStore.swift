@@ -8,6 +8,7 @@ final class CommissionOfflineStore: ObservableObject {
     @Published private(set) var revision = 0
     @Published private(set) var isSyncing = false
     @Published private(set) var message = ""
+    @Published private(set) var preparationMessage = ""
     @Published private(set) var deliveryIssues: [String] = []
     private(set) var snapshot = CommissionOfflineSnapshot()
     private var rootURL: URL?
@@ -49,6 +50,9 @@ final class CommissionOfflineStore: ObservableObject {
             if FileManager.default.fileExists(atPath: file.path) {
                 snapshot = try JSONDecoder().decode(CommissionOfflineSnapshot.self, from: Data(contentsOf: file))
             }
+            for key in snapshot.preparationErrors.keys.sorted() where !snapshot.preparation.contains(key) {
+                snapshot.preparation.append(key)
+            }
             rootURL = root
             accountKey = key
             revision += 1
@@ -68,7 +72,7 @@ final class CommissionOfflineStore: ObservableObject {
         refreshTasks = [:]
         snapshot = CommissionOfflineSnapshot()
         transport = nil; user = nil; rootURL = nil; accountKey = nil
-        isSyncing = false; message = ""; deliveryIssues = []
+        isSyncing = false; message = ""; preparationMessage = ""; deliveryIssues = []
         revision += 1
     }
 
@@ -203,8 +207,29 @@ final class CommissionOfflineStore: ObservableObject {
             guard let self else { return }
             defer { if generation == expected { refreshTasks[key] = nil } }
             do { try await refresh([CommissionOfflineResource(path: path, query: query, data: Data(), fetchedAt: .distantPast)]) }
-            catch { if generation == expected { message = error.localizedDescription } }
+            catch {
+                if generation == expected { _ = recordPreparationFailure(error, keys: [key]) }
+            }
         }
+    }
+
+    private func recordPreparationFailure(_ error: Error, keys: [String]) -> Bool {
+        guard !Task.isCancelled, !error.isRequestCancellation else { return false }
+        for key in keys where !snapshot.preparation.contains(key) { snapshot.preparation.append(key) }
+        if InspectionOfflineError.isConnectionError(error) {
+            preparationMessage = "Die Verbindung ist unterbrochen. Aktuelle Daten werden automatisch erneut geladen, sobald die Verbindung wieder verfügbar ist."
+            try? persist()
+            return false
+        }
+        let text: String
+        if case APIError.serverStatus(_, let details) = error,
+           let data = details.data(using: .utf8),
+           let value = try? CommissionOfflineJSON.object(data)["message"] as? String {
+            text = value
+        } else { text = error.localizedDescription }
+        for key in keys { snapshot.preparationErrors[key] = text }
+        try? persist()
+        return true
     }
 
     private func refresh(_ resources: [CommissionOfflineResource]) async throws {
@@ -225,17 +250,19 @@ final class CommissionOfflineStore: ObservableObject {
                     var visibleValue = value
                     if var object = value as? [String: Any], let error = object["sync_error"] as? String, !error.isEmpty {
                         snapshot.preparationErrors[key] = error
+                        if !snapshot.preparation.contains(key) { snapshot.preparation.append(key) }
                         object["sync_error"] = NSNull()
                         visibleValue = object
                     } else { snapshot.preparationErrors[key] = nil }
                     let resource = CommissionOfflineResource(path: path, query: query, data: try CommissionOfflineJSON.data(visibleValue), fetchedAt: Date())
                     snapshot.resources[key] = resource
-                    snapshot.preparation.removeAll { $0 == key }
+                    if snapshot.preparationErrors[key] == nil { snapshot.preparation.removeAll { $0 == key } }
                     if path == "/api/commissions" { try prepare(resource) }
                     collectMedia(value)
                 } else {
                     let details = item["payload"] as? [String: Any]
                     snapshot.preparationErrors[key] = details?["message"] as? String ?? "Die Daten konnten nicht geladen werden (\(status))."
+                    if !snapshot.preparation.contains(key) { snapshot.preparation.append(key) }
                 }
             }
         }
@@ -243,7 +270,10 @@ final class CommissionOfflineStore: ObservableObject {
             let data = try await transport.commissionRemoteData(path: resource.path, query: resource.query.map { URLQueryItem(name: $0.name, value: $0.value) })
             guard generation == expected, dataEpoch == epoch, !Task.isCancelled else { throw CancellationError() }
             snapshot.resources[resource.key] = CommissionOfflineResource(path: resource.path, query: resource.query, data: data, fetchedAt: Date())
+            snapshot.preparation.removeAll { $0 == resource.key }
+            snapshot.preparationErrors[resource.key] = nil
         }
+        preparationMessage = ""
         try persist()
         resumePreparation()
     }
@@ -294,6 +324,7 @@ final class CommissionOfflineStore: ObservableObject {
         snapshot.media[path] = name
         snapshot.preparation.removeAll { $0 == path }
         snapshot.preparationErrors[path] = nil
+        preparationMessage = ""
         try persist()
         return data
     }
@@ -309,19 +340,21 @@ final class CommissionOfflineStore: ObservableObject {
                 let selected = Array(snapshot.preparation.filter { !attempted.contains($0) }.prefix(20))
                 if selected.isEmpty { return }
                 attempted.formUnion(selected)
-                do {
-                    let documents = selected.filter { !$0.contains("/content") && !$0.contains("/thumbnail") }
-                    if !documents.isEmpty {
-                        try await refresh(documents.map { self.resourceForKey($0) })
+                let documents = selected.filter { !$0.contains("/content") && !$0.contains("/thumbnail") && resourceForKey($0).path != "/api/my-time" }
+                if !documents.isEmpty {
+                    do { try await refresh(documents.map { self.resourceForKey($0) }) }
+                    catch {
+                        guard generation == expected, recordPreparationFailure(error, keys: documents) else { return }
                     }
-                    for path in selected where path.contains("/content") || path.contains("/thumbnail") { _ = try await binary(path) }
-                } catch {
-                    if generation == expected, !error.isRequestCancellation {
-                        message = error.localizedDescription
-                        for path in selected { snapshot.preparationErrors[path] = error.localizedDescription }
-                        try? persist()
+                }
+                for key in selected where !documents.contains(key) {
+                    guard generation == expected, isActive, !Task.isCancelled else { return }
+                    do {
+                        if resourceForKey(key).path == "/api/my-time" { try await refresh([resourceForKey(key)]) }
+                        else { _ = try await binary(key) }
+                    } catch {
+                        guard generation == expected, recordPreparationFailure(error, keys: [key]) else { return }
                     }
-                    return
                 }
             }
         }
@@ -720,6 +753,8 @@ private extension CommissionOfflineStore {
         for (date, value) in timeDays {
             let resource = CommissionOfflineResource(path: "/api/my-time", query: [CommissionOfflineQuery(name: "date", value: date)], data: try CommissionOfflineJSON.data(value), fetchedAt: Date())
             snapshot.resources[resource.key] = resource
+            snapshot.preparation.removeAll { $0 == resource.key }
+            snapshot.preparationErrors[resource.key] = nil
         }
         snapshot.resources = try CommissionOfflineJSON.overlay(snapshot.resources, operations: [acknowledged])
         if let product = payload["inventory_item"] as? [String: Any] {
@@ -774,6 +809,16 @@ private extension CommissionOfflineStore {
 }
 
 extension CommissionOfflineStore {
+    var preparationIssues: [SynchronizationPreparationIssue] {
+        let groups = Dictionary(grouping: snapshot.preparationErrors.keys) { key in
+            resourceForKey(key).path == "/api/my-time" ? "/api/my-time" : key
+        }
+        return groups.keys.sorted().map { key in
+            let paths = (groups[key] ?? []).sorted()
+            return SynchronizationPreparationIssue(id: key, title: key == "/api/my-time" ? "Tagesübersichten konnten nicht aktualisiert werden" : "Daten konnten nicht aktualisiert werden", messages: Array(Set(paths.compactMap { snapshot.preparationErrors[$0] })).sorted(), paths: paths)
+        }
+    }
+
     func cachedMonthTotals(_ month: MyTimeMonth) -> [Date: Int]? {
         var totals: [Date: Int] = [:]
         for date in month.dates {
@@ -785,6 +830,7 @@ extension CommissionOfflineStore {
     }
 
     func retrySynchronization() throws {
+        preparationMessage = ""
         for index in snapshot.operations.indices where !snapshot.operations[index].blocked {
             snapshot.operations[index].error = nil; snapshot.operations[index].retryAfter = nil
         }
@@ -848,7 +894,7 @@ extension CommissionOfflineStore {
             _ = try await transport.commissionRemoteData(path: "/api/mobile/delivery-issues/retry", method: "POST", body: Data("{}".utf8))
             guard generation == expected else { return }
             await loadDeliveryIssues()
-        } catch { if generation == expected { message = error.localizedDescription } }
+        } catch { if generation == expected, !error.isRequestCancellation { message = error.localizedDescription } }
     }
 
     func loadDeliveryIssues() async {
@@ -858,6 +904,6 @@ extension CommissionOfflineStore {
             let data = try await transport.commissionRemoteData(path: "/api/mobile/delivery-issues")
             guard generation == expected else { return }
             deliveryIssues = (try CommissionOfflineJSON.object(data)["items"] as? [[String: Any]] ?? []).compactMap { $0["message"] as? String }
-        } catch { if generation == expected { message = error.localizedDescription } }
+        } catch { if generation == expected, !error.isRequestCancellation { message = error.localizedDescription } }
     }
 }
