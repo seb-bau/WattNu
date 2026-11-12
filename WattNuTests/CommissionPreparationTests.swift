@@ -8,12 +8,16 @@ struct CommissionPreparationTests {
     private let baseURL = URL(string: "https://preparation.example.invalid")!
     private let user = AppUser(id: 1, email: "one@example.invalid", displayName: "One", craftsmanErpId: nil, isAdmin: false, isForeman: false)
 
-    private func fixture(dates: [String], cached: Bool = false, queued: Bool = true, oldErrors: Bool = false) throws -> PreparationFixture {
+    private func fixture(dates: [String], cached: Bool = false, queued: Bool = true, oldErrors: Bool = false, infos: [[String: Any]]? = nil) throws -> PreparationFixture {
         let directory = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
         var snapshot = CommissionOfflineSnapshot()
         let userData = try CommissionOfflineJSON.object(JSONEncoder().encode(user))
         let parent = "/api/commissions/10"
         snapshot.resources[parent] = CommissionOfflineResource(path: parent, query: [], data: try CommissionOfflineJSON.data(["item": ["id": 10, "local_status": "in_progress", "assigned_user": userData, "can_edit": true, "is_actionable": true, "positions": []]]), fetchedAt: Date())
+        if let infos {
+            let path = parent + "/infos"
+            snapshot.resources[path] = CommissionOfflineResource(path: path, query: [], data: try CommissionOfflineJSON.data(["items": infos]), fetchedAt: Date())
+        }
         for date in dates {
             let query = [CommissionOfflineQuery(name: "date", value: date)]
             let key = CommissionOfflineResource.key("/api/my-time", query)
@@ -44,6 +48,85 @@ struct CommissionPreparationTests {
             try await Task.sleep(for: .milliseconds(10))
         }
         #expect(condition())
+    }
+
+    private func processInfoClient(_ fixture: PreparationFixture) -> APIClient {
+        let client = APIClient(baseURL: baseURL, session: fixture.session)
+        client.accessToken = fixture.token
+        client.commissionStore = fixture.store
+        return client
+    }
+
+    private func processInfo(_ id: String, body: String, isUnread: Bool) -> [String: Any] {
+        ["id": id, "process_erp_id": 1, "body": body, "author_name": "One", "direction": "office", "created_at": "2026-11-12T08:00:00Z", "version": 1, "state": "synced", "mail_state": "not_required", "is_unread": isUnread]
+    }
+
+    private func processInfoResponse(_ items: [[String: Any]]) throws -> Data {
+        try CommissionOfflineJSON.data(["items": [["path": "/api/commissions/10/infos", "query": [], "status": 200, "payload": ["items": items]]]])
+    }
+
+    @Test func processInfoRefreshFindsOwnBackendMessageInFreshEmptyCache() async throws {
+        let fixture = try fixture(dates: [], infos: [])
+        defer { fixture.close() }
+        let client = processInfoClient(fixture)
+        let cached = try await client.fetchProcessInfos(commissionId: 10)
+        #expect(cached.items.isEmpty)
+        #expect(fixture.scenario.count("/api/mobile/offline-data") == 0)
+        let message = processInfo("backend", body: "Im Backend ergänzt", isUnread: false)
+        fixture.scenario.setReplies([.response(200, try processInfoResponse([message]))], for: "/api/mobile/offline-data")
+
+        let refreshed = try await client.fetchProcessInfos(commissionId: 10, refresh: true)
+
+        #expect(refreshed.items.map(\.id) == ["backend"])
+        #expect(refreshed.items.first?.body == "Im Backend ergänzt")
+        #expect(refreshed.items.first?.isUnread == false)
+        let stored = try await client.fetchProcessInfos(commissionId: 10)
+        #expect(stored.items.map(\.id) == ["backend"])
+        #expect(fixture.scenario.count("/api/mobile/offline-data") == 1)
+
+        var edited = message
+        edited["body"] = "Im Backend geändert"
+        edited["version"] = 2
+        fixture.scenario.setReplies([.response(200, try processInfoResponse([edited]))], for: "/api/mobile/offline-data")
+        let updated = try await client.fetchProcessInfos(commissionId: 10, refresh: true)
+        #expect(updated.items.first?.body == "Im Backend geändert")
+        #expect(updated.items.first?.version == 2)
+        #expect(fixture.scenario.count("/api/mobile/offline-data") == 2)
+    }
+
+    @Test func processInfoRefreshPreservesPendingMessagesAndReadReceipts() async throws {
+        let message = processInfo("office", body: "Vorhandene Information", isUnread: true)
+        let fixture = try fixture(dates: [], infos: [message])
+        defer { fixture.close() }
+        let client = processInfoClient(fixture)
+        let pending = try await client.createProcessInfo(commissionId: 10, requestId: UUID().uuidString, body: "Noch nicht übertragen")
+        _ = try await client.markProcessInfosRead(commissionId: 10, items: [ProcessInfoVisibleItem(id: "office", version: 1)])
+        let added = processInfo("backend", body: "Neue Information", isUnread: false)
+        fixture.scenario.setReplies([.response(200, try processInfoResponse([message, added]))], for: "/api/mobile/offline-data")
+
+        let refreshed = try await client.fetchProcessInfos(commissionId: 10, refresh: true)
+
+        #expect(Set(refreshed.items.map(\.id)) == Set(["office", "backend", pending.id]))
+        #expect(refreshed.items.first(where: { $0.id == "office" })?.isUnread == false)
+        #expect(refreshed.items.first(where: { $0.id == pending.id })?.body == "Noch nicht übertragen")
+        #expect(fixture.store.snapshot.operations.count == 2)
+    }
+
+    @Test func processInfoRefreshFallsBackToCacheAndPendingMessagesOffline() async throws {
+        let message = processInfo("office", body: "Offline verfügbar", isUnread: false)
+        let fixture = try fixture(dates: [], infos: [message])
+        defer { fixture.close() }
+        let client = processInfoClient(fixture)
+        let pending = try await client.createProcessInfo(commissionId: 10, requestId: UUID().uuidString, body: "Offline erfasst")
+        fixture.scenario.setReplies([.failure(.notConnectedToInternet)], for: "/api/mobile/offline-data")
+
+        let refreshed = try await client.fetchProcessInfos(commissionId: 10, refresh: true)
+
+        #expect(Set(refreshed.items.map(\.id)) == Set(["office", pending.id]))
+        #expect(refreshed.items.first(where: { $0.id == "office" })?.body == "Offline verfügbar")
+        #expect(refreshed.items.first(where: { $0.id == pending.id })?.body == "Offline erfasst")
+        #expect(fixture.store.snapshot.operations.count == 1)
+        #expect(fixture.scenario.count("/api/mobile/offline-data") == 1)
     }
 
     @Test func successfulMonthPreparationClearsOldErrorsAndDoesNotRepeatDays() async throws {

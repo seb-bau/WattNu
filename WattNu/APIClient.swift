@@ -276,14 +276,16 @@ final class APIClient {
     }
     
     func fetchProcessInfos(
-        commissionId: Int
+        commissionId: Int,
+        refresh: Bool = false
     ) async throws -> ProcessInfoListResponse {
         try requireToken()
 
         return try await request(
             path:
                 "/api/commissions/"
-                + "\(commissionId)/infos"
+                + "\(commissionId)/infos",
+            refreshBeforeReturning: refresh
         )
     }
 
@@ -1234,8 +1236,8 @@ final class APIClient {
         )
     }
 
-    private func request<Response: Decodable>(path: String, queryItems: [URLQueryItem] = []) async throws -> Response {
-        try await perform(path: path, method: "GET", queryItems: queryItems, bodyData: nil)
+    private func request<Response: Decodable>(path: String, queryItems: [URLQueryItem] = [], refreshBeforeReturning: Bool = false) async throws -> Response {
+        try await perform(path: path, method: "GET", queryItems: queryItems, bodyData: nil, refreshBeforeReturning: refreshBeforeReturning)
     }
 
     private func send<Response: Decodable, Body: Encodable>(path: String, method: String, body: Body) async throws -> Response {
@@ -1243,9 +1245,9 @@ final class APIClient {
         return try await perform(path: path, method: method, queryItems: [], bodyData: bodyData)
     }
 
-    private func perform<Response: Decodable>(path: String, method: String, queryItems: [URLQueryItem], bodyData: Data?) async throws -> Response {
+    private func perform<Response: Decodable>(path: String, method: String, queryItems: [URLQueryItem], bodyData: Data?, refreshBeforeReturning: Bool = false) async throws -> Response {
         if let commissionStore, commissionStore.handles(path: path, method: method) {
-            let data = try await commissionStore.execute(path: path, method: method, queryItems: queryItems, body: bodyData, contentType: "application/json", accept: "application/json")
+            let data = try await commissionStore.execute(path: path, method: method, queryItems: queryItems, body: bodyData, contentType: "application/json", accept: "application/json", refreshBeforeReturning: refreshBeforeReturning)
             return try decoder.decode(Response.self, from: data)
         }
         guard var components = URLComponents(url: baseURL.appendingPathComponent(path.trimmingCharacters(in: CharacterSet(charactersIn: "/"))), resolvingAgainstBaseURL: false) else {

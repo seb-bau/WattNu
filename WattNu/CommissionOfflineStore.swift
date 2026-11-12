@@ -124,16 +124,16 @@ final class CommissionOfflineStore: ObservableObject {
         try CommissionOfflineJSON.overlay(snapshot.resources, operations: snapshot.operations)
     }
 
-    func execute(path: String, method: String, queryItems: [URLQueryItem] = [], body: Data?, contentType: String?, accept: String) async throws -> Data {
+    func execute(path: String, method: String, queryItems: [URLQueryItem] = [], body: Data?, contentType: String?, accept: String, refreshBeforeReturning: Bool = false) async throws -> Data {
         guard transport != nil, user != nil, rootURL != nil else { throw APIError.missingToken }
         let resolved = resolvedPath(path)
-        if resolved != path { return try await execute(path: resolved, method: method, queryItems: queryItems, body: body, contentType: contentType, accept: accept) }
+        if resolved != path { return try await execute(path: resolved, method: method, queryItems: queryItems, body: body, contentType: contentType, accept: accept, refreshBeforeReturning: refreshBeforeReturning) }
         if method != "GET" { return try enqueue(path: path, method: method, body: body ?? Data("{}".utf8), contentType: contentType ?? "application/json") }
         if accept != "application/json" || path.hasPrefix("offline-commission-photo/") { return try await binary(path) }
         let query = queryItems.map { CommissionOfflineQuery(name: $0.name, value: $0.value ?? "") }
         let key = CommissionOfflineResource.key(path, query)
         let available = try effectiveResources()
-        if let cached = available[key] ?? fallbackResource(path: path, query: query, resources: available) {
+        if !refreshBeforeReturning, let cached = available[key] ?? fallbackResource(path: path, query: query, resources: available) {
             if cached.fetchedAt.timeIntervalSinceNow < -30 { refreshInBackground(path, query: query) }
             return try presented(cached)
         }
