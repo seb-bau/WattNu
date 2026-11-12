@@ -87,8 +87,8 @@ struct CommissionHistoryView: View {
                 }
             }
         }
-        .refreshForCommissionChanges { await loadHistory() }
-        .task {
+        .refreshForCommissionChanges { await loadHistory(refresh: false) }
+        .refreshWhileActive(id: commission.id) {
             await loadHistory()
         }
         .alert(
@@ -115,7 +115,7 @@ struct CommissionHistoryView: View {
         }
     }
 
-    private func loadHistory() async {
+    private func loadHistory(refresh: Bool = true) async {
         isLoading = true
 
         defer {
@@ -125,9 +125,11 @@ struct CommissionHistoryView: View {
         do {
             entries = try await session.apiClient
                 .fetchCommissionHistory(
-                    commissionId: commission.id
+                    commissionId: commission.id,
+                    refresh: refresh
                 )
         } catch {
+            if error.isRequestCancellation { return }
             errorMessage = error.localizedDescription
         }
     }

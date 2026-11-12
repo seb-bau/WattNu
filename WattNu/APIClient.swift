@@ -154,12 +154,14 @@ final class APIClient {
     }
     
     func fetchCommissionHistory(
-        commissionId: Int
+        commissionId: Int,
+        refresh: Bool = false
     ) async throws -> [CommissionHistoryEntry] {
         try requireToken()
 
         let response: ListResponse<CommissionHistoryEntry> = try await request(
-            path: "/api/commissions/\(commissionId)/history"
+            path: "/api/commissions/\(commissionId)/history",
+            refreshBeforeReturning: refresh
         )
 
         return response.items
@@ -269,21 +271,23 @@ final class APIClient {
         return response.items
     }
 
-    func fetchCommission(id: Int) async throws -> Commission {
+    func fetchCommission(id: Int, refresh: Bool = false) async throws -> Commission {
         try requireToken()
-        let response: ItemResponse<Commission> = try await request(path: "/api/commissions/\(id)")
+        let response: ItemResponse<Commission> = try await request(path: "/api/commissions/\(id)", refreshBeforeReturning: refresh)
         return response.item
     }
     
     func fetchProcessInfos(
-        commissionId: Int
+        commissionId: Int,
+        refresh: Bool = false
     ) async throws -> ProcessInfoListResponse {
         try requireToken()
 
         return try await request(
             path:
                 "/api/commissions/"
-                + "\(commissionId)/infos"
+                + "\(commissionId)/infos",
+            refreshBeforeReturning: refresh
         )
     }
 
@@ -333,9 +337,9 @@ final class APIClient {
         )
     }
     
-    func fetchCommissionContacts(commissionId: Int) async throws -> [CommissionContactItem] {
+    func fetchCommissionContacts(commissionId: Int, refresh: Bool = false) async throws -> [CommissionContactItem] {
         try requireToken()
-        let response: CommissionContactsResponse = try await request(path: "/api/commissions/\(commissionId)/contacts")
+        let response: CommissionContactsResponse = try await request(path: "/api/commissions/\(commissionId)/contacts", refreshBeforeReturning: refresh)
         return response.contactItems
     }
     
@@ -348,12 +352,14 @@ final class APIClient {
     }
 
     func fetchCommissionAppointments(
-        commissionId: Int
+        commissionId: Int,
+        refresh: Bool = false
     ) async throws -> [CommissionAppointmentRequest] {
         try requireToken()
 
         let response: ListResponse<CommissionAppointmentRequest> = try await request(
-            path: "/api/commissions/\(commissionId)/appointments"
+            path: "/api/commissions/\(commissionId)/appointments",
+            refreshBeforeReturning: refresh
         )
 
         return response.items
@@ -481,12 +487,14 @@ final class APIClient {
     }
     
     func fetchCommissionAttachments(
-        commissionId: Int
+        commissionId: Int,
+        refresh: Bool = false
     ) async throws -> [CommissionAttachment] {
         try requireToken()
 
         let response: ListResponse<CommissionAttachment> = try await request(
-            path: "/api/commissions/\(commissionId)/attachments"
+            path: "/api/commissions/\(commissionId)/attachments",
+            refreshBeforeReturning: refresh
         )
 
         return response.items
@@ -509,7 +517,8 @@ final class APIClient {
     func fetchCommissionPhotos(
         commissionId: Int,
         context: String? = nil,
-        entity: String? = nil
+        entity: String? = nil,
+        refresh: Bool = false
     ) async throws -> [CommissionPhoto] {
         try requireToken()
 
@@ -537,7 +546,8 @@ final class APIClient {
 
         let response: ListResponse<CommissionPhoto> = try await request(
             path: "/api/commissions/\(commissionId)/photos",
-            queryItems: queryItems
+            queryItems: queryItems,
+            refreshBeforeReturning: refresh
         )
 
         return response.items
@@ -761,9 +771,9 @@ final class APIClient {
         )
     }
 
-    func fetchMaterials(commissionId: Int) async throws -> [InventoryMovement] {
+    func fetchMaterials(commissionId: Int, refresh: Bool = false) async throws -> [InventoryMovement] {
         try requireToken()
-        let response: ListResponse<InventoryMovement> = try await request(path: "/api/commissions/\(commissionId)/materials")
+        let response: ListResponse<InventoryMovement> = try await request(path: "/api/commissions/\(commissionId)/materials", refreshBeforeReturning: refresh)
         return response.items
     }
 
@@ -824,9 +834,9 @@ final class APIClient {
         return response.items
     }
 
-    func fetchTimeEntries(commissionId: Int) async throws -> [TimeEntry] {
+    func fetchTimeEntries(commissionId: Int, refresh: Bool = false) async throws -> [TimeEntry] {
         try requireToken()
-        let response: ListResponse<TimeEntry> = try await request(path: "/api/commissions/\(commissionId)/time")
+        let response: ListResponse<TimeEntry> = try await request(path: "/api/commissions/\(commissionId)/time", refreshBeforeReturning: refresh)
         return response.items
     }
 
@@ -1234,8 +1244,8 @@ final class APIClient {
         )
     }
 
-    private func request<Response: Decodable>(path: String, queryItems: [URLQueryItem] = []) async throws -> Response {
-        try await perform(path: path, method: "GET", queryItems: queryItems, bodyData: nil)
+    private func request<Response: Decodable>(path: String, queryItems: [URLQueryItem] = [], refreshBeforeReturning: Bool = false) async throws -> Response {
+        try await perform(path: path, method: "GET", queryItems: queryItems, bodyData: nil, refreshBeforeReturning: refreshBeforeReturning)
     }
 
     private func send<Response: Decodable, Body: Encodable>(path: String, method: String, body: Body) async throws -> Response {
@@ -1243,9 +1253,9 @@ final class APIClient {
         return try await perform(path: path, method: method, queryItems: [], bodyData: bodyData)
     }
 
-    private func perform<Response: Decodable>(path: String, method: String, queryItems: [URLQueryItem], bodyData: Data?) async throws -> Response {
+    private func perform<Response: Decodable>(path: String, method: String, queryItems: [URLQueryItem], bodyData: Data?, refreshBeforeReturning: Bool = false) async throws -> Response {
         if let commissionStore, commissionStore.handles(path: path, method: method) {
-            let data = try await commissionStore.execute(path: path, method: method, queryItems: queryItems, body: bodyData, contentType: "application/json", accept: "application/json")
+            let data = try await commissionStore.execute(path: path, method: method, queryItems: queryItems, body: bodyData, contentType: "application/json", accept: "application/json", refreshBeforeReturning: refreshBeforeReturning)
             return try decoder.decode(Response.self, from: data)
         }
         guard var components = URLComponents(url: baseURL.appendingPathComponent(path.trimmingCharacters(in: CharacterSet(charactersIn: "/"))), resolvingAgainstBaseURL: false) else {

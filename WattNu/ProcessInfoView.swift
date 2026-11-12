@@ -341,28 +341,11 @@ struct ProcessInfoView: View {
             .padding()
             .background(.bar)
         }
-        .refreshForCommissionChanges { await loadMessages(showLoading: false) }
-        .task {
-            await loadMessages()
-
-            while !Task.isCancelled {
-                try? await Task.sleep(
-                    for: .seconds(30)
-                )
-
-                if scenePhase == .active {
-                    await loadMessages(
-                        showLoading: false
-                    )
-                }
-            }
+        .refreshForCommissionChanges {
+            await loadMessages(showLoading: false, refresh: false)
         }
-        .onChange(of: scenePhase) { _, phase in
-            if phase == .active {
-                Task {
-                    await markVisibleMessagesRead()
-                }
-            }
+        .refreshWhileActive(id: commissionId, periodicAction: { await loadMessages(showLoading: false) }) {
+            await loadMessages()
         }
         .alert(
             "Fehler",
@@ -389,7 +372,8 @@ struct ProcessInfoView: View {
     }
 
     private func loadMessages(
-        showLoading: Bool = true
+        showLoading: Bool = true,
+        refresh: Bool = true
     ) async {
         if showLoading {
             isLoading = true
@@ -403,7 +387,8 @@ struct ProcessInfoView: View {
 
         do {
             let response = try await session.apiClient.fetchProcessInfos(
-                commissionId: commissionId
+                commissionId: commissionId,
+                refresh: refresh
             )
 
             messages = response.items

@@ -52,8 +52,8 @@ struct CommissionContactsView: View {
                 }
             }
         }
-        .refreshForCommissionChanges { await loadContacts() }
-        .task {
+        .refreshForCommissionChanges { await loadContacts(refresh: false) }
+        .refreshWhileActive(id: commission?.id ?? inspectionJobId) {
             await loadContacts()
         }
         .alert("Fehler", isPresented: Binding(
@@ -72,7 +72,7 @@ struct CommissionContactsView: View {
         }
     }
 
-    private func loadContacts() async {
+    private func loadContacts(refresh: Bool = true) async {
         isLoading = true
 
         defer {
@@ -86,10 +86,12 @@ struct CommissionContactsView: View {
                 )
             } else if let commission {
                 contacts = try await session.apiClient.fetchCommissionContacts(
-                    commissionId: commission.id
+                    commissionId: commission.id,
+                    refresh: refresh
                 )
             }
         } catch {
+            if error.isRequestCancellation { return }
             errorMessage = error.localizedDescription
         }
     }

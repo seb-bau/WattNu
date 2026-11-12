@@ -494,8 +494,8 @@ struct MaterialsSectionView: View {
                 }
             }
         }
-        .refreshForCommissionChanges { await loadMaterials() }
-        .task {
+        .refreshForCommissionChanges { await loadMaterials(refresh: false) }
+        .refreshWhileActive(id: commission.id, periodicAction: { await loadMaterials() }) {
             await loadData()
         }
         .refreshable {
@@ -575,7 +575,8 @@ struct MaterialsSectionView: View {
         do {
             async let loadedMovements =
                 session.apiClient.fetchMaterials(
-                    commissionId: commission.id
+                    commissionId: commission.id,
+                    refresh: true
                 )
 
             async let loadedLocations =
@@ -610,7 +611,7 @@ struct MaterialsSectionView: View {
     }
 
     private func restoreTaskSelection() {
-        guard selectedTask == nil else {
+        guard selectedTask == nil, taskSearchText.isEmpty else {
             return
         }
 
@@ -645,10 +646,11 @@ struct MaterialsSectionView: View {
         )?.id
     }
 
-    private func loadMaterials() async {
+    private func loadMaterials(refresh: Bool = true) async {
         do {
-            movements = try await session.apiClient.fetchMaterials(commissionId: commission.id)
+            movements = try await session.apiClient.fetchMaterials(commissionId: commission.id, refresh: refresh)
         } catch {
+            if error.isRequestCancellation { return }
             errorMessage = error.localizedDescription
         }
     }

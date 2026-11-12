@@ -191,9 +191,11 @@ struct TimeSectionView: View {
                 }
             }
         }
-        .refreshForCommissionChanges { await loadEntries() }
+        .refreshForCommissionChanges { await loadEntries(refresh: false) }
         .task {
             await session.loadMobileConfig()
+        }
+        .refreshWhileActive(id: commission.id, periodicAction: { await loadEntries() }) {
             await loadData()
         }
         .refreshable {
@@ -315,7 +317,8 @@ struct TimeSectionView: View {
         do {
             async let loadedEntries =
                 session.apiClient.fetchTimeEntries(
-                    commissionId: commission.id
+                    commissionId: commission.id,
+                    refresh: true
                 )
             async let loadedTasks =
                 session.apiClient.fetchTimeTasks()
@@ -332,14 +335,16 @@ struct TimeSectionView: View {
                 )
             )
         } catch {
+            if error.isRequestCancellation { return }
             errorMessage = error.localizedDescription
         }
     }
 
-    private func loadEntries() async {
+    private func loadEntries(refresh: Bool = true) async {
         do {
-            entries = try await session.apiClient.fetchTimeEntries(commissionId: commission.id)
+            entries = try await session.apiClient.fetchTimeEntries(commissionId: commission.id, refresh: refresh)
         } catch {
+            if error.isRequestCancellation { return }
             errorMessage = error.localizedDescription
         }
     }
