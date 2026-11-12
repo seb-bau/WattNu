@@ -206,12 +206,13 @@ struct CommissionAppointmentSectionView: View {
                 cornerRadius: 18
             )
         )
-        .refreshForCommissionChanges { await loadRequests() }
-        .task(id: commission.acceptedAppointmentFrom) {
+        .refreshForCommissionChanges { await loadRequests(refresh: false) }
+        .refreshWhileActive(id: "\(commission.id):\(commission.acceptedAppointmentFrom ?? "")") {
             if commission.acceptedAppointmentFrom == nil {
                 await loadRequests()
             }
-
+        }
+        .task(id: commission.acceptedAppointmentFrom) {
             await AppointmentReminderService.schedule(
                 for: commission
             )
@@ -288,7 +289,7 @@ struct CommissionAppointmentSectionView: View {
         }
     }
 
-    private func loadRequests() async {
+    private func loadRequests(refresh: Bool = true) async {
         isLoading = true
 
         defer {
@@ -298,7 +299,8 @@ struct CommissionAppointmentSectionView: View {
         do {
             requests = try await session.apiClient
                 .fetchCommissionAppointments(
-                    commissionId: commission.id
+                    commissionId: commission.id,
+                    refresh: refresh
                 )
         } catch {
             if error.isRequestCancellation {

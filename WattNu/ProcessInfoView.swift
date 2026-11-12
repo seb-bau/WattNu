@@ -344,26 +344,8 @@ struct ProcessInfoView: View {
         .refreshForCommissionChanges {
             await loadMessages(showLoading: false, refresh: false)
         }
-        .task(id: scenePhase) {
-            guard scenePhase == .active else {
-                return
-            }
-
-            await loadMessages()
-
-            while !Task.isCancelled {
-                do {
-                    try await Task.sleep(for: .seconds(30))
-                } catch {
-                    return
-                }
-
-                guard !Task.isCancelled else {
-                    return
-                }
-
-                await loadMessages(showLoading: false)
-            }
+        .refreshWhileActive(id: commissionId) {
+            await loadMessages(showLoading: messages.isEmpty)
         }
         .alert(
             "Fehler",

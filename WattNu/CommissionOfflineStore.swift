@@ -144,13 +144,15 @@ final class CommissionOfflineStore: ObservableObject {
                 break
             } catch {
                 guard generation == expected, !Task.isCancelled else { throw CancellationError() }
-                if let cached = try effectiveResources()[key] { return try presented(cached) }
+                let available = try effectiveResources()
+                if let cached = available[key] ?? fallbackResource(path: path, query: query, resources: available) { return try presented(cached) }
                 if error.isRequestCancellation && attempt == 0 { continue }
                 if let result = try localSearch(path: path, query: query) { return result }
                 throw error
             }
         }
-        guard let cached = try effectiveResources()[key] else { throw InspectionOfflineError.message("Die angeforderten Daten konnten nicht geladen werden.") }
+        let refreshed = try effectiveResources()
+        guard let cached = refreshed[key] ?? fallbackResource(path: path, query: query, resources: refreshed) else { throw InspectionOfflineError.message("Die angeforderten Daten konnten nicht geladen werden.") }
         return try presented(cached)
     }
 

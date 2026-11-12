@@ -116,8 +116,8 @@ struct CommissionObjectPhotosView: View {
             }
             .padding()
         }
-        .refreshForCommissionChanges { await loadPhotos() }
-        .task(id: commission.id) {
+        .refreshForCommissionChanges { await loadPhotos(refresh: false) }
+        .refreshWhileActive(id: commission.id) {
             await loadPhotos()
         }
         .refreshable {
@@ -259,7 +259,7 @@ struct CommissionObjectPhotosView: View {
         }
     }
 
-    private func loadPhotos() async {
+    private func loadPhotos(refresh: Bool = true) async {
         isLoading = true
 
         defer {
@@ -270,7 +270,8 @@ struct CommissionObjectPhotosView: View {
             photos = try await session.apiClient
                 .fetchCommissionPhotos(
                     commissionId: commission.id,
-                    context: "object"
+                    context: "object",
+                    refresh: refresh
                 )
 
             thumbnails = [:]

@@ -72,8 +72,8 @@ struct CommissionAttachmentsSectionView: View {
                 .padding(.top, 18)
             }
         }
-        .refreshForCommissionChanges { await loadAttachments() }
-        .task(id: commission.id) {
+        .refreshForCommissionChanges { await loadAttachments(refresh: false) }
+        .refreshWhileActive(id: commission.id) {
             await loadAttachments()
         }
         .sheet(
@@ -195,7 +195,7 @@ struct CommissionAttachmentsSectionView: View {
         .contentShape(Rectangle())
     }
 
-    private func loadAttachments() async {
+    private func loadAttachments(refresh: Bool = true) async {
         isLoading = true
 
         defer {
@@ -205,7 +205,8 @@ struct CommissionAttachmentsSectionView: View {
         do {
             attachments = try await session.apiClient
                 .fetchCommissionAttachments(
-                    commissionId: commission.id
+                    commissionId: commission.id,
+                    refresh: refresh
                 )
 
             thumbnails = [:]

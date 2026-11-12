@@ -160,15 +160,16 @@ struct CommissionDetailView: View {
                 }
             }
         }
-        .refreshForCommissionChanges { await loadCommission() }
+        .refreshForCommissionChanges { await loadCommission(refresh: false) }
+        .refreshWhileActive(id: commissionId) {
+            await loadCommission()
+        }
         .task {
             if processInfos.consumeInfoRequest(
                 commissionId: commissionId
             ) {
                 selectedSection = .infos
             }
-
-            await loadCommission()
         }
         .onChange(
             of: processInfos.requestedCommissionId
@@ -249,7 +250,7 @@ struct CommissionDetailView: View {
         }
     }
 
-    private func loadCommission() async {
+    private func loadCommission(refresh: Bool = true) async {
         isLoading = true
 
         defer {
@@ -257,7 +258,7 @@ struct CommissionDetailView: View {
         }
 
         do {
-            commission = try await session.apiClient.fetchCommission(id: commissionId)
+            commission = try await session.apiClient.fetchCommission(id: commissionId, refresh: refresh)
         } catch {
             if error.isRequestCancellation {
                 return

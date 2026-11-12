@@ -23,9 +23,38 @@ private struct CommissionOfflineRefreshModifier: ViewModifier {
     }
 }
 
+private struct CommissionActiveRefreshID<ID: Equatable>: Equatable {
+    let value: ID
+    let scenePhase: ScenePhase
+}
+
+private struct CommissionActiveRefreshModifier<ID: Equatable>: ViewModifier {
+    @Environment(\.scenePhase) private var scenePhase
+    let id: ID
+    let action: @MainActor () async -> Void
+
+    func body(content: Content) -> some View {
+        content.task(id: CommissionActiveRefreshID(value: id, scenePhase: scenePhase)) {
+            guard scenePhase == .active else { return }
+            await action()
+
+            while !Task.isCancelled {
+                do { try await Task.sleep(for: .seconds(30)) }
+                catch { return }
+                guard !Task.isCancelled else { return }
+                await action()
+            }
+        }
+    }
+}
+
 extension View {
     func refreshForCommissionChanges(_ action: @escaping @MainActor () async -> Void) -> some View {
         modifier(CommissionOfflineRefreshModifier(action: action))
+    }
+
+    func refreshWhileActive<ID: Equatable>(id: ID, _ action: @escaping @MainActor () async -> Void) -> some View {
+        modifier(CommissionActiveRefreshModifier(id: id, action: action))
     }
 }
 
