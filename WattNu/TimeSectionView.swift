@@ -195,7 +195,7 @@ struct TimeSectionView: View {
         .task {
             await session.loadMobileConfig()
         }
-        .refreshWhileActive(id: commission.id) {
+        .refreshWhileActive(id: commission.id, periodicAction: { await loadEntries() }) {
             await loadData()
         }
         .refreshable {

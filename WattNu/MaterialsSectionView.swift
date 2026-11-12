@@ -495,7 +495,7 @@ struct MaterialsSectionView: View {
             }
         }
         .refreshForCommissionChanges { await loadMaterials(refresh: false) }
-        .refreshWhileActive(id: commission.id) {
+        .refreshWhileActive(id: commission.id, periodicAction: { await loadMaterials() }) {
             await loadData()
         }
         .refreshable {
@@ -611,7 +611,7 @@ struct MaterialsSectionView: View {
     }
 
     private func restoreTaskSelection() {
-        guard selectedTask == nil else {
+        guard selectedTask == nil, taskSearchText.isEmpty else {
             return
         }
 
