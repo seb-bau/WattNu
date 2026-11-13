@@ -9,12 +9,12 @@ struct CommissionRowView: View {
             VStack(alignment: .leading, spacing: 8) {
                 HStack(alignment: .top, spacing: 12) {
                     Label {
-                        Text(primaryAddressText)
+                        Text(commission.objectDisplayTitle)
                             .font(.headline)
                             .foregroundStyle(.primary)
                             .lineLimit(3)
                     } icon: {
-                        Image(systemName: "house.fill")
+                        Image(systemName: commission.isEconomicUnitOrder ? "building.2.fill" : "house.fill")
                             .font(.title3)
                             .foregroundStyle(.blue)
                     }
@@ -37,6 +37,20 @@ struct CommissionRowView: View {
                         horizontal: true,
                         vertical: false
                     )
+                }
+
+                if commission.isEconomicUnitOrder {
+                    if let name = commission.economicUnitDisplayName {
+                        Text(name)
+                            .font(.subheadline.weight(.medium))
+                            .lineLimit(2)
+                    }
+                    if let address = commission.apartmentAddress, !address.isEmpty {
+                        Text("Orientierungsadresse: \(address)")
+                            .font(.caption)
+                            .foregroundStyle(.secondary)
+                            .lineLimit(2)
+                    }
                 }
 
                 if let tenantName = commission.tenantName,
@@ -281,20 +295,6 @@ struct CommissionRowView: View {
         )
         .foregroundStyle(.red)
         .clipShape(Capsule())
-    }
-
-    private var primaryAddressText: String {
-        if let address = commission.apartmentAddress,
-           !address.isEmpty {
-            return address
-        }
-
-        if let location = commission.apartmentLocation,
-           !location.isEmpty {
-            return location
-        }
-
-        return commission.displayTitle
     }
 
     private var statusColor: Color {

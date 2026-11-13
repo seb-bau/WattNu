@@ -20,6 +20,15 @@ struct OrderSectionView: View {
                     alignment: .leading,
                     spacing: 6
                 ) {
+                    if commission.isEconomicUnitOrder {
+                        Label("Gesamte Wirtschaftseinheit", systemImage: "building.2.fill")
+                            .font(.headline)
+                            .foregroundStyle(.blue)
+                        if let name = commission.economicUnitDisplayName {
+                            Text(name)
+                                .font(.subheadline.weight(.medium))
+                        }
+                    }
                     Text(commission.displayTitle)
                         .font(.title2.bold())
                     if commission.isHighPriorityValue {
@@ -40,7 +49,7 @@ struct OrderSectionView: View {
                 VStack(alignment: .leading, spacing: 0) {
                     VStack(spacing: 12) {
                         DetailRowView(
-                            title: "Adresse",
+                            title: commission.addressLabel,
                             value: commission.apartmentAddress ?? "-"
                         )
 

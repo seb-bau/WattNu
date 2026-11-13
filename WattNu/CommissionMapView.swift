@@ -319,6 +319,10 @@ private struct OrderMapLocation: Identifiable {
 
     var title: String {
         if commissions.count == 1 && safetyInspections.isEmpty {
+            if commissions[0].isEconomicUnitOrder {
+                return [commissions[0].objectDisplayTitle, commissions[0].economicUnitDisplayName]
+                    .compactMap { $0 }.joined(separator: " · ")
+            }
             return commissions[0].displayTitle
         }
 
