@@ -368,6 +368,60 @@ struct CommissionPreparationTests {
         #expect(fixture.store.snapshot.preparationErrors.isEmpty)
     }
 
+    private func scopedCommission(_ fields: [String: Any] = [:]) throws -> Commission {
+        var payload: [String: Any] = ["id": 10, "local_status": "in_progress", "positions": []]
+        payload.merge(fields) { _, value in value }
+        return try JSONDecoder().decode(Commission.self, from: JSONSerialization.data(withJSONObject: payload))
+    }
+
+    @Test func economicUnitOrdersShowTheWholeScopeAboveTheirReferenceAddress() throws {
+        let commission = try scopedCommission([
+            "object_type": "economic_unit", "economic_unit_idnum": "123", "economic_unit_name": "Parkstraße",
+            "apartment_address": "Parkstraße 1",
+        ])
+        #expect(commission.isEconomicUnitOrder)
+        #expect(commission.objectDisplayTitle == "Gesamte Wirtschaftseinheit")
+        #expect(commission.economicUnitDisplayName == "123 · Parkstraße")
+        #expect(commission.addressLabel == "Orientierungsadresse")
+        #expect(commission.apartmentAddress == "Parkstraße 1")
+    }
+
+    @Test func economicUnitScopeSurvivesTheCodableOfflineRoundTrip() throws {
+        let commission = try scopedCommission([
+            "object_type": "economic_unit", "economic_unit_idnum": "123", "economic_unit_name": "Parkstraße",
+            "apartment_address": "Parkstraße 1",
+        ])
+        let restored = try JSONDecoder().decode(Commission.self, from: JSONEncoder().encode(commission))
+        #expect(restored.isEconomicUnitOrder)
+        #expect(restored.economicUnitDisplayName == commission.economicUnitDisplayName)
+        #expect(restored.apartmentAddress == commission.apartmentAddress)
+    }
+
+    @Test func buildingOrdersWithEconomicUnitMetadataKeepTheirAddressHeading() throws {
+        let commission = try scopedCommission([
+            "object_type": "building", "economic_unit_idnum": "123", "economic_unit_name": "Parkstraße",
+            "apartment_address": "Parkstraße 1",
+        ])
+        #expect(!commission.isEconomicUnitOrder)
+        #expect(commission.objectDisplayTitle == "Parkstraße 1")
+        #expect(commission.addressLabel == "Adresse")
+    }
+
+    @Test func responsesWithoutScopeMetadataRemainReadable() throws {
+        let commission = try scopedCommission(["apartment_address": "Parkstraße 1"])
+        #expect(!commission.isEconomicUnitOrder)
+        #expect(commission.objectDisplayTitle == "Parkstraße 1")
+        #expect(commission.economicUnitDisplayName == nil)
+        #expect(commission.addressLabel == "Adresse")
+    }
+
+    @Test func economicUnitOrdersRemainIdentifiableWithoutANameOrNumber() throws {
+        let commission = try scopedCommission(["object_type": "economic_unit", "apartment_address": "Parkstraße 1"])
+        #expect(commission.isEconomicUnitOrder)
+        #expect(commission.objectDisplayTitle == "Gesamte Wirtschaftseinheit")
+        #expect(commission.economicUnitDisplayName == nil)
+    }
+
     @Test func olderDayResponseAfterBookingDoesNotOverwriteConfirmationOrReportCancellation() async throws {
         let date = "2026-11-01"
         let key = "/api/my-time?date=" + date

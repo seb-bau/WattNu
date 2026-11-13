@@ -61,6 +61,8 @@ struct CommissionListView: View {
             || (commission.apartmentAddress ?? "").lowercased().contains(query)
             || (commission.apartmentLocation ?? "").lowercased().contains(query)
             || (commission.tenantName ?? "").lowercased().contains(query)
+            || (commission.economicUnitIdNum ?? "").lowercased().contains(query)
+            || (commission.economicUnitName ?? "").lowercased().contains(query)
         }
     }
 

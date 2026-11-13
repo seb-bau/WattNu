@@ -218,6 +218,9 @@ struct Commission: Codable, Identifiable, Hashable {
     let craftsmanErpId: Int?
     let useUnitId: Int?
     let licenseAgreementId: Int?
+    let objectType: String?
+    let economicUnitIdNum: String?
+    let economicUnitName: String?
     let apartmentAddress: String?
     let apartmentLocation: String?
     let tenantName: String?
@@ -265,6 +268,9 @@ struct Commission: Codable, Identifiable, Hashable {
         case craftsmanErpId = "craftsman_erp_id"
         case useUnitId = "use_unit_id"
         case licenseAgreementId = "license_agreement_id"
+        case objectType = "object_type"
+        case economicUnitIdNum = "economic_unit_idnum"
+        case economicUnitName = "economic_unit_name"
         case apartmentAddress = "apartment_address"
         case apartmentLocation = "apartment_location"
         case tenantName = "tenant_name"
@@ -299,6 +305,33 @@ struct Commission: Codable, Identifiable, Hashable {
     
     var isHighPriorityValue: Bool {
         isHighPriority ?? false
+    }
+
+    var isEconomicUnitOrder: Bool {
+        objectType == "economic_unit"
+    }
+
+    var economicUnitDisplayName: String? {
+        let parts = [economicUnitIdNum, economicUnitName]
+            .compactMap { $0?.trimmingCharacters(in: .whitespacesAndNewlines) }
+            .filter { !$0.isEmpty }
+        return parts.isEmpty ? nil : parts.joined(separator: " · ")
+    }
+
+    var objectDisplayTitle: String {
+        if isEconomicUnitOrder {
+            return "Gesamte Wirtschaftseinheit"
+        }
+        for value in [apartmentAddress, apartmentLocation] {
+            if let text = value?.trimmingCharacters(in: .whitespacesAndNewlines), !text.isEmpty {
+                return text
+            }
+        }
+        return displayTitle
+    }
+
+    var addressLabel: String {
+        isEconomicUnitOrder ? "Orientierungsadresse" : "Adresse"
     }
 
     var coordinate: CLLocationCoordinate2D? {
