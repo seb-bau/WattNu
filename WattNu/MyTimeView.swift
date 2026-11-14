@@ -392,6 +392,7 @@ struct MyTimeView: View {
 private struct FreeTimeEntryFormView: View {
     @EnvironmentObject private var session: SessionStore
     @Environment(\.dismiss) private var dismiss
+    @ObservedObject private var preferences = UserPreferencesStore.shared
 
     let onSaved: (Date) -> Void
 
@@ -494,6 +495,13 @@ private struct FreeTimeEntryFormView: View {
         .task {
             await loadTasks()
         }
+        .onChange(of: selectedTaskId) { _, value in
+            guard let task = tasks.first(where: { $0.id == value }) else { return }
+            preferences.values.lastFreeTimeTaskId = task.id
+            if let craftId = task.craftActivity?.id {
+                preferences.values.lastCraftActivityId = craftId
+            }
+        }
         .alert(
             "Fehler",
             isPresented: Binding(
@@ -535,9 +543,7 @@ private struct FreeTimeEntryFormView: View {
             let loadedTasks = try await session.apiClient.fetchFreeTimeTasks()
             tasks = TimeTask.sortedForFreeTime(loadedTasks)
 
-            if tasks.count == 1 {
-                selectedTaskId = tasks[0].id
-            }
+            selectedTaskId = preferences.preferredFreeTimeTask(in: tasks)
         } catch {
             if error.isRequestCancellation {
                 return

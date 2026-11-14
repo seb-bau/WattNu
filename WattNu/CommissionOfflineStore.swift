@@ -124,6 +124,16 @@ final class CommissionOfflineStore: ObservableObject {
         try CommissionOfflineJSON.overlay(snapshot.resources, operations: snapshot.operations)
     }
 
+    func cachedCommissions(scope: CommissionScopeFilter, status: CommissionStatusFilter, userId: Int?) throws -> [Commission]? {
+        var query = [CommissionOfflineQuery(name: "scope", value: scope.rawValue)]
+        if status != .all { query.append(CommissionOfflineQuery(name: "status", value: status.rawValue)) }
+        if let userId { query.append(CommissionOfflineQuery(name: "user_id", value: String(userId))) }
+        let resources = try effectiveResources()
+        let key = CommissionOfflineResource.key("/api/commissions", query)
+        guard let resource = resources[key] ?? fallbackResource(path: "/api/commissions", query: query, resources: resources) else { return nil }
+        return try JSONDecoder().decode(ListResponse<Commission>.self, from: presented(resource)).items
+    }
+
     func execute(path: String, method: String, queryItems: [URLQueryItem] = [], body: Data?, contentType: String?, accept: String, refreshBeforeReturning: Bool = false) async throws -> Data {
         guard transport != nil, user != nil, rootURL != nil else { throw APIError.missingToken }
         let resolved = resolvedPath(path)
@@ -432,6 +442,7 @@ private extension CommissionOfflineStore {
         if path == "/api/commissions/simple" {
             commission = ["id": id, "local_status": "recorded", "positions": [], "title": fields["title"] ?? "Auftrag", "description": fields["commission_text"] ?? "", "public_id": fields["client_request_id"] ?? UUID().uuidString, "source": "ios", "is_actionable": false, "erp_sync_state": "pending", "can_edit": true, "is_own": true, "assigned_user": userValue]
             commission["contact_person"] = fields["contact_person"]
+            commission["recording_date"] = createdAt.ISO8601Format()
             commission["commission_type_id"] = fields["commission_type_id"]
             result = ["item": commission]
             for suffix in ["time", "materials", "photos", "attachments", "appointments", "infos", "history"] {

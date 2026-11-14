@@ -8,6 +8,18 @@ struct ContactActionRowView: View {
     let urlScheme: String
 
     var body: some View {
+        Group {
+            if let url = ContactActionDestination.url(scheme: urlScheme, value: value) {
+                Link(destination: url) { content }
+                    .buttonStyle(.borderless)
+                    .accessibilityLabel("\(title): \(value)")
+            } else {
+                content
+            }
+        }
+    }
+
+    private var content: some View {
         HStack(alignment: .top, spacing: 10) {
             Image(systemName: systemImage)
                 .foregroundStyle(.blue)
@@ -30,16 +42,31 @@ struct ContactActionRowView: View {
 
             Spacer()
 
-            if let url = actionURL {
-                Link(destination: url) {
-                    Image(systemName: "arrow.up.right.circle")
-                }
-            }
+            Image(systemName: "arrow.up.right.circle")
         }
+        .contentShape(Rectangle())
     }
+}
 
-    private var actionURL: URL? {
-        let normalizedValue = value.replacingOccurrences(of: " ", with: "")
-        return URL(string: "\(urlScheme):\(normalizedValue)")
+enum ContactActionDestination {
+    static func url(scheme: String, value: String) -> URL? {
+        let normalized: String
+        switch scheme {
+        case "tel":
+            let trimmed = value.trimmingCharacters(in: .whitespacesAndNewlines)
+            let dialable = trimmed.hasPrefix("+") || trimmed.hasPrefix("00")
+                ? trimmed.replacingOccurrences(of: "(0)", with: "") : trimmed
+            normalized = dialable.filter { "+0123456789*#".contains($0) }
+            guard normalized.contains(where: { $0.isNumber }) else { return nil }
+        case "mailto":
+            normalized = value.trimmingCharacters(in: .whitespacesAndNewlines)
+            guard normalized.contains("@"), !normalized.contains(where: { $0.isWhitespace }) else { return nil }
+        default:
+            return nil
+        }
+        var components = URLComponents()
+        components.scheme = scheme
+        components.path = normalized
+        return components.url
     }
 }

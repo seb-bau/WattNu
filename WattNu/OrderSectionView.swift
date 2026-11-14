@@ -180,20 +180,11 @@ struct OrderSectionView: View {
                                 )
                                 .font(.subheadline.bold())
 
-                                HStack {
-                                    if let code = position.code,
-                                       !code.isEmpty {
-                                        Text(code)
-                                    }
-
-                                    Spacer()
-
-                                    Text(
-                                        "\(position.units, specifier: "%.2f")"
-                                    )
+                                if let code = position.code, !code.isEmpty {
+                                    Text(code)
+                                        .font(.caption)
+                                        .foregroundStyle(.secondary)
                                 }
-                                .font(.caption)
-                                .foregroundStyle(.secondary)
                             }
 
                             if index

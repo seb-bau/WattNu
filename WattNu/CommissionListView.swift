@@ -7,18 +7,17 @@ struct CommissionListView: View {
     @EnvironmentObject private var pushNotifications: PushNotificationManager
     @ObservedObject private var processInfos =
         ProcessInfoStore.shared
+    @ObservedObject private var preferences = UserPreferencesStore.shared
 
     @State private var commissions: [Commission] = []
     @State private var commissionUsers: [AppUser] = []
-    @State private var searchText = ""
-    @State private var ownerFilter:
-        CommissionOwnerFilter = .mine
-    @State private var statusFilter:
-        CommissionStatusFilter = .active
-    @State private var sortMode:
-        CommissionSortMode = .distance
+    private var searchText: String { preferences.values.commissionSearch }
+    private var ownerFilter: CommissionOwnerFilter { preferences.commissionOwnerFilter }
+    private var statusFilter: CommissionStatusFilter { preferences.commissionStatusFilter }
+    private var sortMode: CommissionSortMode { preferences.commissionSortMode }
     @State private var isSearchVisible = false
-    @State private var isLoading = false
+    @State private var hasLoadedCommissions = false
+    @State private var loadRevision = 0
     @State private var errorMessage: String?
     @State private var isCreatePresented = false
     
@@ -71,6 +70,8 @@ struct CommissionListView: View {
         let ordered: [Commission]
 
         switch sortMode {
+        case .oldestFirst, .newestFirst:
+            return sortMode.sortedByCreationDate(selected)
         case .distance:
             var distances: [Double] = []
             distances.reserveCapacity(selected.count)
@@ -180,27 +181,27 @@ struct CommissionListView: View {
                     .background(.thinMaterial)
                 }
                 CommissionFilterBarView(
-                    ownerFilter: $ownerFilter,
-                    statusFilter: $statusFilter,
-                    sortMode: $sortMode,
+                    ownerFilter: $preferences.commissionOwnerFilter,
+                    statusFilter: $preferences.commissionStatusFilter,
+                    sortMode: $preferences.commissionSortMode,
                     users: commissionUsers,
                     currentUserId: session.user?.id,
                     resultCount: items.count
                 )
 
-                if isSearchVisible {
+                if isSearchVisible || !searchText.isEmpty {
                     HStack(spacing: 8) {
                         Image(systemName: "magnifyingglass")
                             .foregroundStyle(.secondary)
 
                         TextField(
                             "Aufträge durchsuchen",
-                            text: $searchText
+                            text: $preferences.values.commissionSearch
                         )
 
                         if !searchText.isEmpty {
                             Button {
-                                searchText = ""
+                                preferences.values.commissionSearch = ""
                             } label: {
                                 Image(systemName: "xmark.circle.fill")
                                     .foregroundStyle(.secondary)
@@ -219,7 +220,7 @@ struct CommissionListView: View {
                 }
 
                 Group {
-                    if isLoading && commissions.isEmpty {
+                    if !hasLoadedCommissions && errorMessage == nil {
                         ProgressView("Aufträge werden geladen …")
                             .frame(maxWidth: .infinity, maxHeight: .infinity)
                     } else if items.isEmpty {
@@ -301,13 +302,15 @@ struct CommissionListView: View {
                     )
                     Button {
                         withAnimation(.easeInOut(duration: 0.2)) {
-                            isSearchVisible.toggle()
-                            if !isSearchVisible {
-                                searchText = ""
+                            if isSearchVisible || !searchText.isEmpty {
+                                isSearchVisible = false
+                                preferences.values.commissionSearch = ""
+                            } else {
+                                isSearchVisible = true
                             }
                         }
                     } label: {
-                        Image(systemName: isSearchVisible ? "magnifyingglass.circle.fill" : "magnifyingglass")
+                        Image(systemName: isSearchVisible || !searchText.isEmpty ? "magnifyingglass.circle.fill" : "magnifyingglass")
                     }
 
                     NavigationLink {
@@ -343,7 +346,9 @@ struct CommissionListView: View {
                 }
                 .environmentObject(session)
             }
-            .refreshForCommissionChanges { await loadCommissions() }
+            .onChange(of: session.commissionStore.revision) { _, _ in
+                refreshCachedCommissions()
+            }
             .task {
                 locationStore.requestLocation()
                 await loadInitialData()
@@ -354,11 +359,15 @@ struct CommissionListView: View {
                 }
             }
             .onChange(of: ownerFilter) { _, _ in
+                commissions = []
+                hasLoadedCommissions = false
                 Task {
                     await loadCommissions()
                 }
             }
             .onChange(of: statusFilter) { _, _ in
+                commissions = []
+                hasLoadedCommissions = false
                 Task {
                     await loadCommissions()
                 }
@@ -428,11 +437,11 @@ struct CommissionListView: View {
                 where !colleagueUserIds.contains(
                     userId
                 ):
-                ownerFilter = .mine
+                preferences.commissionOwnerFilter = .mine
 
             case .all
                 where colleagueUserIds.isEmpty:
-                ownerFilter = .mine
+                preferences.commissionOwnerFilter = .mine
 
             default:
                 break
@@ -452,50 +461,47 @@ struct CommissionListView: View {
         }
 
         locationStore.requestLocation()
-        isLoading = true
-
-        defer {
-            isLoading = false
-        }
+        loadRevision += 1
+        let requestedRevision = loadRevision
+        let requestedOwner = ownerFilter
+        let requestedStatus = statusFilter
+        errorMessage = nil
+        refreshCachedCommissions()
 
         do {
-            commissions =
+            let loadedCommissions =
                 try await session.apiClient
                     .fetchCommissions(
-                        scope: ownerFilter.scope,
-                        status: statusFilter.apiFilter,
-                        userId: ownerFilter.userId
+                        scope: requestedOwner.scope,
+                        status: requestedStatus.apiFilter,
+                        userId: requestedOwner.userId
                     )
+
+            guard !Task.isCancelled, requestedRevision == loadRevision,
+                  requestedOwner == ownerFilter, requestedStatus == statusFilter else { return }
+            commissions = loadedCommissions
+            hasLoadedCommissions = true
 
             await processInfos.refresh(
                 apiClient: session.apiClient
             )
             navigation.mapCommissions = sortedCommissions
         } catch {
-            if error.isRequestCancellation {
+            if error.isRequestCancellation || requestedRevision != loadRevision
+                || requestedOwner != ownerFilter || requestedStatus != statusFilter {
                 return
             }
 
             errorMessage = error.localizedDescription
         }
     }
-}
 
-enum CommissionSortMode: String, CaseIterable, Identifiable {
-    case defaultOrder
-    case distance
-    case title
-
-    var id: String { rawValue }
-
-    var label: String {
-        switch self {
-        case .defaultOrder:
-            return "Sortierung"
-        case .distance:
-            return "Entfernung"
-        case .title:
-            return "Titel"
-        }
+    private func refreshCachedCommissions() {
+        guard let cached = try? session.commissionStore.cachedCommissions(
+            scope: ownerFilter.scope, status: statusFilter.apiFilter, userId: ownerFilter.userId
+        ) else { return }
+        commissions = cached
+        hasLoadedCommissions = true
+        navigation.mapCommissions = sortedCommissions
     }
 }

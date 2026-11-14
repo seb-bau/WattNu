@@ -215,6 +215,36 @@ struct CommissionPreparationTests {
         #expect(fixture.scenario.count("/api/mobile/offline-data") == 1)
     }
 
+    @Test func emptyCommissionCacheCanBeReadRepeatedlyWithoutNetworkOrRevisionChanges() throws {
+        let path = "/api/commissions"
+        let query = [CommissionOfflineQuery(name: "scope", value: "mine"), CommissionOfflineQuery(name: "status", value: "active")]
+        let resource = CommissionOfflineResource(path: path, query: query, data: try CommissionOfflineJSON.data(["items": []]), fetchedAt: .distantPast)
+        let fixture = try fixture(dates: [], resources: [resource])
+        defer { fixture.close() }
+        let revision = fixture.store.revision
+
+        for _ in 0..<30 {
+            let cached = try fixture.store.cachedCommissions(scope: .mine, status: .active, userId: nil)
+            #expect(cached != nil)
+            #expect(cached?.isEmpty == true)
+        }
+
+        #expect(fixture.store.revision == revision)
+        #expect(fixture.scenario.count("/api/mobile/offline-data") == 0)
+    }
+
+    @Test func cachedCommissionListIncludesQueuedOrdersWithTheirCreationDate() async throws {
+        let resource = CommissionOfflineResource(path: "/api/commissions", query: [CommissionOfflineQuery(name: "scope", value: "mine")], data: try CommissionOfflineJSON.data(["items": []]), fetchedAt: Date())
+        let fixture = try fixture(dates: [], resources: [resource])
+        defer { fixture.close() }
+        let data = try await fixture.store.execute(path: "/api/commissions/simple", method: "POST", body: CommissionOfflineJSON.data(["title": "Neuer Auftrag", "commission_text": "Beschreibung"]), contentType: "application/json", accept: "application/json")
+        let created = try JSONDecoder().decode(ItemResponse<Commission>.self, from: data).item
+        let cached = try fixture.store.cachedCommissions(scope: .mine, status: .all, userId: nil)
+        #expect(cached?.map(\.id) == [created.id])
+        #expect(cached?.first?.recordingDate != nil)
+        #expect(fixture.store.snapshot.operations.count == 1)
+    }
+
     @Test func processInfoRefreshFindsOwnBackendMessageInFreshEmptyCache() async throws {
         let fixture = try fixture(dates: [], infos: [])
         defer { fixture.close() }

@@ -5,6 +5,7 @@ import UIKit
 struct CommissionCreateView: View {
     @Environment(\.dismiss) private var dismiss
     @EnvironmentObject private var session: SessionStore
+    @ObservedObject private var preferences = UserPreferencesStore.shared
 
     let onCreated: () -> Void
 
@@ -354,6 +355,9 @@ struct CommissionCreateView: View {
         .task {
             await loadData()
         }
+        .onChange(of: selectedCraftActivityId) { _, value in
+            if value > 0 { preferences.values.lastCraftActivityId = value }
+        }
         .onChange(of: selectedPhotoItems) { _, items in
             guard !items.isEmpty else { return }
 
@@ -430,6 +434,10 @@ struct CommissionCreateView: View {
             options = loaded
             selectedCommissionTypeId = loaded.commissionTypes.first?.id ?? 0
             selectedCraftsmanUserId = loaded.defaultCraftsmanUserId ?? 0
+            if let craftId = preferences.values.lastCraftActivityId,
+               loaded.craftActivities.contains(where: { $0.id == craftId }) {
+                selectedCraftActivityId = craftId
+            }
         } catch {
             errorMessage = error.localizedDescription
         }
