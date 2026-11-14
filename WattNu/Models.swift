@@ -513,6 +513,15 @@ struct CommissionContactsResponse: Codable {
 }
 
 struct CommissionContactItem: Codable, Identifiable, Hashable {
+    let contactId: String?
+    let useUnitId: Int?
+    let useUnitNumber: String?
+    let useUnitLocation: String?
+    let useUnitAddress: String?
+    let licenseAgreementId: Int?
+    let contractStart: String?
+    let contractEnd: String?
+    let isFutureContract: Bool?
     let personId: Int?
     let role: String?
     let name: String?
@@ -530,6 +539,13 @@ struct CommissionContactItem: Codable, Identifiable, Hashable {
     let additionalNumbers: [String]
 
     var id: String {
+        if let contactId, !contactId.isEmpty {
+            return contactId
+        }
+        if useUnitId != nil || licenseAgreementId != nil {
+            let identity = personId.map(String.init) ?? name ?? email ?? phone ?? "unknown"
+            return "\(useUnitId.map(String.init) ?? ""):\(licenseAgreementId.map(String.init) ?? ""):\(identity)"
+        }
         if let personId {
             return "\(personId)"
         }
@@ -537,6 +553,15 @@ struct CommissionContactItem: Codable, Identifiable, Hashable {
     }
 
     enum CodingKeys: String, CodingKey {
+        case contactId = "contact_id"
+        case useUnitId = "use_unit_id"
+        case useUnitNumber = "use_unit_number"
+        case useUnitLocation = "use_unit_location"
+        case useUnitAddress = "use_unit_address"
+        case licenseAgreementId = "license_agreement_id"
+        case contractStart = "contract_start"
+        case contractEnd = "contract_end"
+        case isFutureContract = "is_future_contract"
         case personId = "person_id"
         case role
         case name

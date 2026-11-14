@@ -9,6 +9,15 @@ struct CommissionContactRowView: View {
                 Text(contact.name ?? "Unbekannter Bewohner")
                     .font(.headline)
 
+                if contact.isFutureContract == true {
+                    Label(futureContractText, systemImage: "calendar")
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                        .padding(.horizontal, 8)
+                        .padding(.vertical, 4)
+                        .background(Color.secondary.opacity(0.08), in: Capsule())
+                }
+
                 if let role = contact.role, !role.isEmpty {
                     Text(role)
                         .font(.caption)
@@ -41,5 +50,14 @@ struct CommissionContactRowView: View {
             }
         }
         .padding(.vertical, 6)
+    }
+
+    private var futureContractText: String {
+        guard let value = contact.contractStart,
+              let date = Formatters.dateFromApiDate(value) else {
+            return "Zukünftiger Vertrag"
+        }
+        let formatted = date.formatted(.dateTime.day(.twoDigits).month(.twoDigits).year().locale(Locale(identifier: "de_DE")))
+        return "Zukünftiger Vertrag ab \(formatted)"
     }
 }

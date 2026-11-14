@@ -26,14 +26,34 @@ struct CommissionContactsView: View {
             if isLoading && contacts.isEmpty {
                 ProgressView("Kontakte werden geladen …")
             } else if contacts.isEmpty {
-                ContentUnavailableView("Keine Bewohner gefunden", systemImage: "person.crop.circle.badge.questionmark", description: Text("Für diese Wohnung wurden keine Kontaktdaten gefunden."))
+                ContentUnavailableView("Keine Mieter gefunden", systemImage: "person.crop.circle.badge.questionmark", description: Text("Für dieses Objekt wurden keine Kontaktdaten aktueller oder zukünftiger Mieter gefunden."))
             } else {
-                List(contacts) { contact in
-                    CommissionContactRowView(contact: contact)
+                List {
+                    ForEach(CommissionContactGroup.groups(from: contacts)) { group in
+                        if let title = group.title {
+                            Section {
+                                ForEach(group.contacts) { contact in
+                                    CommissionContactRowView(contact: contact)
+                                }
+                            } header: {
+                                VStack(alignment: .leading, spacing: 3) {
+                                    Text(title)
+                                    if let location = group.location, !location.isEmpty {
+                                        Text(location)
+                                            .font(.caption)
+                                    }
+                                }
+                            }
+                        } else {
+                            ForEach(group.contacts) { contact in
+                                CommissionContactRowView(contact: contact)
+                            }
+                        }
+                    }
                 }
             }
         }
-        .navigationTitle("Bewohner")
+        .navigationTitle("Mieterkontakte")
         .navigationBarTitleDisplayMode(.inline)
         .toolbar {
             ToolbarItem(placement: .topBarLeading) {
