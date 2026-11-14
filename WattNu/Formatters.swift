@@ -8,6 +8,10 @@
 import Foundation
 
 enum Formatters {
+    static func commissionCreationDate(_ value: String?) -> Date? {
+        appointmentDate(from: value)
+    }
+
     private static let appointmentDateCache: NSCache<NSString, NSDate> = {
         let cache = NSCache<NSString, NSDate>()
         cache.countLimit = 4096

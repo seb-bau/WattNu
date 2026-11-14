@@ -15,10 +15,32 @@ final class AppNavigationStore: ObservableObject {
     @Published var commissionPath = NavigationPath()
     @Published var safetyInspectionPath = NavigationPath()
     @Published var commissionListRevision = 0
-    @Published var safetyInspectionStatusFilter: SafetyInspectionListFilter = .active
-    @Published var safetyInspectionSearchText = ""
-    @Published var safetyInspectionOwnerFilter: CommissionOwnerFilter = .mine
     @Published var mapCommissions: [Commission]?
+
+    private let preferences: UserPreferencesStore
+    private var preferenceChanges: AnyCancellable?
+
+    init(preferences: UserPreferencesStore = .shared) {
+        self.preferences = preferences
+        preferenceChanges = preferences.objectWillChange.sink { [weak self] _ in
+            self?.objectWillChange.send()
+        }
+    }
+
+    var safetyInspectionStatusFilter: SafetyInspectionListFilter {
+        get { preferences.inspectionStatusFilter }
+        set { preferences.inspectionStatusFilter = newValue }
+    }
+
+    var safetyInspectionOwnerFilter: CommissionOwnerFilter {
+        get { preferences.inspectionOwnerFilter }
+        set { preferences.inspectionOwnerFilter = newValue }
+    }
+
+    var safetyInspectionSearchText: String {
+        get { preferences.values.inspectionSearch }
+        set { preferences.values.inspectionSearch = newValue }
+    }
 
     func openCommission(id: Int) {
         selectedTab = .commissions

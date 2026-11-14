@@ -382,6 +382,7 @@ final class SessionStore: ObservableObject {
     }
     
     private func configureInspectionStorage() {
+        UserPreferencesStore.shared.activate(baseURL: apiClient.baseURL, userId: user?.id)
         apiClient.safetyInspectionStore = inspectionStore
         apiClient.commissionStore = commissionStore
         do {

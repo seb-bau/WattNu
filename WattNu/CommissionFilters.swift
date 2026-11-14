@@ -7,6 +7,39 @@
 
 import Foundation
 
+enum CommissionSortMode: String, CaseIterable, Identifiable {
+    case oldestFirst
+    case newestFirst
+    case defaultOrder
+    case distance
+    case title
+
+    var id: String { rawValue }
+
+    var label: String {
+        switch self {
+        case .oldestFirst: return "Erstellt: älteste zuerst"
+        case .newestFirst: return "Erstellt: neueste zuerst"
+        case .defaultOrder: return "Priorität und Termine"
+        case .distance: return "Entfernung"
+        case .title: return "Titel"
+        }
+    }
+
+    func sortedByCreationDate(_ commissions: [Commission]) -> [Commission] {
+        let dated = commissions.map { ($0, Formatters.commissionCreationDate($0.recordingDate)) }
+        return dated.sorted { left, right in
+            switch (left.1, right.1) {
+            case let (leftDate?, rightDate?) where leftDate != rightDate:
+                return self == .newestFirst ? leftDate > rightDate : leftDate < rightDate
+            case (_?, nil): return true
+            case (nil, _?): return false
+            default: return self == .newestFirst ? left.0.id > right.0.id : left.0.id < right.0.id
+            }
+        }.map { $0.0 }
+    }
+}
+
 enum CommissionOwnerFilter: Hashable {
     case mine
     case user(Int)

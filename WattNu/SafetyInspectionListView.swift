@@ -8,6 +8,7 @@ struct SafetyInspectionListView: View {
     @EnvironmentObject private var inspections: SafetyInspectionOfflineStore
     @EnvironmentObject private var locationStore: LocationStore
     @Environment(\.scenePhase) private var scenePhase
+    @ObservedObject private var preferences = UserPreferencesStore.shared
 
     @State private var jobs: [SafetyInspectionJob] = []
     @State private var inspectionUsers: [AppUser] = []
@@ -18,9 +19,11 @@ struct SafetyInspectionListView: View {
     @State private var usersLoadRevision = 0
     @State private var loadRevision = 0
     @State private var errorMessage: String?
-    @State private var visitFilter: InspectionVisitFilter = .all
+    private var visitFilter: InspectionVisitFilter {
+        InspectionVisitFilter(rawValue: preferences.values.inspectionVisit) ?? .all
+    }
     
-    @State private var selectedTemplateId: Int?
+    private var selectedTemplateId: Int? { preferences.values.inspectionTemplateId }
 
     private var availableTemplates: [SafetyInspectionTemplateSummary] {
         Dictionary(grouping: jobs, by: \.template.id)
@@ -214,7 +217,7 @@ struct SafetyInspectionListView: View {
 
                         Picker(
                             "Prüfdetailplan",
-                            selection: $selectedTemplateId
+                            selection: $preferences.values.inspectionTemplateId
                         ) {
                             Text("Alle Prüfdetailpläne")
                                 .tag(Int?.none)
@@ -235,7 +238,7 @@ struct SafetyInspectionListView: View {
 
                         Picker(
                             "Besuchsvermerke",
-                            selection: $visitFilter
+                            selection: Binding(get: { visitFilter }, set: { preferences.values.inspectionVisit = $0.rawValue })
                         ) {
                             ForEach(InspectionVisitFilter.allCases) { filter in
                                 Text(filter.label).tag(filter)
@@ -247,8 +250,8 @@ struct SafetyInspectionListView: View {
                         Button("Filter zurücksetzen") {
                             navigation.safetyInspectionOwnerFilter = .mine
                             navigation.safetyInspectionStatusFilter = .active
-                            selectedTemplateId = nil
-                            visitFilter = .all
+                            preferences.values.inspectionTemplateId = nil
+                            preferences.values.inspectionVisit = InspectionVisitFilter.all.rawValue
                         }
                     }
                 }
