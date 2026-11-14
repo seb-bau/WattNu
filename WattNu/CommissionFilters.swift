@@ -38,6 +38,43 @@ enum CommissionSortMode: String, CaseIterable, Identifiable {
             }
         }.map { $0.0 }
     }
+
+    func sorted(_ commissions: [Commission], at currentDate: Date = Date(), distance: (Commission) -> Double? = { _ in nil }) -> [Commission] {
+        let ordered: [Commission]
+        switch self {
+        case .oldestFirst, .newestFirst:
+            ordered = sortedByCreationDate(commissions)
+        case .title:
+            ordered = commissions.sorted {
+                $0.displayTitle.localizedCaseInsensitiveCompare($1.displayTitle) == .orderedAscending
+            }
+        case .distance:
+            let nearby = commissions.enumerated().map {
+                (index: $0.offset, commission: $0.element, meters: distance($0.element) ?? Double.infinity)
+            }
+            ordered = nearby.sorted {
+                $0.meters == $1.meters ? $0.index < $1.index : $0.meters < $1.meters
+            }.map { $0.commission }
+        case .defaultOrder:
+            ordered = commissions
+        }
+
+        var groups = [[Commission]](repeating: [], count: 4)
+        for commission in ordered {
+            let priority: Int
+            if commission.isHighPriorityValue {
+                priority = 0
+            } else if Formatters.isAppointmentToday(commission.acceptedAppointmentFrom, at: currentDate) {
+                priority = 1
+            } else if commission.acceptedAppointmentFrom != nil {
+                priority = 2
+            } else {
+                priority = 3
+            }
+            groups[priority].append(commission)
+        }
+        return groups.flatMap { $0 }
+    }
 }
 
 enum CommissionOwnerFilter: Hashable {
