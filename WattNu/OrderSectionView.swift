@@ -116,7 +116,7 @@ struct OrderSectionView: View {
                     onCommissionUpdated: commissionUpdatedAction
                 )
 
-                if commission.isActionableValue {
+                if commission.isActionableValue || commission.objectType == "use_unit" || commission.objectType == "building" {
                     Button {
                         showContacts = true
                     } label: {
