@@ -101,6 +101,7 @@ struct TimeSectionView: View {
                     selection: $serviceDate,
                     displayedComponents: .date
                 )
+                .datePickerStyle(.graphical)
                 .disabled(
                     isLoading || commission.canEditValue == false
                 )

@@ -8,6 +8,10 @@ final class SessionStore: ObservableObject {
     @Published var accessToken: String?
     @Published var mobileConfig: MobileConfig?
     @Published var pushPreferences: PushPreferences?
+    @Published var appointmentPreferences: AppointmentPreferences?
+    @Published var isAppointmentPreferencesLoading = false
+    @Published var isAppointmentPreferencesSaving = false
+    @Published var appointmentPreferencesErrorMessage: String?
     @Published var isLoading = false
     @Published var isPushPreferencesLoading = false
     @Published var isPushPreferencesSaving = false
@@ -195,6 +199,47 @@ final class SessionStore: ObservableObject {
         }
     }
 
+    func loadAppointmentPreferences() async {
+        guard isAuthenticated, !isAppointmentPreferencesLoading, !isAppointmentPreferencesSaving else { return }
+        let currentAccessToken = accessToken
+        isAppointmentPreferencesLoading = true
+        appointmentPreferencesErrorMessage = nil
+        defer { isAppointmentPreferencesLoading = false }
+        do {
+            applyCurrentBaseURL()
+            let preferences = try await apiClient.fetchAppointmentPreferences()
+            guard accessToken == currentAccessToken else { return }
+            appointmentPreferences = preferences
+        } catch APIError.unauthorized {
+            if accessToken == currentAccessToken { clearSession() }
+        } catch {
+            guard accessToken == currentAccessToken else { return }
+            appointmentPreferencesErrorMessage = error.localizedDescription
+        }
+    }
+
+    func updateAppointmentPreferences(enabled: Bool) async {
+        guard isAuthenticated, !isAppointmentPreferencesLoading, !isAppointmentPreferencesSaving,
+              let previousPreferences = appointmentPreferences else { return }
+        let currentAccessToken = accessToken
+        appointmentPreferences = AppointmentPreferences(calendarEmailEnabled: enabled)
+        appointmentPreferencesErrorMessage = nil
+        isAppointmentPreferencesSaving = true
+        defer { isAppointmentPreferencesSaving = false }
+        do {
+            applyCurrentBaseURL()
+            let preferences = try await apiClient.updateAppointmentPreferences(enabled: enabled)
+            guard accessToken == currentAccessToken else { return }
+            appointmentPreferences = preferences
+        } catch APIError.unauthorized {
+            if accessToken == currentAccessToken { clearSession() }
+        } catch {
+            guard accessToken == currentAccessToken else { return }
+            appointmentPreferences = previousPreferences
+            appointmentPreferencesErrorMessage = error.localizedDescription
+        }
+    }
+
     func updatePushPreferences(
         event: AppPushEvent,
         enabled: Bool
@@ -362,6 +407,8 @@ final class SessionStore: ObservableObject {
         user = response.user
         accessToken = response.accessToken
         pushPreferences = nil
+        appointmentPreferences = nil
+        appointmentPreferencesErrorMessage = nil
         apiClient.accessToken = response.accessToken
         tokenStore.saveToken(response.accessToken)
         Self.saveStoredUser(response.user)
@@ -373,6 +420,8 @@ final class SessionStore: ObservableObject {
         user = nil
         accessToken = nil
         pushPreferences = nil
+        appointmentPreferences = nil
+        appointmentPreferencesErrorMessage = nil
         pushRegistrationErrorMessage = nil
         apiClient.accessToken = nil
         tokenStore.deleteToken()

@@ -146,6 +146,55 @@ struct PushPreferencesResponse: Decodable {
     let preferences: PushPreferences
 }
 
+struct AppointmentPreferences: Codable, Equatable {
+    let calendarEmailEnabled: Bool
+
+    enum CodingKeys: String, CodingKey {
+        case calendarEmailEnabled = "calendar_email_enabled"
+    }
+}
+
+struct AppointmentPreferencesResponse: Decodable {
+    let preferences: AppointmentPreferences
+}
+
+struct RelatedCommission: Codable, Identifiable {
+    let commission: Commission
+    let relationship: String
+    let directAccess: Bool
+
+    var id: Int { commission.id }
+
+    enum CodingKeys: String, CodingKey {
+        case commission, relationship
+        case directAccess = "direct_access"
+    }
+
+    var relationshipLabel: String {
+        switch relationship {
+        case "license_agreement": return "Derselbe Vertrag"
+        case "use_unit": return "Dieselbe Wohnung"
+        default: return "Dasselbe Gebäude"
+        }
+    }
+
+    var relationshipIcon: String {
+        switch relationship {
+        case "license_agreement": return "doc.text"
+        case "use_unit": return "door.left.hand.closed"
+        default: return "building.2"
+        }
+    }
+}
+
+struct RelatedCommissionsResponse: Codable {
+    let items: [RelatedCommission]
+    let total: Int
+    let page: Int
+    let pages: Int
+    let counts: [String: Int]
+}
+
 struct PushPreferencesUpdateRequest: Encodable {
     let events: [String: Bool]
 }

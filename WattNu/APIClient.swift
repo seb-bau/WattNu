@@ -78,6 +78,39 @@ final class APIClient {
         return response.preferences
     }
 
+    func fetchAppointmentPreferences() async throws -> AppointmentPreferences {
+        try requireToken()
+        let response: AppointmentPreferencesResponse = try await request(path: "/api/me/appointment-preferences")
+        return response.preferences
+    }
+
+    func updateAppointmentPreferences(enabled: Bool) async throws -> AppointmentPreferences {
+        try requireToken()
+        let response: AppointmentPreferencesResponse = try await send(
+            path: "/api/me/appointment-preferences", method: "PATCH",
+            body: AppointmentPreferences(calendarEmailEnabled: enabled)
+        )
+        return response.preferences
+    }
+
+    func fetchRelatedCommissions(commissionId: Int, page: Int = 1) async throws -> RelatedCommissionsResponse {
+        try requireToken()
+        return try await request(
+            path: "/api/commissions/\(commissionId)/related",
+            queryItems: [URLQueryItem(name: "page", value: String(page))],
+            refreshBeforeReturning: true
+        )
+    }
+
+    func fetchRelatedCommission(commissionId: Int, relatedId: Int) async throws -> Commission {
+        try requireToken()
+        let response: ItemResponse<Commission> = try await request(
+            path: "/api/commissions/\(commissionId)/related/\(relatedId)",
+            refreshBeforeReturning: true
+        )
+        return response.item
+    }
+
     func updatePushPreferences(
         event: AppPushEvent,
         enabled: Bool
