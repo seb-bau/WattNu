@@ -15,6 +15,7 @@ struct TimeSectionView: View {
     @State private var extraHoursText = ""
     @State private var note = ""
     @State private var serviceDate = Date()
+    @State private var isServiceDatePickerPresented = false
     @State private var editingEntry: TimeEntry?
     @State private var entryToDelete: TimeEntry?
     @State private var isLoading = false
@@ -96,12 +97,38 @@ struct TimeSectionView: View {
                         .foregroundStyle(.secondary)
                 }
                 
-                DatePicker(
-                    "Leistungsdatum",
-                    selection: $serviceDate,
-                    displayedComponents: .date
-                )
-                .datePickerStyle(.graphical)
+                LabeledContent("Leistungsdatum") {
+                    Button {
+                        focusedField = nil
+                        isServiceDatePickerPresented = true
+                    } label: {
+                        Text(serviceDate, format: .dateTime.day().month().year())
+                            .padding(.horizontal, 10)
+                            .padding(.vertical, 6)
+                            .background(.quaternary, in: RoundedRectangle(cornerRadius: 8))
+                    }
+                    .buttonStyle(.borderless)
+                    .accessibilityLabel("Leistungsdatum auswählen")
+                    .accessibilityValue(serviceDate.formatted(date: .abbreviated, time: .omitted))
+                    .popover(isPresented: $isServiceDatePickerPresented) {
+                        DatePicker(
+                            "Leistungsdatum",
+                            selection: Binding(
+                                get: { serviceDate },
+                                set: { selectedDate in
+                                    serviceDate = selectedDate
+                                    isServiceDatePickerPresented = false
+                                }
+                            ),
+                            displayedComponents: .date
+                        )
+                        .datePickerStyle(.graphical)
+                        .labelsHidden()
+                        .frame(width: 300)
+                        .padding(8)
+                        .presentationCompactAdaptation(.popover)
+                    }
+                }
                 .disabled(
                     isLoading || commission.canEditValue == false
                 )
