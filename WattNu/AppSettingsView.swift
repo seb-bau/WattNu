@@ -61,6 +61,30 @@ struct AppSettingsView: View {
                 }
 
                 Section {
+                    Toggle("Kalendereinladungen per E-Mail", isOn: Binding(
+                        get: { session.appointmentPreferences?.calendarEmailEnabled ?? true },
+                        set: { enabled in
+                            Task { await session.updateAppointmentPreferences(enabled: enabled) }
+                        }
+                    ))
+                    .disabled(session.appointmentPreferences == nil || session.isAppointmentPreferencesLoading || session.isAppointmentPreferencesSaving)
+
+                    if session.isAppointmentPreferencesLoading || session.isAppointmentPreferencesSaving {
+                        ProgressView("Einstellung wird übertragen …")
+                    }
+                    if let message = session.appointmentPreferencesErrorMessage {
+                        Text(message).font(.footnote).foregroundStyle(.red)
+                        Button("Erneut laden") {
+                            Task { await session.loadAppointmentPreferences() }
+                        }
+                    }
+                } header: {
+                    Text("Termine")
+                } footer: {
+                    Text("Sie erhalten eine ICS-Einladung an Ihre E-Mail-Adresse, sobald ein Mieter einen Termin annimmt oder ein Termin eingetragen wird. Die Einstellung gilt auf allen Geräten.")
+                }
+
+                Section {
                     NavigationLink {
                         SynchronizationView()
                     } label: {
@@ -96,6 +120,7 @@ struct AppSettingsView: View {
 
                             await session.loadMobileConfig()
                             await session.loadPushPreferences()
+                            await session.loadAppointmentPreferences()
                             await synchronizePushDevice()
                         }
                     } label: {
@@ -151,13 +176,23 @@ struct AppSettingsView: View {
                     } label: {
                         Text("Abmelden")
                     }
+                } footer: {
+                    Text(installedVersion)
+                        .frame(maxWidth: .infinity, alignment: .center)
                 }
             }
             .navigationTitle("Einstellungen")
             .task {
                 await session.loadPushPreferences()
+                await session.loadAppointmentPreferences()
             }
         }
+    }
+
+    private var installedVersion: String {
+        let version = Bundle.main.object(forInfoDictionaryKey: "CFBundleShortVersionString") as? String ?? "–"
+        let build = Bundle.main.object(forInfoDictionaryKey: "CFBundleVersion") as? String ?? "–"
+        return "WattNu · Version \(version) (Build \(build))"
     }
     
     private func pushPreferenceBinding(

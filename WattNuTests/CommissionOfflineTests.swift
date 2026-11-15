@@ -49,9 +49,24 @@ struct CommissionOfflineTests {
         return store
     }
 
-    private func book(_ store: CommissionOfflineStore, commissionID: Int = 10, minutes: Int = 60) async throws -> TimeEntry {
-        let data = try await store.execute(path: "/api/commissions/\(commissionID)/time", method: "POST", body: CommissionOfflineJSON.data(["minutes": minutes, "service_date": "2026-11-10"]), contentType: "application/json", accept: "application/json")
+    private func book(_ store: CommissionOfflineStore, commissionID: Int = 10, minutes: Int = 60, serviceDate: String = "2026-11-10") async throws -> TimeEntry {
+        let data = try await store.execute(path: "/api/commissions/\(commissionID)/time", method: "POST", body: CommissionOfflineJSON.data(["minutes": minutes, "service_date": serviceDate]), contentType: "application/json", accept: "application/json")
         return try JSONDecoder().decode(ItemResponse<TimeEntry>.self, from: data).item
+    }
+
+    @Test func commissionBookingPreservesASelectedPastServiceDateAcrossRestart() async throws {
+        let directory = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+        defer { try? FileManager.default.removeItem(at: directory) }
+        let store = try fixture(directory)
+        let entry = try await book(store, serviceDate: "2025-01-15")
+        #expect(entry.serviceDate == "2025-01-15")
+        let reopened = CommissionOfflineStore(storageDirectory: directory)
+        reopened.setActive(false)
+        try reopened.bind(user: user, baseURL: baseURL, token: "test")
+        let operation = try #require(reopened.snapshot.operations.first)
+        let body = try CommissionOfflineJSON.object(operation.body)
+        #expect(body["service_date"] as? String == "2025-01-15")
+        reopened.stop(); store.stop()
     }
 
     @Test func bookingSurvivesReopeningTheStore() async throws {

@@ -111,6 +111,8 @@ struct OrderSectionView: View {
                     )
                 }
 
+                RelatedCommissionsSectionView(commissionId: commission.id)
+
                 CommissionAppointmentSectionView(
                     commission: commission,
                     onCommissionUpdated: commissionUpdatedAction
