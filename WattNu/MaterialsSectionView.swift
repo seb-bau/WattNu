@@ -495,7 +495,7 @@ struct MaterialsSectionView: View {
             }
         }
         .refreshForCommissionChanges { await loadMaterials(refresh: false) }
-        .refreshWhileActive(id: commission.id, periodicAction: { await loadMaterials() }) {
+        .refreshOnActivation(id: commission.id, refreshAction: { await loadMaterials() }) {
             await loadData()
         }
         .refreshable {
@@ -592,12 +592,14 @@ struct MaterialsSectionView: View {
                 loadedTasks
             )
 
-            movements = result.0
-            inventoryLocations = result.1
-            commissionTasks =
+            guard !Task.isCancelled else { return }
+            if movements != result.0 { movements = result.0 }
+            if inventoryLocations != result.1 { inventoryLocations = result.1 }
+            let loadedCommissionTasks =
                 commission.matchingTimeTasks(
                     in: result.2
                 )
+            if commissionTasks != loadedCommissionTasks { commissionTasks = loadedCommissionTasks }
 
             configureInventoryLocation()
             restoreTaskSelection()
@@ -648,7 +650,9 @@ struct MaterialsSectionView: View {
 
     private func loadMaterials(refresh: Bool = true) async {
         do {
-            movements = try await session.apiClient.fetchMaterials(commissionId: commission.id, refresh: refresh)
+            let loadedMovements = try await session.apiClient.fetchMaterials(commissionId: commission.id, refresh: refresh)
+            guard !Task.isCancelled else { return }
+            if movements != loadedMovements { movements = loadedMovements }
         } catch {
             if error.isRequestCancellation { return }
             errorMessage = error.localizedDescription

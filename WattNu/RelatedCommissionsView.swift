@@ -27,15 +27,17 @@ struct RelatedCommissionsSectionView: View {
             }
         }
         .frame(maxWidth: .infinity, alignment: .leading)
-        .task(id: commissionId) { await load() }
-        .refreshForCommissionChanges { await load() }
+        .refreshOnActivation(id: commissionId) { await load() }
+        .refreshForCommissionChanges { await load(refresh: false) }
     }
 
-    private func load() async {
+    private func load(refresh: Bool = true) async {
         guard commissionId > 0 else { return }
         do {
-            response = try await session.apiClient.fetchRelatedCommissions(commissionId: commissionId)
-            errorMessage = nil
+            let loadedResponse = try await session.apiClient.fetchRelatedCommissions(commissionId: commissionId, refresh: refresh)
+            guard !Task.isCancelled else { return }
+            if response != loadedResponse { response = loadedResponse }
+            if errorMessage != nil { errorMessage = nil }
         } catch {
             if error.isRequestCancellation { return }
             errorMessage = error.localizedDescription

@@ -158,7 +158,7 @@ struct AppointmentPreferencesResponse: Decodable {
     let preferences: AppointmentPreferences
 }
 
-struct RelatedCommission: Codable, Identifiable {
+struct RelatedCommission: Codable, Identifiable, Equatable {
     let commission: Commission
     let relationship: String
     let directAccess: Bool
@@ -187,7 +187,7 @@ struct RelatedCommission: Codable, Identifiable {
     }
 }
 
-struct RelatedCommissionsResponse: Codable {
+struct RelatedCommissionsResponse: Codable, Equatable {
     let items: [RelatedCommission]
     let total: Int
     let page: Int
@@ -1441,7 +1441,7 @@ struct EmptyRequest: Encodable {
 struct EmptyResponse: Decodable {
 }
 
-struct CommissionAttachment: Codable, Identifiable {
+struct CommissionAttachment: Codable, Identifiable, Equatable {
     let id: Int
     let commissionId: Int
     let sourceEntityName: String
@@ -1503,7 +1503,7 @@ struct CommissionAttachment: Codable, Identifiable {
     }
 }
 
-struct CommissionPhoto: Codable, Identifiable {
+struct CommissionPhoto: Codable, Identifiable, Equatable {
     let id: Int
     let commissionId: Int
     let source: String
@@ -1715,7 +1715,7 @@ struct CommissionAppointmentProposal: Codable, Identifiable, Hashable {
     }
 }
 
-struct CommissionAppointmentRequest: Codable, Identifiable {
+struct CommissionAppointmentRequest: Codable, Identifiable, Equatable {
     let id: Int
     let commissionId: Int
     let recipientName: String?

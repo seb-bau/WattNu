@@ -9,9 +9,11 @@ struct CommissionAttachmentsSectionView: View {
 
     @State private var attachments: [CommissionAttachment] = []
     @State private var thumbnails: [Int: UIImage] = [:]
+    @State private var thumbnailItems: [Int: CommissionAttachment] = [:]
     @State private var previewItem: CommissionAttachmentPreview?
     @State private var loadingAttachmentId: Int?
     @State private var isLoading = false
+    @State private var hasLoaded = false
     @State private var errorMessage: String?
 
     var body: some View {
@@ -73,7 +75,7 @@ struct CommissionAttachmentsSectionView: View {
             }
         }
         .refreshForCommissionChanges { await loadAttachments(refresh: false) }
-        .refreshWhileActive(id: commission.id) {
+        .refreshOnActivation(id: commission.id) {
             await loadAttachments()
         }
         .sheet(
@@ -196,23 +198,34 @@ struct CommissionAttachmentsSectionView: View {
     }
 
     private func loadAttachments(refresh: Bool = true) async {
-        isLoading = true
+        let showLoading = !hasLoaded
+        if showLoading { isLoading = true }
 
         defer {
-            isLoading = false
+            if showLoading { isLoading = false }
         }
 
         do {
-            attachments = try await session.apiClient
+            let loadedAttachments = try await session.apiClient
                 .fetchCommissionAttachments(
                     commissionId: commission.id,
                     refresh: refresh
                 )
 
-            thumbnails = [:]
+            guard !Task.isCancelled else { return }
+            let attachmentsToLoad = CommissionMediaRefresh.itemsRequiringThumbnails(
+                loadedAttachments, previousItems: thumbnailItems, thumbnails: thumbnails
+            )
+            if attachments != loadedAttachments {
+                attachments = loadedAttachments
+                thumbnails = CommissionMediaRefresh.retainedThumbnails(thumbnails, for: loadedAttachments)
+                thumbnailItems = CommissionMediaRefresh.retainedThumbnails(thumbnailItems, for: loadedAttachments)
+            }
+            if !hasLoaded { hasLoaded = true }
 
-            for attachment in attachments
+            for attachment in attachmentsToLoad
             where attachment.isImage {
+                guard !Task.isCancelled else { return }
                 await loadThumbnail(
                     for: attachment
                 )
@@ -240,12 +253,14 @@ struct CommissionAttachmentsSectionView: View {
                     path: thumbnailPath
                 )
 
+            guard !Task.isCancelled, attachments.contains(attachment) else { return }
             if let image = UIImage(
                 data: data
             ) {
                 thumbnails[
                     attachment.id
                 ] = image
+                thumbnailItems[attachment.id] = attachment
             }
         } catch {
             if error.isRequestCancellation {

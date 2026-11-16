@@ -93,12 +93,12 @@ final class APIClient {
         return response.preferences
     }
 
-    func fetchRelatedCommissions(commissionId: Int, page: Int = 1) async throws -> RelatedCommissionsResponse {
+    func fetchRelatedCommissions(commissionId: Int, page: Int = 1, refresh: Bool = true) async throws -> RelatedCommissionsResponse {
         try requireToken()
         return try await request(
             path: "/api/commissions/\(commissionId)/related",
             queryItems: [URLQueryItem(name: "page", value: String(page))],
-            refreshBeforeReturning: true
+            refreshBeforeReturning: refresh
         )
     }
 

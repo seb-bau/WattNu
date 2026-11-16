@@ -9,6 +9,7 @@ struct CommissionAppointmentSectionView: View {
     @State private var requests: [CommissionAppointmentRequest] = []
     @State private var composerPresented = false
     @State private var isLoading = false
+    @State private var hasLoaded = false
     @State private var errorMessage: String?
     @State private var cancellationConfirmationPresented = false
     @State private var isCancelling = false
@@ -207,7 +208,7 @@ struct CommissionAppointmentSectionView: View {
             )
         )
         .refreshForCommissionChanges { await loadRequests(refresh: false) }
-        .refreshWhileActive(id: "\(commission.id):\(commission.acceptedAppointmentFrom ?? "")") {
+        .refreshOnActivation(id: "\(commission.id):\(commission.acceptedAppointmentFrom ?? "")") {
             if commission.acceptedAppointmentFrom == nil {
                 await loadRequests()
             }
@@ -290,18 +291,22 @@ struct CommissionAppointmentSectionView: View {
     }
 
     private func loadRequests(refresh: Bool = true) async {
-        isLoading = true
+        let showLoading = !hasLoaded
+        if showLoading { isLoading = true }
 
         defer {
-            isLoading = false
+            if showLoading { isLoading = false }
         }
 
         do {
-            requests = try await session.apiClient
+            let loadedRequests = try await session.apiClient
                 .fetchCommissionAppointments(
                     commissionId: commission.id,
                     refresh: refresh
                 )
+            guard !Task.isCancelled else { return }
+            if requests != loadedRequests { requests = loadedRequests }
+            if !hasLoaded { hasLoaded = true }
         } catch {
             if error.isRequestCancellation {
                 return

@@ -215,6 +215,38 @@ struct CommissionPreparationTests {
         #expect(fixture.scenario.count("/api/mobile/offline-data") == 1)
     }
 
+    @Test func relatedOrderCacheNotificationsDoNotTriggerAnotherServerRefresh() async throws {
+        let path = "/api/commissions/10/related"
+        let query = [CommissionOfflineQuery(name: "page", value: "1")]
+        let payload: [String: Any] = ["items": [], "total": 0, "page": 1, "pages": 1, "counts": [:]]
+        let resource = CommissionOfflineResource(path: path, query: query, data: try CommissionOfflineJSON.data(payload), fetchedAt: Date())
+        let fixture = try fixture(dates: [], resources: [resource])
+        defer { fixture.close() }
+        let client = apiClient(fixture)
+        let initialRevision = fixture.store.revision
+
+        for _ in 0..<30 {
+            let cached = try await client.fetchRelatedCommissions(commissionId: 10, refresh: false)
+            #expect(cached.items.isEmpty)
+        }
+        #expect(fixture.store.revision == initialRevision)
+        #expect(fixture.scenario.count("/api/mobile/offline-data") == 0)
+
+        let item: [String: Any] = ["commission": ["id": 20, "local_status": "in_progress", "positions": []], "relationship": "building", "direct_access": false]
+        let updated: [String: Any] = ["items": [item], "total": 1, "page": 1, "pages": 1, "counts": ["building": 1]]
+        fixture.scenario.setReplies([.response(200, try resourceResponse(path: path, query: query, payload: updated))], for: "/api/mobile/offline-data")
+        let refreshed = try await client.fetchRelatedCommissions(commissionId: 10)
+        #expect(refreshed.items.map(\.id) == [20])
+        let refreshedRevision = fixture.store.revision
+
+        for _ in 0..<30 {
+            let cached = try await client.fetchRelatedCommissions(commissionId: 10, refresh: false)
+            #expect(cached == refreshed)
+        }
+        #expect(fixture.store.revision == refreshedRevision)
+        #expect(fixture.scenario.count("/api/mobile/offline-data") == 1)
+    }
+
     @Test func emptyCommissionCacheCanBeReadRepeatedlyWithoutNetworkOrRevisionChanges() throws {
         let path = "/api/commissions"
         let query = [CommissionOfflineQuery(name: "scope", value: "mine"), CommissionOfflineQuery(name: "status", value: "active")]

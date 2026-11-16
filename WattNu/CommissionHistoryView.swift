@@ -7,6 +7,7 @@ struct CommissionHistoryView: View {
 
     @State private var entries: [CommissionHistoryEntry] = []
     @State private var isLoading = false
+    @State private var hasLoaded = false
     @State private var errorMessage: String?
 
     var body: some View {
@@ -88,7 +89,7 @@ struct CommissionHistoryView: View {
             }
         }
         .refreshForCommissionChanges { await loadHistory(refresh: false) }
-        .refreshWhileActive(id: commission.id) {
+        .refreshOnActivation(id: commission.id) {
             await loadHistory()
         }
         .alert(
@@ -116,18 +117,22 @@ struct CommissionHistoryView: View {
     }
 
     private func loadHistory(refresh: Bool = true) async {
-        isLoading = true
+        let showLoading = !hasLoaded
+        if showLoading { isLoading = true }
 
         defer {
-            isLoading = false
+            if showLoading { isLoading = false }
         }
 
         do {
-            entries = try await session.apiClient
+            let loadedEntries = try await session.apiClient
                 .fetchCommissionHistory(
                     commissionId: commission.id,
                     refresh: refresh
                 )
+            guard !Task.isCancelled else { return }
+            if entries != loadedEntries { entries = loadedEntries }
+            if !hasLoaded { hasLoaded = true }
         } catch {
             if error.isRequestCancellation { return }
             errorMessage = error.localizedDescription

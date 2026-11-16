@@ -3,7 +3,7 @@ import Foundation
 import SwiftUI
 import UserNotifications
 
-struct ProcessInfoMessage: Decodable, Identifiable {
+struct ProcessInfoMessage: Decodable, Identifiable, Equatable {
     let id: String
     let processErpId: Int
     let body: String
@@ -67,7 +67,7 @@ struct ProcessInfoCreateRequest: Encodable {
     }
 }
 
-struct ProcessInfoReadReceipt: Decodable {
+struct ProcessInfoReadReceipt: Decodable, Equatable {
     let readerName: String
     let readerKind: String
     let readerId: Int?
@@ -344,7 +344,7 @@ struct ProcessInfoView: View {
         .refreshForCommissionChanges {
             await loadMessages(showLoading: false, refresh: false)
         }
-        .refreshWhileActive(id: commissionId, periodicAction: { await loadMessages(showLoading: false) }) {
+        .refreshOnActivation(id: commissionId, refreshAction: { await loadMessages(showLoading: false) }) {
             await loadMessages()
         }
         .alert(
@@ -391,7 +391,8 @@ struct ProcessInfoView: View {
                 refresh: refresh
             )
 
-            messages = response.items
+            guard !Task.isCancelled else { return }
+            if messages != response.items { messages = response.items }
 
             await store.refresh(apiClient: session.apiClient)
             await markVisibleMessagesRead()

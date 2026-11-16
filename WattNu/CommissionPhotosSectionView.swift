@@ -9,12 +9,14 @@ struct CommissionPhotosSectionView: View {
 
     @State private var photos: [CommissionPhoto] = []
     @State private var thumbnails: [Int: UIImage] = [:]
+    @State private var thumbnailItems: [Int: CommissionPhoto] = [:]
     @State private var selectedPhoto: CommissionPhoto?
     @State private var selectedPhotoItem: PhotosPickerItem?
     @State private var photoPickerPresented = false
     @State private var cameraPresented = false
     @State private var sourceDialogPresented = false
     @State private var isLoading = false
+    @State private var hasLoaded = false
     @State private var isUploading = false
     @State private var errorMessage: String?
 
@@ -95,7 +97,7 @@ struct CommissionPhotosSectionView: View {
             }
         }
         .refreshForCommissionChanges { await loadPhotos(refresh: false) }
-        .refreshWhileActive(id: commission.id) {
+        .refreshOnActivation(id: commission.id) {
             await loadPhotos()
         }
         .refreshable {
@@ -218,23 +220,34 @@ struct CommissionPhotosSectionView: View {
     }
 
     private func loadPhotos(refresh: Bool = true) async {
-        isLoading = true
+        let showLoading = !hasLoaded
+        if showLoading { isLoading = true }
 
         defer {
-            isLoading = false
+            if showLoading { isLoading = false }
         }
 
         do {
-            photos = try await session.apiClient
+            let loadedPhotos = try await session.apiClient
                 .fetchCommissionPhotos(
                     commissionId: commission.id,
                     context: "order",
                     refresh: refresh
                 )
 
-            thumbnails = [:]
+            guard !Task.isCancelled else { return }
+            let photosToLoad = CommissionMediaRefresh.itemsRequiringThumbnails(
+                loadedPhotos, previousItems: thumbnailItems, thumbnails: thumbnails
+            )
+            if photos != loadedPhotos {
+                photos = loadedPhotos
+                thumbnails = CommissionMediaRefresh.retainedThumbnails(thumbnails, for: loadedPhotos)
+                thumbnailItems = CommissionMediaRefresh.retainedThumbnails(thumbnailItems, for: loadedPhotos)
+            }
+            if !hasLoaded { hasLoaded = true }
 
-            for photo in photos {
+            for photo in photosToLoad {
+                guard !Task.isCancelled else { return }
                 await loadThumbnail(
                     for: photo
                 )
@@ -257,12 +270,14 @@ struct CommissionPhotosSectionView: View {
                     path: photo.thumbnailPath
                 )
 
+            guard !Task.isCancelled, photos.contains(photo) else { return }
             if let image = UIImage(
                 data: data
             ) {
                 thumbnails[
                     photo.id
                 ] = image
+                thumbnailItems[photo.id] = photo
             }
         } catch {
             if error.isRequestCancellation {
