@@ -167,7 +167,7 @@ final class APIClient {
         return response.unregistered
     }
 
-    func fetchCommissions(scope: CommissionScopeFilter = .mine, status: CommissionStatusFilter = .active, userId: Int? = nil) async throws -> [Commission] {
+    func fetchCommissions(scope: CommissionScopeFilter = .mine, status: CommissionStatusFilter = .active, userId: Int? = nil, refresh: Bool = false) async throws -> [Commission] {
         try requireToken()
 
         var queryItems = [
@@ -182,7 +182,7 @@ final class APIClient {
             queryItems.append(URLQueryItem(name: "user_id", value: "\(userId)"))
         }
 
-        let response: ListResponse<Commission> = try await request(path: "/api/commissions", queryItems: queryItems)
+        let response: ListResponse<Commission> = try await request(path: "/api/commissions", queryItems: queryItems, refreshBeforeReturning: refresh)
         return response.items
     }
     

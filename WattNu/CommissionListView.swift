@@ -17,6 +17,7 @@ struct CommissionListView: View {
     private var sortMode: CommissionSortMode { preferences.commissionSortMode }
     @State private var isSearchVisible = false
     @State private var hasLoadedCommissions = false
+    @State private var isLoadingCommissions = false
     @State private var loadRevision = 0
     @State private var errorMessage: String?
     @State private var isCreatePresented = false
@@ -138,7 +139,7 @@ struct CommissionListView: View {
                 }
 
                 Group {
-                    if !hasLoadedCommissions && errorMessage == nil {
+                    if (!hasLoadedCommissions || (isLoadingCommissions && commissions.isEmpty)) && errorMessage == nil {
                         ProgressView("Aufträge werden geladen …")
                             .frame(maxWidth: .infinity, maxHeight: .infinity)
                     } else if items.isEmpty {
@@ -383,6 +384,10 @@ struct CommissionListView: View {
         let requestedRevision = loadRevision
         let requestedOwner = ownerFilter
         let requestedStatus = statusFilter
+        isLoadingCommissions = true
+        defer {
+            if requestedRevision == loadRevision { isLoadingCommissions = false }
+        }
         errorMessage = nil
         refreshCachedCommissions()
 
@@ -392,7 +397,8 @@ struct CommissionListView: View {
                     .fetchCommissions(
                         scope: requestedOwner.scope,
                         status: requestedStatus.apiFilter,
-                        userId: requestedOwner.userId
+                        userId: requestedOwner.userId,
+                        refresh: true
                     )
 
             guard !Task.isCancelled, requestedRevision == loadRevision,

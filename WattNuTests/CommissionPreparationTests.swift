@@ -8,9 +8,10 @@ struct CommissionPreparationTests {
     private let baseURL = URL(string: "https://preparation.example.invalid")!
     private let user = AppUser(id: 1, email: "one@example.invalid", displayName: "One", craftsmanErpId: nil, isAdmin: false, isForeman: false)
 
-    private func fixture(dates: [String], cached: Bool = false, queued: Bool = true, oldErrors: Bool = false, infos: [[String: Any]]? = nil, resources: [CommissionOfflineResource] = []) throws -> PreparationFixture {
+    private func fixture(dates: [String], cached: Bool = false, queued: Bool = true, oldErrors: Bool = false, infos: [[String: Any]]? = nil, resources: [CommissionOfflineResource] = [], preparationErrors: [String: String] = [:]) throws -> PreparationFixture {
         let directory = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
         var snapshot = CommissionOfflineSnapshot()
+        snapshot.preparationErrors = preparationErrors
         let userData = try CommissionOfflineJSON.object(JSONEncoder().encode(user))
         let parent = "/api/commissions/10"
         snapshot.resources[parent] = CommissionOfflineResource(path: parent, query: [], data: try CommissionOfflineJSON.data(["item": ["id": 10, "local_status": "in_progress", "assigned_user": userData, "can_edit": true, "is_actionable": true, "positions": []]]), fetchedAt: Date())
@@ -72,6 +73,270 @@ struct CommissionPreparationTests {
 
     private func photo(_ id: Int, context: String) -> [String: Any] {
         ["id": id, "commission_id": 10, "source": "erp", "context": context, "external_entity_name": "Building", "original_filename": "foto.jpg", "mime_type": "image/jpeg", "size_bytes": 5, "content_path": "/api/commissions/10/photos/\(id)/content", "thumbnail_path": "/api/commissions/10/photos/\(id)/thumbnail"]
+    }
+
+    private func listCommission(_ id: Int, ownerID: Int = 1, status: String = "waiting_for_acceptance") throws -> [String: Any] {
+        var owner = try CommissionOfflineJSON.object(JSONEncoder().encode(user))
+        owner["id"] = ownerID
+        return ["id": id, "local_status": status, "assigned_user": owner, "positions": [], "can_edit": true, "is_actionable": true]
+    }
+
+    private func listResource(_ items: [[String: Any]], scope: String = "all", status: String? = nil, ownerID: Int? = nil, fetchedAt: Date = Date()) throws -> CommissionOfflineResource {
+        var query = [CommissionOfflineQuery(name: "scope", value: scope)]
+        if let status { query.append(CommissionOfflineQuery(name: "status", value: status)) }
+        if let ownerID { query.append(CommissionOfflineQuery(name: "user_id", value: String(ownerID))) }
+        return CommissionOfflineResource(path: "/api/commissions", query: query, data: try CommissionOfflineJSON.data(["items": items]), fetchedAt: fetchedAt)
+    }
+
+    private func missingCommissionResponse(_ id: Int) throws -> Data {
+        try CommissionOfflineJSON.data(["items": [["path": "/api/commissions/\(id)", "query": [], "status": 404, "payload": ["message": "Auftrag nicht gefunden."]]]])
+    }
+
+    private func expectMissingCommission(_ id: Int, client: APIClient) async throws {
+        do {
+            _ = try await client.fetchCommission(id: id, refresh: true)
+            Issue.record("Ein nicht mehr verfügbarer Auftrag darf nicht aus dem Cache wiederhergestellt werden.")
+        } catch APIError.serverStatus(let status, _) {
+            #expect(status == 404)
+        }
+    }
+
+    @Test func switchingToAColleagueWaitsForTheServerInsteadOfReturningAnEmptyFallback() async throws {
+        let mine = try listResource([listCommission(10)], scope: "mine", status: "active")
+        let fixture = try fixture(dates: [], resources: [mine])
+        defer { fixture.close() }
+        let client = apiClient(fixture)
+        let query = [CommissionOfflineQuery(name: "scope", value: "all"), CommissionOfflineQuery(name: "status", value: "active"), CommissionOfflineQuery(name: "user_id", value: "2")]
+        let resource = try listResource([listCommission(20, ownerID: 2, status: "open")], status: "active", ownerID: 2)
+        let payload = try CommissionOfflineJSON.object(resource.data)
+        let path = "/api/mobile/offline-data"
+        fixture.scenario.setReplies([.response(200, try resourceResponse(path: "/api/commissions", query: query, payload: payload))], for: path)
+        fixture.scenario.hold(path)
+        var completed = false
+        let task = Task {
+            let items = try await client.fetchCommissions(scope: .all, status: .active, userId: 2, refresh: true)
+            completed = true
+            return items
+        }
+        defer { task.cancel(); fixture.scenario.release(path) }
+        try await waitUntil { fixture.scenario.hasHeldResponse(path) }
+        #expect(!completed)
+        fixture.scenario.release(path)
+        let items = try await task.value
+        #expect(items.map(\.id) == [20])
+        #expect(items.first?.assignedUser?.id == 2)
+        #expect(fixture.scenario.count(path) == 1)
+    }
+
+    @Test func aNewerCompleteListOverridesAnOlderStatusCacheAndStaleDetails() throws {
+        let deleted = try listCommission(8)
+        let surviving = try listCommission(80)
+        let old = Date().addingTimeInterval(-3600)
+        let waiting = try listResource([deleted, surviving], scope: "mine", status: "waiting_for_acceptance", fetchedAt: old)
+        let complete = try listResource([surviving], scope: "mine")
+        let detail = CommissionOfflineResource(path: "/api/commissions/8", query: [], data: try CommissionOfflineJSON.data(["item": deleted]), fetchedAt: old)
+        let fixture = try fixture(dates: [], resources: [waiting, complete, detail])
+        defer { fixture.close() }
+        #expect(try fixture.store.cachedCommissions(scope: .mine, status: .waitingForAcceptance, userId: nil)?.map(\.id) == [80])
+        #expect(try fixture.store.cachedCommissions(scope: .mine, status: .all, userId: nil)?.map(\.id) == [80])
+        #expect(fixture.scenario.count("/api/mobile/offline-data") == 0)
+    }
+
+    @Test func aNewerEmptyCompleteListAlsoInvalidatesAnOlderStatusCache() throws {
+        let waiting = try listResource([listCommission(8)], scope: "mine", status: "waiting_for_acceptance", fetchedAt: .distantPast)
+        let complete = try listResource([], scope: "mine")
+        let fixture = try fixture(dates: [], resources: [waiting, complete])
+        defer { fixture.close() }
+        let cached = try fixture.store.cachedCommissions(scope: .mine, status: .waitingForAcceptance, userId: nil)
+        #expect(cached != nil)
+        #expect(cached?.isEmpty == true)
+    }
+
+    @Test func aColleagueCacheDoesNotReplaceAnotherColleaguesResults() throws {
+        let first = try listResource([listCommission(20, ownerID: 2)], ownerID: 2, fetchedAt: .distantPast)
+        let second = try listResource([], ownerID: 3)
+        let fixture = try fixture(dates: [], resources: [first, second])
+        defer { fixture.close() }
+        #expect(try fixture.store.cachedCommissions(scope: .all, status: .all, userId: 2)?.map(\.id) == [20])
+        #expect(try fixture.store.cachedCommissions(scope: .all, status: .all, userId: 3)?.isEmpty == true)
+    }
+
+    @Test func confirmed404RemovesAnOrderFromEveryCacheAndPreparationQueueAcrossRestart() async throws {
+        let deleted = try listCommission(8)
+        let surviving = try listCommission(80)
+        let waiting = try listResource([deleted, surviving], scope: "mine", status: "waiting_for_acceptance")
+        let complete = try listResource([deleted, surviving])
+        let detail = CommissionOfflineResource(path: "/api/commissions/8", query: [], data: try CommissionOfflineJSON.data(["item": deleted]), fetchedAt: Date())
+        let other = CommissionOfflineResource(path: "/api/commissions/80", query: [], data: try CommissionOfflineJSON.data(["item": surviving]), fetchedAt: Date())
+        let photos = CommissionOfflineResource(path: "/api/commissions/8/photos", query: [], data: try CommissionOfflineJSON.data(["items": []]), fetchedAt: Date())
+        let errors = ["/api/commissions/8": "404", "/api/commissions/8/photos": "404", "/api/commissions/8/time": "404"]
+        let fixture = try fixture(dates: [], resources: [waiting, complete, detail, other, photos], preparationErrors: errors)
+        defer { fixture.close() }
+        let client = apiClient(fixture)
+        fixture.scenario.setReplies([.response(200, try missingCommissionResponse(8))], for: "/api/mobile/offline-data")
+        try await expectMissingCommission(8, client: client)
+        #expect(fixture.store.snapshot.unavailableCommissionIDs == [8])
+        #expect(fixture.store.snapshot.resources["/api/commissions/8"] == nil)
+        #expect(fixture.store.snapshot.resources["/api/commissions/8/photos"] == nil)
+        #expect(fixture.store.snapshot.resources["/api/commissions/80"] != nil)
+        #expect(fixture.store.snapshot.preparation.isEmpty)
+        #expect(fixture.store.snapshot.preparationErrors.isEmpty)
+        #expect(try fixture.store.cachedCommissions(scope: .mine, status: .waitingForAcceptance, userId: nil)?.map(\.id) == [80])
+        #expect(try fixture.store.cachedCommissions(scope: .all, status: .all, userId: nil)?.map(\.id) == [80])
+        try await expectMissingCommission(8, client: client)
+        #expect(fixture.scenario.count("/api/mobile/offline-data") == 1)
+
+        let reopened = CommissionOfflineStore(storageDirectory: fixture.directory, session: fixture.session)
+        reopened.setActive(false)
+        try reopened.bind(user: user, baseURL: baseURL, token: fixture.token)
+        defer { reopened.stop() }
+        #expect(reopened.snapshot.unavailableCommissionIDs == [8])
+        #expect(reopened.snapshot.preparationErrors.isEmpty)
+        #expect(try reopened.cachedCommissions(scope: .mine, status: .waitingForAcceptance, userId: nil)?.map(\.id) == [80])
+    }
+
+    @Test func unavailableOrdersKeepUnsentTimeBookingsAndPhotoBytes() async throws {
+        let item = try listCommission(8)
+        let detail = CommissionOfflineResource(path: "/api/commissions/8", query: [], data: try CommissionOfflineJSON.data(["item": item]), fetchedAt: Date())
+        let complete = try listResource([item])
+        let fixture = try fixture(dates: [], resources: [detail, complete])
+        defer { fixture.close() }
+        let client = apiClient(fixture)
+        _ = try await fixture.store.execute(path: "/api/commissions/8/time", method: "POST", body: CommissionOfflineJSON.data(["minutes": 60, "service_date": "2026-11-16"]), contentType: "application/json", accept: "application/json")
+        let bytes = Data("Noch nicht übertragenes Foto".utf8)
+        let photo = try await client.uploadCommissionPhoto(commissionId: 8, imageData: bytes, caption: "Vorgemerkt")
+        let operations = fixture.store.snapshot.operations
+        fixture.scenario.setReplies([.response(200, try missingCommissionResponse(8))], for: "/api/mobile/offline-data")
+        try await expectMissingCommission(8, client: client)
+        #expect(fixture.store.snapshot.operations.map(\.id) == operations.map(\.id))
+        #expect(fixture.store.snapshot.operations.map(\.body) == operations.map(\.body))
+        #expect(try await client.downloadCommissionPhoto(path: photo.item.contentPath) == bytes)
+        #expect(try fixture.store.cachedCommissions(scope: .all, status: .all, userId: nil)?.isEmpty == true)
+    }
+
+    @Test func old404PreparationErrorsClearAutomaticallyWithoutAnotherRetryLoop() async throws {
+        let errors = ["/api/commissions/8": "404", "/api/commissions/8/photos": "404", "/api/commissions/8/time": "404"]
+        let fixture = try fixture(dates: [], preparationErrors: errors)
+        defer { fixture.close() }
+        fixture.scenario.setReplies([.response(200, try missingCommissionResponse(8))], for: "/api/mobile/offline-data")
+        fixture.store.setActive(true)
+        try await waitUntil { fixture.store.snapshot.preparation.isEmpty }
+        #expect(fixture.store.snapshot.preparationErrors.isEmpty)
+        #expect(fixture.store.snapshot.unavailableCommissionIDs == [8])
+        fixture.store.resume()
+        #expect(fixture.scenario.count("/api/mobile/offline-data") == 1)
+    }
+
+    @Test(arguments: [403, 500])
+    func temporaryOrPermissionErrorsDoNotEraseCachedOrders(status: Int) async throws {
+        let item = try listCommission(8)
+        let detail = CommissionOfflineResource(path: "/api/commissions/8", query: [], data: try CommissionOfflineJSON.data(["item": item]), fetchedAt: Date())
+        let fixture = try fixture(dates: [], resources: [detail])
+        defer { fixture.close() }
+        let data = try CommissionOfflineJSON.data(["items": [["path": detail.path, "query": [], "status": status, "payload": ["message": "Vorübergehend nicht verfügbar."]]]])
+        fixture.scenario.setReplies([.response(200, data)], for: "/api/mobile/offline-data")
+        let cached = try await apiClient(fixture).fetchCommission(id: 8, refresh: true)
+        #expect(cached.id == 8)
+        #expect(fixture.store.snapshot.unavailableCommissionIDs?.contains(8) != true)
+        #expect(fixture.store.snapshot.resources[detail.path] != nil)
+    }
+
+    @Test func aMissingPhotoEndpointDoesNotDeclareTheWholeOrderDeleted() async throws {
+        let item = try listCommission(8)
+        let detail = CommissionOfflineResource(path: "/api/commissions/8", query: [], data: try CommissionOfflineJSON.data(["item": item]), fetchedAt: Date())
+        let photos = CommissionOfflineResource(path: detail.path + "/photos", query: [], data: try CommissionOfflineJSON.data(["items": []]), fetchedAt: Date())
+        let fixture = try fixture(dates: [], resources: [detail, photos])
+        defer { fixture.close() }
+        let data = try CommissionOfflineJSON.data(["items": [["path": photos.path, "query": [], "status": 404, "payload": ["message": "Fotos nicht gefunden."]]]])
+        fixture.scenario.setReplies([.response(200, data)], for: "/api/mobile/offline-data")
+        _ = try await apiClient(fixture).fetchCommissionPhotos(commissionId: 8, refresh: true)
+        #expect(fixture.store.snapshot.unavailableCommissionIDs?.contains(8) != true)
+        #expect(fixture.store.snapshot.resources[detail.path] != nil)
+        #expect(fixture.store.snapshot.preparationErrors[photos.path] != nil)
+    }
+
+    @Test func anOlderHeldListResponseCannotRestoreAnOrderAfterIts404() async throws {
+        let item = try listCommission(8)
+        let list = try listResource([item])
+        let detail = CommissionOfflineResource(path: "/api/commissions/8", query: [], data: try CommissionOfflineJSON.data(["item": item]), fetchedAt: Date())
+        let fixture = try fixture(dates: [], resources: [list, detail])
+        defer { fixture.close() }
+        let client = apiClient(fixture)
+        let path = "/api/mobile/offline-data"
+        fixture.scenario.setReplies([.response(200, try resourceResponse(path: list.path, query: list.query, payload: ["items": [item]]))], for: path)
+        fixture.scenario.hold(path)
+        let task = Task { try await client.fetchCommissions(scope: .all, status: .all, refresh: true) }
+        defer { task.cancel(); fixture.scenario.release(path) }
+        try await waitUntil { fixture.scenario.hasHeldResponse(path) }
+        fixture.scenario.stopHoldingNewResponses(path)
+        fixture.scenario.setReplies([.response(200, try missingCommissionResponse(8))], for: path)
+        try await expectMissingCommission(8, client: client)
+        fixture.scenario.release(path)
+        let delayed = try await task.value
+        #expect(delayed.isEmpty)
+        #expect(fixture.store.snapshot.unavailableCommissionIDs == [8])
+        #expect(try fixture.store.cachedCommissions(scope: .all, status: .all, userId: nil)?.isEmpty == true)
+    }
+
+    @Test func aFreshServerListCanRestoreAnOrderThatIsAvailableAgain() async throws {
+        let item = try listCommission(8)
+        let list = try listResource([item])
+        let fixture = try fixture(dates: [], resources: [list])
+        defer { fixture.close() }
+        let client = apiClient(fixture)
+        let path = "/api/mobile/offline-data"
+        fixture.scenario.setReplies([.response(200, try missingCommissionResponse(8))], for: path)
+        try await expectMissingCommission(8, client: client)
+        fixture.scenario.setReplies([.response(200, try resourceResponse(path: list.path, query: list.query, payload: ["items": [item]]))], for: path)
+        let restored = try await client.fetchCommissions(scope: .all, status: .all, refresh: true)
+        #expect(restored.map(\.id) == [8])
+        #expect(fixture.store.snapshot.unavailableCommissionIDs?.contains(8) == false)
+    }
+
+    @Test func aPendingCommissionUpdateCannotReinsertAnUnavailableOrderIntoAList() async throws {
+        let item = try listCommission(8)
+        let detail = CommissionOfflineResource(path: "/api/commissions/8", query: [], data: try CommissionOfflineJSON.data(["item": item]), fetchedAt: Date())
+        let list = try listResource([item])
+        let fixture = try fixture(dates: [], resources: [detail, list])
+        defer { fixture.close() }
+        _ = try await fixture.store.execute(path: detail.path + "/start", method: "POST", body: Data("{}".utf8), contentType: "application/json", accept: "application/json")
+        fixture.scenario.setReplies([.response(200, try missingCommissionResponse(8))], for: "/api/mobile/offline-data")
+        try await expectMissingCommission(8, client: apiClient(fixture))
+        #expect(fixture.store.snapshot.operations.count == 1)
+        #expect(try fixture.store.cachedCommissions(scope: .all, status: .all, userId: nil)?.isEmpty == true)
+    }
+
+    @Test(arguments: [true, false])
+    func aLateListResponseDoesNotOverwriteANewerFilteredResult(sameQuery: Bool) async throws {
+        var oldItem = try listCommission(20, ownerID: 2)
+        oldItem["title"] = "Alter Stand"
+        var newItem = oldItem
+        newItem["title"] = "Aktueller Stand"
+        let original = try listResource([oldItem], ownerID: sameQuery ? 2 : nil)
+        let selected = try listResource([newItem], ownerID: 2)
+        let fixture = try fixture(dates: [], resources: [original])
+        defer { fixture.close() }
+        let client = apiClient(fixture)
+        let path = "/api/mobile/offline-data"
+        fixture.scenario.setReplies([.response(200, try resourceResponse(path: original.path, query: original.query, payload: ["items": [oldItem]]))], for: path)
+        fixture.scenario.hold(path)
+        let task = Task { try await client.fetchCommissions(scope: .all, status: .all, userId: sameQuery ? 2 : nil, refresh: true) }
+        defer { task.cancel(); fixture.scenario.release(path) }
+        try await waitUntil { fixture.scenario.hasHeldResponse(path) }
+        fixture.scenario.stopHoldingNewResponses(path)
+        fixture.scenario.setReplies([.response(200, try resourceResponse(path: selected.path, query: selected.query, payload: ["items": [newItem]]))], for: path)
+        let fresh = try await client.fetchCommissions(scope: .all, status: .all, userId: 2, refresh: true)
+        #expect(fresh.first?.title == "Aktueller Stand")
+        fixture.scenario.release(path)
+        _ = try await task.value
+        #expect(try fixture.store.cachedCommissions(scope: .all, status: .all, userId: 2)?.first?.title == "Aktueller Stand")
+    }
+
+    @Test func legacySnapshotsWithoutUnavailableOrderMetadataRemainReadable() throws {
+        let data = try CommissionOfflineJSON.data(["resources": [:], "operations": [], "media": [:], "preparation": [], "preparationErrors": [:], "lastOperations": [:], "idMappings": [:], "nextID": -1])
+        let snapshot = try JSONDecoder().decode(CommissionOfflineSnapshot.self, from: data)
+        #expect(snapshot.unavailableCommissionIDs == nil)
+        #expect(snapshot.operations.isEmpty)
     }
 
     @Test(arguments: ["object", "order"])
@@ -551,6 +816,12 @@ private final class PreparationScenario: @unchecked Sendable {
         lock.lock()
         defer { lock.unlock() }
         heldKeys.insert(key)
+    }
+
+    func stopHoldingNewResponses(_ key: String) {
+        lock.lock()
+        defer { lock.unlock() }
+        heldKeys.remove(key)
     }
 
     func hasHeldResponse(_ key: String) -> Bool {
