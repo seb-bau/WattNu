@@ -158,7 +158,7 @@ struct AppointmentPreferencesResponse: Decodable {
     let preferences: AppointmentPreferences
 }
 
-struct RelatedCommission: Codable, Identifiable {
+struct RelatedCommission: Codable, Identifiable, Equatable {
     let commission: Commission
     let relationship: String
     let directAccess: Bool
@@ -187,7 +187,7 @@ struct RelatedCommission: Codable, Identifiable {
     }
 }
 
-struct RelatedCommissionsResponse: Codable {
+struct RelatedCommissionsResponse: Codable, Equatable {
     let items: [RelatedCommission]
     let total: Int
     let page: Int
