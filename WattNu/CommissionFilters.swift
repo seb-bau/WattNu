@@ -59,17 +59,15 @@ enum CommissionSortMode: String, CaseIterable, Identifiable {
             ordered = commissions
         }
 
-        var groups = [[Commission]](repeating: [], count: 4)
+        var groups = [[Commission]](repeating: [], count: 3)
         for commission in ordered {
             let priority: Int
             if commission.isHighPriorityValue {
                 priority = 0
             } else if Formatters.isAppointmentToday(commission.acceptedAppointmentFrom, at: currentDate) {
                 priority = 1
-            } else if commission.acceptedAppointmentFrom != nil {
-                priority = 2
             } else {
-                priority = 3
+                priority = 2
             }
             groups[priority].append(commission)
         }

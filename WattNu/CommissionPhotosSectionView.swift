@@ -60,23 +60,10 @@ struct CommissionPhotosSectionView: View {
                                 Button {
                                     selectedPhoto = photo
                                 } label: {
-                                    ZStack {
-                                        RoundedRectangle(cornerRadius: 12)
-                                            .fill(
-                                                Color.secondary.opacity(0.12)
-                                            )
-
-                                        if let image = thumbnails[photo.id] {
-                                            Image(uiImage: image)
-                                                .resizable()
-                                                .scaledToFill()
-                                        } else {
-                                            ProgressView()
-                                        }
-                                    }
-                                    .frame(height: 110)
-                                    .clipShape(
-                                        RoundedRectangle(cornerRadius: 12)
+                                    CommissionPhotoThumbnail(
+                                        image: thumbnails[photo.id],
+                                        height: 110,
+                                        cornerRadius: 12
                                     )
                                 }
                                 .buttonStyle(.plain)

@@ -10,6 +10,11 @@ struct CommissionOfflineResource: Codable {
     let query: [CommissionOfflineQuery]
     var data: Data
     var fetchedAt: Date
+    var requestStartedAt: Date? = nil
+
+    var requestDate: Date {
+        requestStartedAt ?? fetchedAt
+    }
 
     var key: String {
         Self.key(path, query)
@@ -71,6 +76,7 @@ struct CommissionOfflineSnapshot: Codable {
     var preparationErrors: [String: String] = [:]
     var lastOperations: [String: String] = [:]
     var idMappings: [String: Int] = [:]
+    var unavailableCommissionIDs: Set<Int>?
     var nextID = -1
     var lastSynchronizedAt: Date?
 }

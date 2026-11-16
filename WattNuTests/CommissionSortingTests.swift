@@ -47,7 +47,8 @@ struct CommissionSortingTests {
 
         let sorted = mode.sorted([regular, scheduled, today, urgent], at: now, distance: { Double($0.id) })
 
-        #expect(sorted.map(\.id) == [4, 3, 2, 1])
+        let expected = mode == .newestFirst ? [4, 3, 2, 1] : [4, 3, 1, 2]
+        #expect(sorted.map(\.id) == expected)
     }
 
     @Test(arguments: ["oldestFirst", "newestFirst"])
@@ -65,7 +66,7 @@ struct CommissionSortingTests {
             try commission(31, date: "2019-01-01", appointment: tomorrow),
             try commission(21, date: "2020-01-01", appointment: now.ISO8601Format()),
         ]
-        let expected = mode == .oldestFirst ? [11, 12, 21, 22, 31, 32, 41, 42] : [12, 11, 22, 21, 32, 31, 42, 41]
+        let expected = mode == .oldestFirst ? [11, 12, 21, 22, 41, 31, 32, 42] : [12, 11, 22, 21, 42, 32, 31, 41]
 
         #expect(mode.sorted(items, at: now).map(\.id) == expected)
     }
@@ -76,5 +77,20 @@ struct CommissionSortingTests {
         let today = try commission(2, date: "2010-01-01", appointment: now.ISO8601Format())
         let regular = try commission(3, date: "2000-01-01")
         #expect(CommissionSortMode.oldestFirst.sorted([regular, today, urgent], at: now).map(\.id) == [1, 2, 3])
+    }
+
+    @Test(arguments: ["oldestFirst", "newestFirst", "defaultOrder", "distance", "title"])
+    func appointmentsOutsideTodayDoNotOverrideTheSelectedSort(rawMode: String) throws {
+        let mode = try #require(CommissionSortMode(rawValue: rawMode))
+        let now = ISO8601DateFormatter().date(from: "2026-11-16T12:00:00Z")!
+        let items = [
+            try commission(5, date: "2026-01-01", appointment: "", title: "E"),
+            try commission(4, date: "2024-01-01", appointment: "invalid", title: "D"),
+            try commission(3, date: "2022-01-01", appointment: now.addingTimeInterval(-86400).ISO8601Format(), title: "C"),
+            try commission(2, date: "2020-01-01", appointment: now.addingTimeInterval(86400).ISO8601Format(), title: "B"),
+            try commission(1, date: "2010-01-01", title: "A"),
+        ]
+        let expected = mode == .newestFirst || mode == .defaultOrder ? [5, 4, 3, 2, 1] : [1, 2, 3, 4, 5]
+        #expect(mode.sorted(items, at: now, distance: { Double($0.id) }).map(\.id) == expected)
     }
 }

@@ -173,33 +173,9 @@ struct CommissionObjectPhotosView: View {
                 alignment: .leading,
                 spacing: 8
             ) {
-                ZStack {
-                    RoundedRectangle(
-                        cornerRadius: 14
-                    )
-                    .fill(
-                        Color.secondary.opacity(
-                            0.12
-                        )
-                    )
-
-                    if let image = thumbnails[
-                        photo.id
-                    ] {
-                        Image(
-                            uiImage: image
-                        )
-                        .resizable()
-                        .scaledToFill()
-                    } else {
-                        ProgressView()
-                    }
-                }
-                .frame(height: 130)
-                .clipShape(
-                    RoundedRectangle(
-                        cornerRadius: 14
-                    )
+                CommissionPhotoThumbnail(
+                    image: thumbnails[photo.id],
+                    height: 130
                 )
 
                 Text(photo.displayCaption)
