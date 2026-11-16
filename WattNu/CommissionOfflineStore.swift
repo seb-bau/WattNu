@@ -243,14 +243,14 @@ final class CommissionOfflineStore: ObservableObject {
         }
         if path == "/api/commissions" {
             let covering = resources.values.filter { $0.path == path && coversCommissionQuery($0.query, requested: query) }.sorted {
-                $0.fetchedAt == $1.fetchedAt ? $0.key < $1.key : $0.fetchedAt > $1.fetchedAt
+                $0.requestDate == $1.requestDate ? $0.key < $1.key : $0.requestDate > $1.requestDate
             }.first
             if let covering {
-                return CommissionOfflineResource(path: path, query: query, data: covering.data, fetchedAt: covering.fetchedAt)
+                return CommissionOfflineResource(path: path, query: query, data: covering.data, fetchedAt: covering.fetchedAt, requestStartedAt: covering.requestStartedAt)
             }
             var items: [Int: [String: Any]] = [:]
             let ordered = resources.values.sorted {
-                $0.fetchedAt == $1.fetchedAt ? $0.key < $1.key : $0.fetchedAt < $1.fetchedAt
+                $0.requestDate == $1.requestDate ? $0.key < $1.key : $0.requestDate < $1.requestDate
             }
             for resource in ordered where resource.path == path || (resource.path.split(separator: "/").count == 3 && commissionID(for: resource.path) != nil) {
                 guard let payload = try? CommissionOfflineJSON.object(resource.data) else { continue }
@@ -325,7 +325,7 @@ final class CommissionOfflineStore: ObservableObject {
         guard let transport else { throw APIError.missingToken }
         let expected = generation
         var epoch = dataEpoch
-        let fetchedAt = Date()
+        let requestedAt = Date()
         let ordinary = resources.filter { $0.path != "/api/my-time" && !isUnavailable($0.path) }
         if !ordinary.isEmpty {
             let requestData = try CommissionOfflineJSON.data(["resources": ordinary.map { resource -> [String: Any] in ["path": resource.path, "query": resource.query.map { ["name": $0.name, "value": $0.value] }] }])
@@ -336,7 +336,7 @@ final class CommissionOfflineStore: ObservableObject {
             let missingIDs = Set(responses.compactMap { item -> Int? in
                 guard item["status"] as? Int == 404, let path = item["path"] as? String,
                       let id = commissionID(for: path), id > 0, path == "/api/commissions/\(id)" else { return nil }
-                if let current = snapshot.resources[path], current.fetchedAt > fetchedAt { return nil }
+                if let current = snapshot.resources[path], current.requestDate > requestedAt { return nil }
                 return id
             })
             for id in missingIDs { try invalidateCommission(id) }
@@ -345,7 +345,7 @@ final class CommissionOfflineStore: ObservableObject {
                 if isUnavailable(path) { continue }
                 let query = (item["query"] as? [[String: String]] ?? []).map { CommissionOfflineQuery(name: $0["name"] ?? "", value: $0["value"] ?? "") }
                 let key = CommissionOfflineResource.key(path, query)
-                if let current = snapshot.resources[key], current.fetchedAt > fetchedAt { continue }
+                if let current = snapshot.resources[key], current.requestDate > requestedAt { continue }
                 if status < 400, let value = item["payload"], !(value is NSNull) {
                     var visibleValue = value
                     if path == "/api/commissions", var object = value as? [String: Any] {
@@ -364,7 +364,7 @@ final class CommissionOfflineStore: ObservableObject {
                         object["sync_error"] = NSNull()
                         visibleValue = object
                     } else { snapshot.preparationErrors[key] = nil }
-                    let resource = CommissionOfflineResource(path: path, query: query, data: try CommissionOfflineJSON.data(visibleValue), fetchedAt: fetchedAt)
+                    let resource = CommissionOfflineResource(path: path, query: query, data: try CommissionOfflineJSON.data(visibleValue), fetchedAt: Date(), requestStartedAt: requestedAt)
                     snapshot.resources[key] = resource
                     if snapshot.preparationErrors[key] == nil { snapshot.preparation.removeAll { $0 == key } }
                     if path == "/api/commissions" { try prepare(resource) }
@@ -380,8 +380,8 @@ final class CommissionOfflineStore: ObservableObject {
         for resource in resources where resource.path == "/api/my-time" {
             let data = try await transport.commissionRemoteData(path: resource.path, query: resource.query.map { URLQueryItem(name: $0.name, value: $0.value) })
             guard generation == expected, dataEpoch == epoch, !Task.isCancelled else { throw CancellationError() }
-            if let current = snapshot.resources[resource.key], current.fetchedAt > fetchedAt { continue }
-            snapshot.resources[resource.key] = CommissionOfflineResource(path: resource.path, query: resource.query, data: data, fetchedAt: fetchedAt)
+            if let current = snapshot.resources[resource.key], current.requestDate > requestedAt { continue }
+            snapshot.resources[resource.key] = CommissionOfflineResource(path: resource.path, query: resource.query, data: data, fetchedAt: Date(), requestStartedAt: requestedAt)
             snapshot.preparation.removeAll { $0 == resource.key }
             snapshot.preparationErrors[resource.key] = nil
         }

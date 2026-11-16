@@ -223,7 +223,8 @@ struct CommissionPreparationTests {
         try await waitUntil { fixture.store.snapshot.preparation.isEmpty }
         #expect(fixture.store.snapshot.preparationErrors.isEmpty)
         #expect(fixture.store.snapshot.unavailableCommissionIDs == [8])
-        fixture.store.resume()
+        fixture.store.setActive(false)
+        fixture.store.setActive(true)
         #expect(fixture.scenario.count("/api/mobile/offline-data") == 1)
     }
 
@@ -337,6 +338,26 @@ struct CommissionPreparationTests {
         let snapshot = try JSONDecoder().decode(CommissionOfflineSnapshot.self, from: data)
         #expect(snapshot.unavailableCommissionIDs == nil)
         #expect(snapshot.operations.isEmpty)
+    }
+
+    @Test func cacheFreshnessStartsWhenTheResponseArrivesWhileOrderingUsesTheRequestStart() async throws {
+        let fixture = try fixture(dates: [])
+        defer { fixture.close() }
+        let client = apiClient(fixture)
+        let path = "/api/mobile/offline-data"
+        let parent = "/api/commissions/10"
+        fixture.scenario.setReplies([.response(200, try resourceResponse(path: parent, payload: ["item": listCommission(10)]))], for: path)
+        fixture.scenario.hold(path)
+        let task = Task { try await client.fetchCommission(id: 10, refresh: true) }
+        defer { task.cancel(); fixture.scenario.release(path) }
+        try await waitUntil { fixture.scenario.hasHeldResponse(path) }
+        let releasedAt = Date()
+        fixture.scenario.release(path)
+        _ = try await task.value
+        let resource = try #require(fixture.store.snapshot.resources[parent])
+        let requestedAt = try #require(resource.requestStartedAt)
+        #expect(requestedAt <= releasedAt)
+        #expect(resource.fetchedAt >= releasedAt)
     }
 
     @Test(arguments: ["object", "order"])
