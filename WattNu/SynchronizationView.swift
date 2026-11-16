@@ -23,34 +23,40 @@ private struct CommissionOfflineRefreshModifier: ViewModifier {
     }
 }
 
-private struct CommissionActiveRefreshID<ID: Equatable>: Equatable {
-    let value: ID
-    let scenePhase: ScenePhase
+private struct CommissionRefreshRevisionKey: EnvironmentKey {
+    nonisolated static let defaultValue = 0
 }
 
-private struct CommissionActiveRefreshModifier<ID: Equatable>: ViewModifier {
+extension EnvironmentValues {
+    var commissionRefreshRevision: Int {
+        get { self[CommissionRefreshRevisionKey.self] }
+        set { self[CommissionRefreshRevisionKey.self] = newValue }
+    }
+}
+
+private struct CommissionActivationRefreshID<ID: Equatable>: Equatable {
+    let value: ID
+    let scenePhase: ScenePhase
+    let revision: Int
+}
+
+private struct CommissionActivationRefreshModifier<ID: Equatable>: ViewModifier {
     @Environment(\.scenePhase) private var scenePhase
+    @Environment(\.commissionRefreshRevision) private var refreshRevision
     @State private var loadedID: ID?
     let id: ID
     let action: @MainActor () async -> Void
-    let periodicAction: (@MainActor () async -> Void)?
+    let refreshAction: (@MainActor () async -> Void)?
 
     func body(content: Content) -> some View {
-        content.task(id: CommissionActiveRefreshID(value: id, scenePhase: scenePhase)) {
+        content.task(id: CommissionActivationRefreshID(value: id, scenePhase: scenePhase, revision: refreshRevision)) {
             guard scenePhase == .active else { return }
             if let loadedID, loadedID == id {
-                await (periodicAction ?? action)()
+                await (refreshAction ?? action)()
             } else {
                 await action()
                 guard !Task.isCancelled else { return }
                 loadedID = id
-            }
-
-            while !Task.isCancelled {
-                do { try await Task.sleep(for: .seconds(30)) }
-                catch { return }
-                guard !Task.isCancelled else { return }
-                await (periodicAction ?? action)()
             }
         }
     }
@@ -61,8 +67,8 @@ extension View {
         modifier(CommissionOfflineRefreshModifier(action: action))
     }
 
-    func refreshWhileActive<ID: Equatable>(id: ID, periodicAction: (@MainActor () async -> Void)? = nil, _ action: @escaping @MainActor () async -> Void) -> some View {
-        modifier(CommissionActiveRefreshModifier(id: id, action: action, periodicAction: periodicAction))
+    func refreshOnActivation<ID: Equatable>(id: ID, refreshAction: (@MainActor () async -> Void)? = nil, _ action: @escaping @MainActor () async -> Void) -> some View {
+        modifier(CommissionActivationRefreshModifier(id: id, action: action, refreshAction: refreshAction))
     }
 }
 

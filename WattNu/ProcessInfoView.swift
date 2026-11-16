@@ -344,7 +344,7 @@ struct ProcessInfoView: View {
         .refreshForCommissionChanges {
             await loadMessages(showLoading: false, refresh: false)
         }
-        .refreshWhileActive(id: commissionId, periodicAction: { await loadMessages(showLoading: false) }) {
+        .refreshOnActivation(id: commissionId, refreshAction: { await loadMessages(showLoading: false) }) {
             await loadMessages()
         }
         .alert(

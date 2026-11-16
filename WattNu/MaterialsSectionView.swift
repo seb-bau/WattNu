@@ -495,7 +495,7 @@ struct MaterialsSectionView: View {
             }
         }
         .refreshForCommissionChanges { await loadMaterials(refresh: false) }
-        .refreshWhileActive(id: commission.id, periodicAction: { await loadMaterials() }) {
+        .refreshOnActivation(id: commission.id, refreshAction: { await loadMaterials() }) {
             await loadData()
         }
         .refreshable {

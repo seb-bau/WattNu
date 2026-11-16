@@ -89,7 +89,7 @@ struct CommissionHistoryView: View {
             }
         }
         .refreshForCommissionChanges { await loadHistory(refresh: false) }
-        .refreshWhileActive(id: commission.id) {
+        .refreshOnActivation(id: commission.id) {
             await loadHistory()
         }
         .alert(

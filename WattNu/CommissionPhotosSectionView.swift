@@ -97,7 +97,7 @@ struct CommissionPhotosSectionView: View {
             }
         }
         .refreshForCommissionChanges { await loadPhotos(refresh: false) }
-        .refreshWhileActive(id: commission.id) {
+        .refreshOnActivation(id: commission.id) {
             await loadPhotos()
         }
         .refreshable {

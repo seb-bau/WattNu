@@ -18,6 +18,11 @@ enum CommissionDetailSection:
     }
 }
 
+struct CommissionDetailRefreshID: Equatable {
+    let commissionId: Int
+    let section: CommissionDetailSection
+}
+
 struct CommissionDetailView: View {
     @EnvironmentObject private var session: SessionStore
     @EnvironmentObject private var navigation: AppNavigationStore
@@ -28,6 +33,7 @@ struct CommissionDetailView: View {
 
     @State private var commission: Commission?
     @State private var selectedSection: CommissionDetailSection = .order
+    @State private var refreshRevision = 0
     @State private var isLoading = false
     @State private var errorMessage: String?
     @State private var isCompletionPresented = false
@@ -148,7 +154,7 @@ struct CommissionDetailView: View {
         .navigationTitle(commission?.displayNumber ?? "Auftrag")
         .navigationBarTitleDisplayMode(.inline)
         .toolbar {
-            ToolbarItem(placement: .topBarTrailing) {
+            ToolbarItemGroup(placement: .topBarTrailing) {
                 if let useUnitId = commission?.useUnitId, useUnitId > 0 {
                     Button {
                         openTeBe(useUnitId: useUnitId)
@@ -158,12 +164,22 @@ struct CommissionDetailView: View {
                     }
                     .accessibilityLabel("Wohnung in TeBe öffnen")
                 }
+
+                Button {
+                    refreshRevision += 1
+                } label: {
+                    Image(systemName: "arrow.clockwise")
+                }
+                .accessibilityLabel("Auftrag und aktuellen Reiter aktualisieren")
+                .accessibilityIdentifier("commission.reload")
+                .disabled(commission == nil && isLoading)
             }
         }
         .refreshForCommissionChanges { await loadCommission(refresh: false) }
-        .refreshWhileActive(id: commissionId) {
+        .refreshOnActivation(id: CommissionDetailRefreshID(commissionId: commissionId, section: selectedSection)) {
             await loadCommission()
         }
+        .environment(\.commissionRefreshRevision, refreshRevision)
         .task {
             if processInfos.consumeInfoRequest(
                 commissionId: commissionId

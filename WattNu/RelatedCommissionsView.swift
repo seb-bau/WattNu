@@ -27,7 +27,7 @@ struct RelatedCommissionsSectionView: View {
             }
         }
         .frame(maxWidth: .infinity, alignment: .leading)
-        .refreshWhileActive(id: commissionId) { await load() }
+        .refreshOnActivation(id: commissionId) { await load() }
         .refreshForCommissionChanges { await load(refresh: false) }
     }
 

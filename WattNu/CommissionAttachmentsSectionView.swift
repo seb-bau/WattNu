@@ -75,7 +75,7 @@ struct CommissionAttachmentsSectionView: View {
             }
         }
         .refreshForCommissionChanges { await loadAttachments(refresh: false) }
-        .refreshWhileActive(id: commission.id) {
+        .refreshOnActivation(id: commission.id) {
             await loadAttachments()
         }
         .sheet(

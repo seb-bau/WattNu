@@ -74,7 +74,7 @@ struct CommissionContactsView: View {
             }
         }
         .refreshForCommissionChanges { await loadContacts(refresh: false) }
-        .refreshWhileActive(id: commission?.id ?? inspectionJobId) {
+        .refreshOnActivation(id: commission?.id ?? inspectionJobId) {
             await loadContacts()
         }
         .alert("Fehler", isPresented: Binding(

@@ -208,7 +208,7 @@ struct CommissionAppointmentSectionView: View {
             )
         )
         .refreshForCommissionChanges { await loadRequests(refresh: false) }
-        .refreshWhileActive(id: "\(commission.id):\(commission.acceptedAppointmentFrom ?? "")") {
+        .refreshOnActivation(id: "\(commission.id):\(commission.acceptedAppointmentFrom ?? "")") {
             if commission.acceptedAppointmentFrom == nil {
                 await loadRequests()
             }
