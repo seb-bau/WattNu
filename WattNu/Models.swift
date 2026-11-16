@@ -1441,7 +1441,7 @@ struct EmptyRequest: Encodable {
 struct EmptyResponse: Decodable {
 }
 
-struct CommissionAttachment: Codable, Identifiable {
+struct CommissionAttachment: Codable, Identifiable, Equatable {
     let id: Int
     let commissionId: Int
     let sourceEntityName: String
@@ -1503,7 +1503,7 @@ struct CommissionAttachment: Codable, Identifiable {
     }
 }
 
-struct CommissionPhoto: Codable, Identifiable {
+struct CommissionPhoto: Codable, Identifiable, Equatable {
     let id: Int
     let commissionId: Int
     let source: String
@@ -1715,7 +1715,7 @@ struct CommissionAppointmentProposal: Codable, Identifiable, Hashable {
     }
 }
 
-struct CommissionAppointmentRequest: Codable, Identifiable {
+struct CommissionAppointmentRequest: Codable, Identifiable, Equatable {
     let id: Int
     let commissionId: Int
     let recipientName: String?

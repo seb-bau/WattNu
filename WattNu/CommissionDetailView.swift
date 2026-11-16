@@ -251,14 +251,16 @@ struct CommissionDetailView: View {
     }
 
     private func loadCommission(refresh: Bool = true) async {
-        isLoading = true
+        if commission == nil { isLoading = true }
 
         defer {
-            isLoading = false
+            if isLoading { isLoading = false }
         }
 
         do {
-            commission = try await session.apiClient.fetchCommission(id: commissionId, refresh: refresh)
+            let loadedCommission = try await session.apiClient.fetchCommission(id: commissionId, refresh: refresh)
+            guard !Task.isCancelled else { return }
+            if commission != loadedCommission { commission = loadedCommission }
         } catch {
             if error.isRequestCancellation {
                 return

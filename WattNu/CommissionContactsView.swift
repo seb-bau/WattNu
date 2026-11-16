@@ -19,6 +19,7 @@ struct CommissionContactsView: View {
 
     @State private var contacts: [CommissionContactItem] = []
     @State private var isLoading = false
+    @State private var hasLoaded = false
     @State private var errorMessage: String?
 
     var body: some View {
@@ -93,23 +94,30 @@ struct CommissionContactsView: View {
     }
 
     private func loadContacts(refresh: Bool = true) async {
-        isLoading = true
+        let showLoading = !hasLoaded
+        if showLoading { isLoading = true }
 
         defer {
-            isLoading = false
+            if showLoading { isLoading = false }
         }
 
         do {
+            let loadedContacts: [CommissionContactItem]
             if let inspectionJobId {
-                contacts = try await session.apiClient.fetchSafetyInspectionContacts(
+                loadedContacts = try await session.apiClient.fetchSafetyInspectionContacts(
                     jobId: inspectionJobId
                 )
             } else if let commission {
-                contacts = try await session.apiClient.fetchCommissionContacts(
+                loadedContacts = try await session.apiClient.fetchCommissionContacts(
                     commissionId: commission.id,
                     refresh: refresh
                 )
+            } else {
+                return
             }
+            guard !Task.isCancelled else { return }
+            if contacts != loadedContacts { contacts = loadedContacts }
+            if !hasLoaded { hasLoaded = true }
         } catch {
             if error.isRequestCancellation { return }
             errorMessage = error.localizedDescription

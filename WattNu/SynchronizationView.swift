@@ -30,6 +30,7 @@ private struct CommissionActiveRefreshID<ID: Equatable>: Equatable {
 
 private struct CommissionActiveRefreshModifier<ID: Equatable>: ViewModifier {
     @Environment(\.scenePhase) private var scenePhase
+    @State private var loadedID: ID?
     let id: ID
     let action: @MainActor () async -> Void
     let periodicAction: (@MainActor () async -> Void)?
@@ -37,7 +38,13 @@ private struct CommissionActiveRefreshModifier<ID: Equatable>: ViewModifier {
     func body(content: Content) -> some View {
         content.task(id: CommissionActiveRefreshID(value: id, scenePhase: scenePhase)) {
             guard scenePhase == .active else { return }
-            await action()
+            if let loadedID, loadedID == id {
+                await (periodicAction ?? action)()
+            } else {
+                await action()
+                guard !Task.isCancelled else { return }
+                loadedID = id
+            }
 
             while !Task.isCancelled {
                 do { try await Task.sleep(for: .seconds(30)) }

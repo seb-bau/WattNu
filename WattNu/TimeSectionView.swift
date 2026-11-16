@@ -356,12 +356,14 @@ struct TimeSectionView: View {
                 loadedTasks
             )
 
-            entries = result.0
-            commissionTasks = (
+            guard !Task.isCancelled else { return }
+            if entries != result.0 { entries = result.0 }
+            let loadedCommissionTasks = (
                 commission.matchingTimeTasks(
                     in: result.1
                 )
             )
+            if commissionTasks != loadedCommissionTasks { commissionTasks = loadedCommissionTasks }
         } catch {
             if error.isRequestCancellation { return }
             errorMessage = error.localizedDescription
@@ -370,7 +372,9 @@ struct TimeSectionView: View {
 
     private func loadEntries(refresh: Bool = true) async {
         do {
-            entries = try await session.apiClient.fetchTimeEntries(commissionId: commission.id, refresh: refresh)
+            let loadedEntries = try await session.apiClient.fetchTimeEntries(commissionId: commission.id, refresh: refresh)
+            guard !Task.isCancelled else { return }
+            if entries != loadedEntries { entries = loadedEntries }
         } catch {
             if error.isRequestCancellation { return }
             errorMessage = error.localizedDescription
