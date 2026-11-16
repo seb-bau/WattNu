@@ -252,17 +252,33 @@ struct CommissionDetailView: View {
             URLQueryItem(name: "useUnitId", value: String(useUnitId))
         ]
 
-        guard let url = components.url else {
+        guard let appURL = components.url else {
             errorMessage = "Der TeBe-Link konnte nicht erstellt werden."
             return
         }
 
-        UIApplication.shared.open(url, options: [:]) { opened in
-            guard !opened else { return }
+        components.scheme = "https"
+        components.host = "app.technischer-bestand.de"
+        components.path = "/"
 
-            Task { @MainActor in
-                errorMessage = "TeBe konnte nicht geöffnet werden. Prüfe, ob die aktualisierte TeBe-App installiert ist."
+        guard let universalURL = components.url else {
+            errorMessage = "Der TeBe-Link konnte nicht erstellt werden."
+            return
+        }
+
+        Task { @MainActor in
+            if await UIApplication.shared.open(appURL, options: [:]) {
+                return
             }
+
+            if await UIApplication.shared.open(
+                universalURL,
+                options: [.universalLinksOnly: true]
+            ) {
+                return
+            }
+
+            errorMessage = "TeBe konnte nicht geöffnet werden. Öffne die App einmal direkt und prüfe, ob ein TeBe-Update verfügbar ist."
         }
     }
 
