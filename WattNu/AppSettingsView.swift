@@ -192,7 +192,7 @@ struct AppSettingsView: View {
     private var installedVersion: String {
         let version = Bundle.main.object(forInfoDictionaryKey: "CFBundleShortVersionString") as? String ?? "–"
         let build = Bundle.main.object(forInfoDictionaryKey: "CFBundleVersion") as? String ?? "–"
-        return "WattNu · Version \(version) (Build \(build))"
+        return "MachMa! · Version \(version) (Build \(build))"
     }
     
     private func pushPreferenceBinding(
