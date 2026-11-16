@@ -210,7 +210,7 @@ struct OrderSectionView: View {
 
                 if let description = commission.description,
                    !description.isEmpty,
-                   commission.positions.count <= 1 {
+                   commission.positions.isEmpty {
                     VStack(
                         alignment: .leading,
                         spacing: 8
