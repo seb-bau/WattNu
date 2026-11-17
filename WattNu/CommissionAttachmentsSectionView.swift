@@ -11,6 +11,7 @@ struct CommissionAttachmentsSectionView: View {
     @State private var thumbnails: [Int: UIImage] = [:]
     @State private var thumbnailItems: [Int: CommissionAttachment] = [:]
     @State private var previewItem: CommissionAttachmentPreview?
+    @State private var previewFileURL: URL?
     @State private var loadingAttachmentId: Int?
     @State private var isLoading = false
     @State private var hasLoaded = false
@@ -79,12 +80,30 @@ struct CommissionAttachmentsSectionView: View {
             await loadAttachments()
         }
         .sheet(
-            item: $previewItem
+            item: $previewItem,
+            onDismiss: clearPreviewFile
         ) { item in
-            CommissionAttachmentPreviewView(
-                fileURL: item.fileURL
-            )
-            .ignoresSafeArea()
+            if QLPreviewController.canPreview(item.fileURL as NSURL) {
+                CommissionAttachmentPreviewView(fileURL: item.fileURL)
+                    .ignoresSafeArea()
+            } else {
+                NavigationStack {
+                    ContentUnavailableView {
+                        Label("Keine Vorschau verfügbar", systemImage: "doc")
+                    } description: {
+                        Text("Diese Datei kann in einer anderen App geöffnet werden.")
+                    } actions: {
+                        ShareLink(item: item.fileURL) {
+                            Label("Datei teilen oder öffnen", systemImage: "square.and.arrow.up")
+                        }
+                    }
+                    .toolbar {
+                        ToolbarItem(placement: .confirmationAction) {
+                            Button("Schließen") { previewItem = nil }
+                        }
+                    }
+                }
+            }
         }
         .alert(
             "Fehler",
@@ -288,37 +307,9 @@ struct CommissionAttachmentsSectionView: View {
                     path: attachment.contentPath
                 )
 
-            let directoryURL = FileManager.default
-                .temporaryDirectory
-                .appendingPathComponent(
-                    "WattNuAttachments",
-                    isDirectory: true
-                )
-
-            try FileManager.default.createDirectory(
-                at: directoryURL,
-                withIntermediateDirectories: true
-            )
-
-            let normalizedFilename = URL(
-                fileURLWithPath:
-                    attachment.originalFilename
-            ).lastPathComponent
-
-            let filename = normalizedFilename.isEmpty
-                ? "Datei-\(attachment.id)"
-                : normalizedFilename
-
-            let fileURL = directoryURL
-                .appendingPathComponent(
-                    "\(attachment.id)-\(filename)"
-                )
-
-            try data.write(
-                to: fileURL,
-                options: .atomic
-            )
-
+            guard !Task.isCancelled else { return }
+            let fileURL = try CommissionAttachmentPreviewFile.write(data, attachment: attachment)
+            previewFileURL = fileURL
             previewItem = CommissionAttachmentPreview(
                 attachmentId: attachment.id,
                 fileURL: fileURL
@@ -330,6 +321,13 @@ struct CommissionAttachmentsSectionView: View {
 
             errorMessage = error.localizedDescription
         }
+    }
+
+    private func clearPreviewFile() {
+        if let fileURL = previewFileURL {
+            try? FileManager.default.removeItem(at: fileURL.deletingLastPathComponent())
+        }
+        previewFileURL = nil
     }
 }
 
@@ -346,6 +344,7 @@ struct CommissionAttachmentPreviewView:
     UIViewControllerRepresentable {
 
     let fileURL: URL
+    @Environment(\.dismiss) private var dismiss
 
     func makeCoordinator() -> Coordinator {
         Coordinator(
@@ -361,6 +360,9 @@ struct CommissionAttachmentPreviewView:
 
         previewController.dataSource =
             context.coordinator
+        previewController.navigationItem.leftBarButtonItem = UIBarButtonItem(
+            title: "Schließen", primaryAction: UIAction { _ in dismiss() }
+        )
 
         return UINavigationController(
             rootViewController:
@@ -402,3 +404,4 @@ struct CommissionAttachmentPreviewView:
         }
     }
 }
+
