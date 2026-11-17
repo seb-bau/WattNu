@@ -1495,7 +1495,7 @@ struct CommissionAttachment: Codable, Identifiable, Equatable {
             return "photo"
         }
 
-        if mimeType == "application/pdf" {
+        if isPDF {
             return "doc.richtext"
         }
 
@@ -2358,3 +2358,4 @@ extension SafetyInspectionJob {
         return parts.joined(separator: " · ")
     }
 }
+
