@@ -8,12 +8,12 @@ struct CommissionOfflineTests {
     private let baseURL = URL(string: "https://example.invalid")!
     private let user = AppUser(id: 1, email: "one@example.invalid", displayName: "One", craftsmanErpId: nil, isAdmin: false, isForeman: false)
 
-    private func fixture(_ directory: URL, otherUserTime: Bool = false, acknowledge: Bool = false) throws -> CommissionOfflineStore {
+    private func fixture(_ directory: URL, otherUserTime: Bool = false, acknowledge: Bool = false, status: String = "in_progress", allowOnCompleted: Bool? = nil) throws -> CommissionOfflineStore {
         var snapshot = CommissionOfflineSnapshot()
         let userData = try CommissionOfflineJSON.object(JSONEncoder().encode(user))
         for id in [10, 11] {
             let path = "/api/commissions/\(id)"
-            let item: [String: Any] = ["id": id, "local_status": "in_progress", "positions": [], "assigned_user": userData, "is_own": true, "can_edit": true, "is_actionable": true, "title": "Auftrag"]
+            let item: [String: Any] = ["id": id, "local_status": status, "positions": [], "assigned_user": userData, "is_own": true, "can_edit": true, "is_actionable": true, "title": "Auftrag"]
             snapshot.resources[path] = CommissionOfflineResource(path: path, query: [], data: try CommissionOfflineJSON.data(["item": item]), fetchedAt: Date())
             for suffix in ["time", "materials", "photos"] {
                 let key = path + "/" + suffix
@@ -24,6 +24,10 @@ struct CommissionOfflineTests {
             let path = "/api/commissions/11/time"
             let item: [String: Any] = ["id": 90, "user": ["id": 2], "service_date": "2026-11-10", "minutes": 45]
             snapshot.resources[path] = CommissionOfflineResource(path: path, query: [], data: try CommissionOfflineJSON.data(["items": [item]]), fetchedAt: Date())
+        }
+        if let allowOnCompleted {
+            let path = "/api/mobile/config"
+            snapshot.resources[path] = CommissionOfflineResource(path: path, query: [], data: try CommissionOfflineJSON.data(["password_login_enabled": true, "allow_time_on_completed_commissions": allowOnCompleted]), fetchedAt: Date())
         }
         let photosPath = "/api/commissions/10/photos"
         let photosQuery = [CommissionOfflineQuery(name: "context", value: "order")]
@@ -52,6 +56,79 @@ struct CommissionOfflineTests {
     private func book(_ store: CommissionOfflineStore, commissionID: Int = 10, minutes: Int = 60, serviceDate: String = "2026-11-10") async throws -> TimeEntry {
         let data = try await store.execute(path: "/api/commissions/\(commissionID)/time", method: "POST", body: CommissionOfflineJSON.data(["minutes": minutes, "service_date": serviceDate]), contentType: "application/json", accept: "application/json")
         return try JSONDecoder().decode(ItemResponse<TimeEntry>.self, from: data).item
+    }
+
+    @Test func completedCommissionsRejectNewOfflineBookingsAndKeepExistingEntries() async throws {
+        let directory = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+        defer { try? FileManager.default.removeItem(at: directory) }
+        let store = try fixture(directory, otherUserTime: true, status: "done", allowOnCompleted: false)
+        defer { store.stop() }
+        do {
+            _ = try await book(store, commissionID: 11)
+            Issue.record("Die deaktivierte nachträgliche Zeiterfassung muss auch offline gelten.")
+        } catch {
+            #expect(error.localizedDescription.contains("keine neuen Zeiten"))
+        }
+        #expect(store.snapshot.operations.isEmpty)
+        let data = try await store.execute(path: "/api/commissions/11/time", method: "GET", body: nil, contentType: nil, accept: "application/json")
+        let items = try CommissionOfflineJSON.object(data)["items"] as? [[String: Any]]
+        #expect(items?.count == 1)
+        #expect(items?.first?["minutes"] as? Int == 45)
+        #expect(store.handles(path: "/api/mobile/config", method: "GET"))
+    }
+
+    @Test func completedCommissionsAllowOfflineBookingsWhenEnabled() async throws {
+        let directory = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+        defer { try? FileManager.default.removeItem(at: directory) }
+        let store = try fixture(directory, status: "done", allowOnCompleted: true)
+        defer { store.stop() }
+        let item = try await book(store)
+        #expect(item.minutes == 60)
+        #expect(store.snapshot.operations.count == 1)
+    }
+
+    @Test func offlineCompletionUsesTheConfiguredTimeRecordingPolicy() async throws {
+        for allowed in [false, true] {
+            let directory = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+            defer { try? FileManager.default.removeItem(at: directory) }
+            let store = try fixture(directory, allowOnCompleted: allowed)
+            defer { store.stop() }
+            let data = try await store.execute(path: "/api/commissions/10/complete", method: "POST", body: CommissionOfflineJSON.data(["completed": true]), contentType: "application/json", accept: "application/json")
+            let item = try JSONDecoder().decode(ItemResponse<Commission>.self, from: data).item
+            #expect(item.localStatus == "done")
+            #expect(item.canEditValue)
+            #expect(item.allowsNewTimeEntries(allowOnCompleted: allowed) == allowed)
+            if allowed {
+                _ = try await book(store)
+                #expect(store.snapshot.operations.count == 2)
+            } else {
+                do {
+                    _ = try await book(store)
+                    Issue.record("Nach dem Offline-Abschluss darf keine neue Zeitbuchung angelegt werden.")
+                } catch {
+                    #expect(error.localizedDescription.contains("keine neuen Zeiten"))
+                }
+                #expect(store.snapshot.operations.count == 1)
+            }
+        }
+    }
+
+    @Test func disabledLateRecordingRemainsAvailableAfterReopeningTheOfflineStore() async throws {
+        let directory = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+        defer { try? FileManager.default.removeItem(at: directory) }
+        let first = try fixture(directory, status: "done", allowOnCompleted: false)
+        first.stop()
+        let reopened = CommissionOfflineStore(storageDirectory: directory)
+        reopened.setActive(false)
+        try reopened.bind(user: user, baseURL: baseURL, token: "test")
+        defer { reopened.stop() }
+        do {
+            _ = try await book(reopened)
+            Issue.record("Die gespeicherte Einstellung muss nach einem Neustart weiterhin gelten.")
+        } catch {
+            #expect(error.localizedDescription.contains("keine neuen Zeiten"))
+        }
+        #expect(reopened.snapshot.operations.isEmpty)
     }
 
     @Test func commissionBookingPreservesASelectedPastServiceDateAcrossRestart() async throws {

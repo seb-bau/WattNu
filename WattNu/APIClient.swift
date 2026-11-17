@@ -52,7 +52,7 @@ final class APIClient {
     }
     
     func fetchMobileConfig() async throws -> MobileConfig {
-        try await request(path: "/api/mobile/config")
+        try await request(path: "/api/mobile/config", refreshBeforeReturning: true)
     }
 
     func loginPassword(email: String, password: String) async throws -> AuthResponse {
