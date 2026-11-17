@@ -12,6 +12,7 @@ struct MobileConfig: Codable, Equatable {
     let passwordLoginEnabled: Bool
     let microsoft: MobileMicrosoftConfig?
     let timeComponentsEnabled: Bool?
+    let allowTimeOnCompletedCommissions: Bool?
     let showServiceTargetTimes: Bool?
     let showWorkTimeTargetTimes: Bool?
 
@@ -19,6 +20,7 @@ struct MobileConfig: Codable, Equatable {
         case passwordLoginEnabled = "password_login_enabled"
         case microsoft
         case timeComponentsEnabled = "time_components_enabled"
+        case allowTimeOnCompletedCommissions = "allow_time_on_completed_commissions"
         case showServiceTargetTimes = "show_service_target_times"
         case showWorkTimeTargetTimes = "show_work_time_target_times"
     }
@@ -441,6 +443,10 @@ struct Commission: Codable, Identifiable, Hashable {
 
     var canEditValue: Bool {
         canEdit ?? true
+    }
+
+    func allowsNewTimeEntries(allowOnCompleted: Bool) -> Bool {
+        allowOnCompleted || !["done", "awaiting_invoice", "tenant_charge_review"].contains(localStatus)
     }
 
     var isActionableValue: Bool {

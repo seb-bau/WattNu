@@ -84,7 +84,7 @@ final class CommissionOfflineStore: ObservableObject {
     func handles(path: String, method: String) -> Bool {
         if path.hasPrefix("offline-commission-photo/") { return true }
         if path.hasPrefix("/api/commissions") || path == "/api/commission-objects/search" { return true }
-        return method == "GET" && (["/api/time-tasks", "/api/time-tasks/search", "/api/inventory/search", "/api/inventory/lookup", "/api/inventory/locations", "/api/appointment-windows", "/api/my-time"].contains(path))
+        return method == "GET" && (["/api/mobile/config", "/api/time-tasks", "/api/time-tasks/search", "/api/inventory/search", "/api/inventory/lookup", "/api/inventory/locations", "/api/appointment-windows", "/api/my-time"].contains(path))
     }
 
     private func persist() throws {
@@ -326,7 +326,7 @@ final class CommissionOfflineStore: ObservableObject {
         let expected = generation
         var epoch = dataEpoch
         let requestedAt = Date()
-        let ordinary = resources.filter { $0.path != "/api/my-time" && !isUnavailable($0.path) }
+        let ordinary = resources.filter { !["/api/my-time", "/api/mobile/config"].contains($0.path) && !isUnavailable($0.path) }
         if !ordinary.isEmpty {
             let requestData = try CommissionOfflineJSON.data(["resources": ordinary.map { resource -> [String: Any] in ["path": resource.path, "query": resource.query.map { ["name": $0.name, "value": $0.value] }] }])
             let data = try await transport.commissionRemoteData(path: "/api/mobile/offline-data", method: "POST", body: requestData)
@@ -377,7 +377,7 @@ final class CommissionOfflineStore: ObservableObject {
             }
             epoch = dataEpoch
         }
-        for resource in resources where resource.path == "/api/my-time" {
+        for resource in resources where ["/api/my-time", "/api/mobile/config"].contains(resource.path) {
             let data = try await transport.commissionRemoteData(path: resource.path, query: resource.query.map { URLQueryItem(name: $0.name, value: $0.value) })
             guard generation == expected, dataEpoch == epoch, !Task.isCancelled else { throw CancellationError() }
             if let current = snapshot.resources[resource.key], current.requestDate > requestedAt { continue }
@@ -410,7 +410,7 @@ final class CommissionOfflineStore: ObservableObject {
             let key = CommissionOfflineResource.key("/api/my-time", [CommissionOfflineQuery(name: "date", value: Formatters.apiDateText(date))])
             if snapshot.resources[key] == nil, !snapshot.preparation.contains(key) { snapshot.preparation.append(key) }
         }
-        for path in ["/api/time-tasks", "/api/inventory/locations", "/api/appointment-windows", "/api/commissions/simple-create-options", "/api/commissions/users"] {
+        for path in ["/api/mobile/config", "/api/time-tasks", "/api/inventory/locations", "/api/appointment-windows", "/api/commissions/simple-create-options", "/api/commissions/users"] {
             if snapshot.resources[path] == nil, !snapshot.preparation.contains(path) { snapshot.preparation.append(path) }
         }
     }
@@ -524,6 +524,15 @@ private extension CommissionOfflineStore {
         var commission = parent.flatMap { resources[$0] }.flatMap { try? CommissionOfflineJSON.object($0.data)["item"] as? [String: Any] } ?? [:]
         if let parent {
             guard !commission.isEmpty else { snapshot = previous; throw InspectionOfflineError.message("Bitte den Auftrag zuerst vollständig öffnen.") }
+            if method == "POST", parts.count == 4, parts[3] == "time" {
+                let configuration = try resources["/api/mobile/config"].map { try CommissionOfflineJSON.object($0.data) } ?? [:]
+                let allowOnCompleted = configuration["allow_time_on_completed_commissions"] as? Bool ?? true
+                let item = try JSONDecoder().decode(Commission.self, from: CommissionOfflineJSON.data(commission))
+                if !item.allowsNewTimeEntries(allowOnCompleted: allowOnCompleted) {
+                    snapshot = previous
+                    throw InspectionOfflineError.message("Für diesen abgeschlossenen Auftrag können keine neuen Zeiten erfasst werden.")
+                }
+            }
             var basePath = parent
             var targetID: Int?
             if method == "POST", path.hasSuffix("/appointments") { basePath = parent + "/appointments" }
@@ -571,7 +580,6 @@ private extension CommissionOfflineStore {
                 commission["completion_successful"] = fields["completed"] ?? false
                 commission["completion_reason"] = fields["reason"]
                 commission["completed_at"] = createdAt.ISO8601Format()
-                commission["can_edit"] = false
             }
             result = ["item": commission]
         } else if path.hasSuffix("/appointments/accepted") {

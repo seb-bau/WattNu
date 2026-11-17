@@ -81,6 +81,10 @@ struct TimeSectionView: View {
             return true
         }
 
+        if editingEntry == nil && !canAddTimeEntries {
+            return true
+        }
+
         if selectedTask == nil {
             return true
         }
@@ -89,122 +93,139 @@ struct TimeSectionView: View {
         return !hasTotalInput && !hasComponentInput
     }
 
+    private var canAddTimeEntries: Bool {
+        commission.canEditValue && commission.allowsNewTimeEntries(
+            allowOnCompleted: session.allowTimeOnCompletedCommissions
+        )
+    }
+
     var body: some View {
         List {
-            Section(formTitle) {
-                if commission.canEditValue == false {
-                    Text("Zeiten sind für Kollegenaufträge nur lesend verfügbar.")
+            if !canAddTimeEntries && editingEntry == nil {
+                Section("Zeiterfassung") {
+                    Text(commission.canEditValue
+                         ? "Die nachträgliche Zeiterfassung ist für diesen abgeschlossenen Auftrag deaktiviert. Bereits erfasste Zeiten werden weiterhin angezeigt."
+                         : "Zeiten sind für Kollegenaufträge nur lesend verfügbar.")
                         .foregroundStyle(.secondary)
                 }
-                
-                LabeledContent("Leistungsdatum") {
-                    Button {
-                        focusedField = nil
-                        isServiceDatePickerPresented = true
-                    } label: {
-                        Text(serviceDate, format: .dateTime.day().month().year())
-                            .padding(.horizontal, 10)
-                            .padding(.vertical, 6)
-                            .background(.quaternary, in: RoundedRectangle(cornerRadius: 8))
-                    }
-                    .buttonStyle(.borderless)
-                    .accessibilityLabel("Leistungsdatum auswählen")
-                    .accessibilityValue(serviceDate.formatted(date: .abbreviated, time: .omitted))
-                    .popover(isPresented: $isServiceDatePickerPresented) {
-                        DatePicker(
-                            "Leistungsdatum",
-                            selection: Binding(
-                                get: { serviceDate },
-                                set: { selectedDate in
-                                    serviceDate = selectedDate
-                                    isServiceDatePickerPresented = false
-                                }
-                            ),
-                            displayedComponents: .date
-                        )
-                        .datePickerStyle(.graphical)
-                        .labelsHidden()
-                        .frame(width: 300)
-                        .padding(8)
-                        .presentationCompactAdaptation(.popover)
-                    }
-                }
-                .disabled(
-                    isLoading || commission.canEditValue == false
-                )
+            }
 
-                if let selectedTask {
-                    VStack(alignment: .leading, spacing: 4) {
-                        Text(selectedTask.title)
-                            .font(.headline)
-
-                        Text(selectedTask.code)
-                            .font(.caption)
+            if canAddTimeEntries || editingEntry != nil {
+                Section(formTitle) {
+                    if commission.canEditValue == false {
+                        Text("Zeiten sind für Kollegenaufträge nur lesend verfügbar.")
                             .foregroundStyle(.secondary)
+                    }
 
-                        if session.showServiceTargetTimes,
-                           let suggestedMinutes = selectedTask.suggestedMinutes,
-                           suggestedMinutes > 0 {
-                            Text("SOLL-Zeit: \(WorkTimeText.duration(suggestedMinutes))")
-                                .font(.caption)
-                                .foregroundStyle(.secondary)
+                    LabeledContent("Leistungsdatum") {
+                        Button {
+                            focusedField = nil
+                            isServiceDatePickerPresented = true
+                        } label: {
+                            Text(serviceDate, format: .dateTime.day().month().year())
+                                .padding(.horizontal, 10)
+                                .padding(.vertical, 6)
+                                .background(.quaternary, in: RoundedRectangle(cornerRadius: 8))
+                        }
+                        .buttonStyle(.borderless)
+                        .accessibilityLabel("Leistungsdatum auswählen")
+                        .accessibilityValue(serviceDate.formatted(date: .abbreviated, time: .omitted))
+                        .popover(isPresented: $isServiceDatePickerPresented) {
+                            DatePicker(
+                                "Leistungsdatum",
+                                selection: Binding(
+                                    get: { serviceDate },
+                                    set: { selectedDate in
+                                        serviceDate = selectedDate
+                                        isServiceDatePickerPresented = false
+                                    }
+                                ),
+                                displayedComponents: .date
+                            )
+                            .datePickerStyle(.graphical)
+                            .labelsHidden()
+                            .frame(width: 300)
+                            .padding(8)
+                            .presentationCompactAdaptation(.popover)
                         }
                     }
-                    .padding(.vertical, 4)
-                } else if isLoadingTasks {
-                    ProgressView("Leistungsposition wird geladen …")
-                } else {
-                    Text("Diesem Auftrag ist keine eindeutige Leistungsposition zugeordnet.")
-                        .foregroundStyle(.secondary)
-                }
+                    .disabled(
+                        isLoading || commission.canEditValue == false
+                    )
 
-                TextField("Gesamtzeit in Stunden", text: $hoursText)
-                    .keyboardType(.decimalPad)
-                    .focused($focusedField, equals: .totalHours)
-                    .disabled(isLoading || commission.canEditValue == false)
+                    if let selectedTask {
+                        VStack(alignment: .leading, spacing: 4) {
+                            Text(selectedTask.title)
+                                .font(.headline)
 
-                if session.timeComponentsEnabled {
-                    DisclosureGroup("Zeitbausteine") {
-                        hourField("Arbeitszeit vor Ort", text: $workHoursText, field: .workHours)
-                        hourField("Wartezeit", text: $waitingHoursText, field: .waitingHours)
-                        hourField("Materialbeschaffung", text: $materialHoursText, field: .materialHours)
-                        hourField("Fahrt / Wegezeit", text: $travelHoursText, field: .travelHours)
-                        hourField("Dokumentation / Rücksprache", text: $documentationHoursText, field: .documentationHours)
-                        hourField("Zusatzarbeit", text: $extraHoursText, field: .extraHours)
-                    }
-                }
+                            Text(selectedTask.code)
+                                .font(.caption)
+                                .foregroundStyle(.secondary)
 
-                if !session.timeComponentsEnabled,
-                   let editingEntry,
-                   hasComponents(editingEntry) {
-                    Text("Eine Änderung der Gesamtzeit ersetzt die bisherige Aufteilung.")
-                        .font(.caption)
-                        .foregroundStyle(.secondary)
-                }
-
-                TextField("Notiz / Erläuterung", text: $note, axis: .vertical)
-                    .focused($focusedField, equals: .note)
-                    .disabled(isLoading || commission.canEditValue == false)
-
-                Button {
-                    focusedField = nil
-                    Task {
-                        await saveTimeEntry()
-                    }
-                } label: {
-                    if isLoading {
-                        ProgressView()
+                            if session.showServiceTargetTimes,
+                               let suggestedMinutes = selectedTask.suggestedMinutes,
+                               suggestedMinutes > 0 {
+                                Text("SOLL-Zeit: \(WorkTimeText.duration(suggestedMinutes))")
+                                    .font(.caption)
+                                    .foregroundStyle(.secondary)
+                            }
+                        }
+                        .padding(.vertical, 4)
+                    } else if isLoadingTasks {
+                        ProgressView("Leistungsposition wird geladen …")
                     } else {
-                        Label(saveButtonTitle, systemImage: "clock.badge.checkmark")
+                        Text("Diesem Auftrag ist keine eindeutige Leistungsposition zugeordnet.")
+                            .foregroundStyle(.secondary)
                     }
-                }
-                .disabled(isSaveDisabled)
 
-                if editingEntry != nil {
-                    Button("Bearbeitung abbrechen") {
-                        clearTimeInput()
+                    TextField("Gesamtzeit in Stunden", text: $hoursText)
+                        .keyboardType(.decimalPad)
+                        .focused($focusedField, equals: .totalHours)
+                        .disabled(isLoading || commission.canEditValue == false)
+
+                    if session.timeComponentsEnabled {
+                        DisclosureGroup("Zeitbausteine") {
+                            hourField("Arbeitszeit vor Ort", text: $workHoursText, field: .workHours)
+                            hourField("Wartezeit", text: $waitingHoursText, field: .waitingHours)
+                            hourField("Materialbeschaffung", text: $materialHoursText, field: .materialHours)
+                            hourField("Fahrt / Wegezeit", text: $travelHoursText, field: .travelHours)
+                            hourField("Dokumentation / Rücksprache", text: $documentationHoursText, field: .documentationHours)
+                            hourField("Zusatzarbeit", text: $extraHoursText, field: .extraHours)
+                        }
                     }
-                    .disabled(isLoading)
+
+                    if !session.timeComponentsEnabled,
+                       let editingEntry,
+                       hasComponents(editingEntry) {
+                        Text("Eine Änderung der Gesamtzeit ersetzt die bisherige Aufteilung.")
+                            .font(.caption)
+                            .foregroundStyle(.secondary)
+                    }
+
+                    TextField("Notiz / Erläuterung", text: $note, axis: .vertical)
+                        .focused($focusedField, equals: .note)
+                        .disabled(isLoading || commission.canEditValue == false)
+
+                    Button {
+                        focusedField = nil
+                        Task {
+                            await saveTimeEntry()
+                        }
+                    } label: {
+                        if isLoading {
+                            ProgressView()
+                        } else {
+                            Label(saveButtonTitle, systemImage: "clock.badge.checkmark")
+                        }
+                    }
+                    .disabled(isSaveDisabled)
+
+                    if editingEntry != nil {
+                        Button("Bearbeitung abbrechen") {
+                            clearTimeInput()
+                        }
+                        .disabled(isLoading)
+                    }
                 }
             }
 
@@ -413,6 +434,10 @@ struct TimeSectionView: View {
     }
 
     private func saveTimeEntry() async {
+        guard editingEntry != nil || canAddTimeEntries else {
+            errorMessage = "Für diesen Auftrag können keine neuen Zeiten erfasst werden."
+            return
+        }
         guard let selectedTask else {
             errorMessage = "Diesem Auftrag ist keine eindeutige Leistungsposition zugeordnet."
             return

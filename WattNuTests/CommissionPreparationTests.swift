@@ -63,6 +63,22 @@ struct CommissionPreparationTests {
         ["id": id, "process_erp_id": 1, "body": body, "author_name": "One", "direction": "office", "created_at": "2026-11-12T08:00:00Z", "version": 1, "state": "synced", "mail_state": "not_required", "is_unread": isUnread]
     }
 
+    @Test func mobileConfigReloadsTheCurrentPolicyAndPreservesItOffline() async throws {
+        let path = "/api/mobile/config"
+        let old = CommissionOfflineResource(path: path, query: [], data: try CommissionOfflineJSON.data(["password_login_enabled": true, "allow_time_on_completed_commissions": true]), fetchedAt: Date())
+        let fixture = try fixture(dates: [], resources: [old])
+        defer { fixture.close() }
+        fixture.scenario.setReplies([.response(200, try CommissionOfflineJSON.data(["password_login_enabled": true, "allow_time_on_completed_commissions": false]))], for: path)
+        let client = apiClient(fixture)
+        let updated = try await client.fetchMobileConfig()
+        #expect(updated.allowTimeOnCompletedCommissions == false)
+        #expect(fixture.scenario.count(path) == 1)
+        fixture.scenario.setReplies([.failure(.notConnectedToInternet)], for: path)
+        let cached = try await client.fetchMobileConfig()
+        #expect(cached.allowTimeOnCompletedCommissions == false)
+        #expect(fixture.store.snapshot.resources[path] != nil)
+    }
+
     private func processInfoResponse(_ items: [[String: Any]]) throws -> Data {
         try CommissionOfflineJSON.data(["items": [["path": "/api/commissions/10/infos", "query": [], "status": 200, "payload": ["items": items]]]])
     }

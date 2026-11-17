@@ -44,6 +44,10 @@ final class SessionStore: ObservableObject {
     var timeComponentsEnabled: Bool {
         mobileConfig?.timeComponentsEnabled ?? true
     }
+
+    var allowTimeOnCompletedCommissions: Bool {
+        mobileConfig?.allowTimeOnCompletedCommissions ?? true
+    }
     
     var showServiceTargetTimes: Bool {
         mobileConfig?.showServiceTargetTimes ?? true
