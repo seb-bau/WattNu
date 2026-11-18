@@ -276,6 +276,7 @@ struct Commission: Codable, Identifiable, Hashable {
     let apartmentLocation: String?
     let tenantName: String?
     let assignedUser: AppUser?
+    let createdByName: String?
     let isOwn: Bool?
     let canEdit: Bool?
     let recordingDate: String?
@@ -326,6 +327,7 @@ struct Commission: Codable, Identifiable, Hashable {
         case apartmentLocation = "apartment_location"
         case tenantName = "tenant_name"
         case assignedUser = "assigned_user"
+        case createdByName = "created_by_name"
         case isOwn = "is_own"
         case canEdit = "can_edit"
         case recordingDate = "recording_date"
@@ -439,6 +441,15 @@ struct Commission: Codable, Identifiable, Hashable {
         }
 
         return "Nicht zugeordnet"
+    }
+
+    var creatorDisplayName: String {
+        let offlineCreatorName = id < 0 && source == "ios" ? assignedUser?.displayName : nil
+        let name = (createdByName ?? offlineCreatorName)?.trimmingCharacters(in: .whitespacesAndNewlines)
+        if let name, !name.isEmpty {
+            return name
+        }
+        return "Nicht hinterlegt"
     }
 
     var canEditValue: Bool {

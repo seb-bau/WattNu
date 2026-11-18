@@ -58,6 +58,30 @@ struct CommissionOfflineTests {
         return try JSONDecoder().decode(ItemResponse<TimeEntry>.self, from: data).item
     }
 
+    @Test func offlineOrderKeepsItsCreatorAfterRestart() async throws {
+        let directory = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+        defer { try? FileManager.default.removeItem(at: directory) }
+        let store = try fixture(directory)
+        defer { store.stop() }
+        let data = try await store.execute(
+            path: "/api/commissions/simple", method: "POST", body: CommissionOfflineJSON.data(["title": "Reparatur"]),
+            contentType: "application/json", accept: "application/json"
+        )
+        let order = try JSONDecoder().decode(ItemResponse<Commission>.self, from: data).item
+        #expect(order.createdByName == user.displayName)
+        store.stop()
+
+        let reopened = CommissionOfflineStore(storageDirectory: directory)
+        reopened.setActive(false)
+        try reopened.bind(user: user, baseURL: baseURL, token: "test")
+        defer { reopened.stop() }
+        let saved = try await reopened.execute(
+            path: "/api/commissions/\(order.id)", method: "GET", body: nil, contentType: nil, accept: "application/json"
+        )
+        let savedOrder = try JSONDecoder().decode(ItemResponse<Commission>.self, from: saved).item
+        #expect(savedOrder.creatorDisplayName == user.displayName)
+    }
+
     @Test func completedCommissionsRejectNewOfflineBookingsAndKeepExistingEntries() async throws {
         let directory = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
         defer { try? FileManager.default.removeItem(at: directory) }

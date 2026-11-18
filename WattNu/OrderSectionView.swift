@@ -92,6 +92,11 @@ struct OrderSectionView: View {
                         )
 
                         DetailRowView(
+                            title: "Sachbearbeiter",
+                            value: commission.creatorDisplayName
+                        )
+
+                        DetailRowView(
                             title: "Kontakt Auftrag",
                             value: commission.contactPerson ?? "-"
                         )

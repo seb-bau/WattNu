@@ -138,6 +138,7 @@ private struct RelatedCommissionDetailView: View {
                     DetailRowView(title: "Auftragsnummer", value: commission.displayNumber)
                     DetailRowView(title: "Status", value: commission.localStatusLabel)
                     DetailRowView(title: "Handwerker", value: commission.assigneeName)
+                    DetailRowView(title: "Sachbearbeiter", value: commission.creatorDisplayName)
                     DetailRowView(title: "Mieter", value: commission.tenantName ?? "–")
                     DetailRowView(title: commission.addressLabel, value: commission.apartmentAddress ?? "–")
                     DetailRowView(title: "Lage", value: commission.apartmentLocation ?? "–")
