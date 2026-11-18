@@ -5,6 +5,7 @@
 //  Created by Sebastian Bauhaus on 09.06.26.
 //
 
+import Foundation
 import Testing
 @testable import WattNu
 
@@ -23,6 +24,11 @@ struct WattNuTests {
                 "in_progress"
             ])
         )
+    }
+
+    @Test func appBundleUsesGermanForSystemControls() {
+        #expect(Bundle.main.developmentLocalization == "de")
+        #expect(Bundle.main.localizations.contains("de"))
     }
 
 }

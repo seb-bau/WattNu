@@ -206,10 +206,10 @@
 				};
 			};
 			buildConfigurationList = 9E890D262FD8127100E57D41 /* Build configuration list for PBXProject "WattNu" */;
-			developmentRegion = en;
+			developmentRegion = de;
 			hasScannedForEncodings = 0;
 			knownRegions = (
-				en,
+				de,
 				Base,
 			);
 			mainGroup = 9E890D222FD8127100E57D41;

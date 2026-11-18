@@ -552,6 +552,7 @@ private extension CommissionOfflineStore {
         }
         if path == "/api/commissions/simple" {
             commission = ["id": id, "local_status": "recorded", "positions": [], "title": fields["title"] ?? "Auftrag", "description": fields["commission_text"] ?? "", "public_id": fields["client_request_id"] ?? UUID().uuidString, "source": "ios", "is_actionable": false, "erp_sync_state": "pending", "can_edit": true, "is_own": true, "assigned_user": userValue]
+            commission["created_by_name"] = user.displayName
             commission["contact_person"] = fields["contact_person"]
             commission["recording_date"] = createdAt.ISO8601Format()
             commission["commission_type_id"] = fields["commission_type_id"]

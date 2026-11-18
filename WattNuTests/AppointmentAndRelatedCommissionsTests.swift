@@ -35,6 +35,7 @@ struct AppointmentAndRelatedCommissionsTests {
         let commission = try await client().fetchRelatedCommission(commissionId: 10, relatedId: 20)
         #expect(commission.id == 20)
         #expect(commission.canEditValue == false)
+        #expect(commission.creatorDisplayName == "Sachbearbeitung Weber")
     }
 
     @Test func relatedPaginationSendsTheRequestedPage() async throws {
@@ -81,7 +82,9 @@ private final class AppointmentFeatureURLProtocol: URLProtocol, @unchecked Senda
                     payload = ["preferences": ["calendar_email_enabled": true]]
                 }
             } else if url.path == "/api/commissions/10/related/20" {
-                payload = ["item": commission(20)]
+                var item = commission(20)
+                item["created_by_name"] = "Sachbearbeitung Weber"
+                payload = ["item": item]
             } else if url.path == "/api/commissions/10/related" {
                 let page = URLComponents(url: url, resolvingAgainstBaseURL: false)?.queryItems?.first { $0.name == "page" }?.value ?? "1"
                 let relationships = ["license_agreement", "use_unit", "building"]
