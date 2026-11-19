@@ -1,6 +1,8 @@
 import SwiftUI
 
 struct OrderSectionView: View {
+    @Environment(\.openURL) private var openURL
+
     let commission: Commission
     let startAction: () -> Void
     let rejectAction: () -> Void
@@ -48,10 +50,7 @@ struct OrderSectionView: View {
 
                 VStack(alignment: .leading, spacing: 0) {
                     VStack(spacing: 12) {
-                        DetailRowView(
-                            title: commission.addressLabel,
-                            value: commission.apartmentAddress ?? "-"
-                        )
+                        addressRow
 
                         DetailRowView(
                             title: "Lage",
@@ -319,6 +318,58 @@ struct OrderSectionView: View {
                 CommissionContactsView(
                     commission: commission
                 )
+            }
+        }
+    }
+
+    @ViewBuilder
+    private var addressRow: some View {
+        if let address = commission.apartmentAddress?.trimmingCharacters(in: .whitespacesAndNewlines),
+           !address.isEmpty, address != "-" {
+            HStack(spacing: 6) {
+                Text(commission.addressLabel)
+                    .foregroundStyle(.secondary)
+
+                Spacer(minLength: 12)
+
+                Text(address)
+                    .multilineTextAlignment(.trailing)
+                    .textSelection(.enabled)
+
+                Button {
+                    openDirections(to: address)
+                } label: {
+                    Image(systemName: "location.fill")
+                        .frame(width: 44, height: 44)
+                        .contentShape(Rectangle())
+                }
+                .buttonStyle(.borderless)
+                .accessibilityLabel("Route zur Auftragsadresse öffnen")
+            }
+            .font(.subheadline)
+        } else {
+            DetailRowView(title: commission.addressLabel, value: "-")
+        }
+    }
+
+    private func openDirections(to address: String) {
+        var components = URLComponents()
+        components.scheme = "geo-navigation"
+        components.host = ""
+        components.path = "/directions"
+        components.queryItems = [URLQueryItem(name: "destination", value: address)]
+        components.percentEncodedQuery = components.percentEncodedQuery?
+            .replacingOccurrences(of: "+", with: "%2B")
+
+        guard let navigationURL = components.url else { return }
+
+        components.scheme = "https"
+        components.host = "maps.apple.com"
+        let appleMapsURL = components.url
+
+        openURL(navigationURL) { accepted in
+            if !accepted, let appleMapsURL {
+                openURL(appleMapsURL)
             }
         }
     }
