@@ -2,6 +2,7 @@ import Foundation
 import Testing
 @testable import WattNu
 
+@MainActor
 struct CommissionContactInformationTests {
     private func commission(_ fields: [String: Any] = [:]) throws -> Commission {
         let payload: [String: Any] = ["id": 1, "local_status": "in_progress", "positions": []]
