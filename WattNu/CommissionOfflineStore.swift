@@ -10,7 +10,11 @@ final class CommissionOfflineStore: ObservableObject {
     @Published private(set) var message = ""
     @Published private(set) var preparationMessage = ""
     @Published private(set) var deliveryIssues: [String] = []
-    private(set) var snapshot = CommissionOfflineSnapshot()
+    @Published private(set) var sendingGroups: Set<Int> = []
+    private(set) var snapshot = CommissionOfflineSnapshot() {
+        didSet { resourceOverlay = nil }
+    }
+    private var resourceOverlay: [String: CommissionOfflineResource]?
     private var rootURL: URL?
     private var accountKey: String?
     private var user: AppUser?
@@ -18,8 +22,10 @@ final class CommissionOfflineStore: ObservableObject {
     private var generation = 0
     private var dataEpoch = 0
     private var isActive = true
-    private var syncTask: Task<Void, Never>?
-    private var syncRequested = false
+    private var syncTasks: [Int: Task<Void, Never>] = [:]
+    private var uploadGroups: Set<Int> = []
+    private var resolvingGroups: Set<Int> = []
+    private var authenticationRetryAfter: Date?
     private var preparationTask: Task<Void, Never>?
     private var timerTask: Task<Void, Never>?
     private var refreshTasks: [String: Task<Void, Never>] = [:]
@@ -55,8 +61,21 @@ final class CommissionOfflineStore: ObservableObject {
             }
             rootURL = root
             accountKey = key
-            revision += 1
+            if snapshot.queueVersion != 2 || snapshot.deviceID == nil {
+                snapshot.deviceID = snapshot.deviceID ?? UUID().uuidString.lowercased()
+                snapshot.queueVersion = 2
+                for index in snapshot.operations.indices where snapshot.operations[index].scopedDependencies != true {
+                    let queued = snapshot.operations[index]
+                    if queued.changesStatus || queued.errorCode == "dependency_pending" || queued.errorCode == "operation_reused" {
+                        snapshot.operations[index].blocked = false
+                        snapshot.operations[index].retryAfter = nil
+                    }
+                }
+                for id in unavailableIDs { try invalidateCommission(id) }
+                try persist()
+            } else { revision += 1 }
         }
+        if transport?.accessToken != token { authenticationRetryAfter = nil }
         self.user = user
         let client = APIClient(baseURL: baseURL, session: networkSession)
         client.accessToken = token
@@ -66,9 +85,11 @@ final class CommissionOfflineStore: ObservableObject {
 
     func stop() {
         generation += 1
-        syncTask?.cancel(); preparationTask?.cancel(); timerTask?.cancel()
+        for task in syncTasks.values { task.cancel() }
+        preparationTask?.cancel(); timerTask?.cancel()
         for task in refreshTasks.values { task.cancel() }
-        syncTask = nil; preparationTask = nil; timerTask = nil; syncRequested = false
+        syncTasks = [:]; preparationTask = nil; timerTask = nil
+        sendingGroups = []; uploadGroups = []; resolvingGroups = []; authenticationRetryAfter = nil
         refreshTasks = [:]
         snapshot = CommissionOfflineSnapshot()
         transport = nil; user = nil; rootURL = nil; accountKey = nil
@@ -121,7 +142,13 @@ final class CommissionOfflineStore: ObservableObject {
     }
 
     private func effectiveResources() throws -> [String: CommissionOfflineResource] {
-        try CommissionOfflineJSON.overlay(snapshot.resources, operations: snapshot.operations)
+        if let resourceOverlay { return resourceOverlay }
+        let operations = snapshot.operations.filter { operation in
+            !(operation.blocked && (operation.changesStatus || operation.errorCode == "duplicate_booking")) && !isUnavailable(operation.path)
+        }
+        let resources = try CommissionOfflineJSON.overlay(snapshot.resources, operations: operations)
+        resourceOverlay = resources
+        return resources
     }
 
     private var unavailableIDs: Set<Int> {
@@ -163,6 +190,13 @@ final class CommissionOfflineStore: ObservableObject {
         snapshot.preparation.removeAll { commissionID(for: resourceForKey($0).path) == id }
         for key in snapshot.preparationErrors.keys where commissionID(for: resourceForKey(key).path) == id {
             snapshot.preparationErrors[key] = nil
+        }
+        let message = "Der Auftrag ist nicht mehr verfügbar. Lokale Änderungen bleiben zur Prüfung erhalten."
+        let details = try CommissionOfflineJSON.data(["code": "commission_unavailable", "message": message])
+        for index in snapshot.operations.indices where snapshot.operations[index].commissionID == id {
+            snapshot.operations[index].blocked = true
+            snapshot.operations[index].error = message
+            snapshot.operations[index].errorDetails = details
         }
     }
 
@@ -354,7 +388,17 @@ final class CommissionOfflineStore: ObservableObject {
                         }
                         var unavailable = unavailableIDs
                         unavailable.subtract(items.compactMap { $0["id"] as? Int })
+                        let availableAgain = unavailableIDs.subtracting(unavailable)
                         snapshot.unavailableCommissionIDs = unavailable
+                        for index in snapshot.operations.indices {
+                            let operation = snapshot.operations[index]
+                            if availableAgain.contains(operation.groupID), operation.errorCode == "commission_unavailable" {
+                                snapshot.operations[index].blocked = false
+                                snapshot.operations[index].error = nil
+                                snapshot.operations[index].errorDetails = nil
+                                snapshot.operations[index].retryAfter = nil
+                            }
+                        }
                         object["items"] = items
                         visibleValue = object
                     }
@@ -679,8 +723,16 @@ private extension CommissionOfflineStore {
             file = operationID + ".request"
             try body.write(to: rootURL.appendingPathComponent(file!), options: [.atomic, .completeFileProtectionUntilFirstUserAuthentication])
         }
-        let previousID = snapshot.operations.last { $0.commissionID == parentID || ($0.path == "/api/commissions/simple" && $0.localID == parentID) }?.id ?? parent.flatMap { snapshot.lastOperations[$0] }
-        var operation = CommissionOfflineOperation(id: operationID, path: path, method: method, body: try CommissionOfflineJSON.data(fields), contentType: contentType, bodyFilename: file, base: base, predecessorID: previousID, localResponse: response, localID: id, createdAt: createdAt)
+        var operation = CommissionOfflineOperation(id: operationID, path: path, method: method, body: try CommissionOfflineJSON.data(fields), contentType: contentType, bodyFilename: file, base: base, localResponse: response, localID: id, createdAt: createdAt)
+        operation.scopedDependencies = true
+        let sequenceKey = operation.sequenceKey
+        operation.predecessorID = snapshot.operations.last {
+            $0.sequenceKey == sequenceKey || ($0.path == "/api/commissions/simple" && $0.localID == parentID)
+        }?.id
+        if operation.createsBooking, let resource = snapshot.resources[path], let payload = try? CommissionOfflineJSON.object(resource.data) {
+            let items = payload["items"] as? [[String: Any]] ?? []
+            operation.knownBookingIDs = Array(items.compactMap { $0["id"] as? Int }.filter { $0 > 0 }.prefix(2000))
+        }
         operation.photoIDs = photoIDs
         snapshot.operations.append(operation)
         do { try persist() } catch {
@@ -713,7 +765,7 @@ private extension CommissionOfflineStore {
     func stockAdjusted(_ product: [String: Any]) -> [String: Any] {
         guard product["item_number"] != nil else { return product }
         var product = product
-        for operation in snapshot.operations where operation.path.contains("/materials") {
+        for operation in snapshot.operations where operation.path.contains("/materials") && operation.errorCode != "duplicate_booking" {
             guard let result = try? CommissionOfflineJSON.object(operation.localResponse), let movement = result["item"] as? [String: Any], let item = movement["item"] as? [String: Any], item["id"] as? Int == product["id"] as? Int, ["warehouse", "vehicle"].contains(movement["source"] as? String ?? ""), let quantity = movement["quantity"] as? Double else { continue }
             let delta = operation.path.hasSuffix("/cancel") ? quantity : -quantity
             product["stock_quantity"] = max(0, (product["stock_quantity"] as? Double ?? 0) + delta)
@@ -752,64 +804,186 @@ private extension CommissionOfflineStore {
     }
 
     func requestSync() {
-        guard isActive, transport != nil else { return }
-        guard syncTask == nil else { syncRequested = true; return }
-        syncRequested = false
+        guard isActive, let transport, let rootURL,
+              (authenticationRetryAfter ?? .distantPast) <= Date() else { return }
+        var precedingSequences: Set<String> = []
+        var pendingTimes: Set<Int> = []
+        let config = snapshot.resources["/api/mobile/config"].flatMap { try? CommissionOfflineJSON.object($0.data) }
+        let allowLateTime = config?["allow_time_on_completed_commissions"] as? Bool ?? true
+        let now = Date()
         let expected = generation
-        syncTask = Task { [weak self] in
-            guard let self else { return }
-            isSyncing = true
-            defer { if generation == expected { isSyncing = false; syncTask = nil; if syncRequested { requestSync() } } }
-            var blocked: Set<Int> = []
-            for operationID in snapshot.operations.map(\.id) {
-                guard let queued = snapshot.operations.first(where: { $0.id == operationID }) else { continue }
-                guard generation == expected, !Task.isCancelled, let transport, let rootURL else { return }
-                let group = queued.commissionID ?? queued.localID
-                if blocked.contains(group) || queued.blocked || (queued.retryAfter ?? .distantPast) > Date() { blocked.insert(group); continue }
-                do {
-                    var value: [String: Any] = ["id": queued.id, "path": queued.path, "method": queued.method, "body": try CommissionOfflineJSON.object(queued.body), "content_type": queued.contentType, "local_photo_ids": queued.photoIDs]
-                    if let base = queued.base { value["base"] = try CommissionOfflineJSON.object(base) }
-                    if let predecessor = queued.predecessorID { value["predecessor_id"] = predecessor }
-                    let operationData = try CommissionOfflineJSON.data(value)
-                    let data: Data
-                    if let file = queued.bodyFilename {
-                        let boundary = "WattNu-" + UUID().uuidString
-                        var body = Data("--\(boundary)\r\nContent-Disposition: form-data; name=\"operation\"\r\n\r\n".utf8)
-                        body.append(operationData)
-                        body.append(Data("\r\n--\(boundary)\r\nContent-Disposition: form-data; name=\"request_body\"; filename=\"request.bin\"\r\nContent-Type: application/octet-stream\r\n\r\n".utf8))
-                        body.append(try Data(contentsOf: rootURL.appendingPathComponent(file)))
-                        body.append(Data("\r\n--\(boundary)--\r\n".utf8))
-                        data = try await transport.commissionRemoteData(path: "/api/mobile/offline-operations", method: "POST", body: body, contentType: "multipart/form-data; boundary=\(boundary)")
-                    } else { data = try await transport.commissionRemoteData(path: "/api/mobile/offline-operations", method: "POST", body: operationData) }
-                    guard generation == expected, !Task.isCancelled else { return }
-                    let response = try CommissionOfflineJSON.object(data)
-                    guard response["id"] as? String == queued.id, let payload = response["payload"] as? [String: Any] else { throw APIError.invalidResponse }
-                    try acknowledge(queued, payload: payload, timeDays: response["my_time"] as? [String: Any] ?? [:], references: response["references"] as? [String: Int] ?? [:])
-                    message = ""
-                } catch {
-                    guard generation == expected, !error.isRequestCancellation else { return }
-                    guard let index = snapshot.operations.firstIndex(where: { $0.id == queued.id }) else { continue }
-                    snapshot.operations[index].error = error.localizedDescription
-                    snapshot.operations[index].attempts += 1
-                    if case APIError.serverStatus(let status, let details) = error {
-                        if status == 409, let data = details.data(using: .utf8), (try? autoMerge(index: index, details: data)) == true {
-                            syncRequested = true
-                            blocked.insert(group)
-                            do { try persist() } catch { message = error.localizedDescription; return }
-                            continue
+        for operation in snapshot.operations {
+            if syncTasks.count >= 4 { break }
+            let group = operation.groupID
+            let firstInSequence = precedingSequences.insert(operation.sequenceKey).inserted
+            if operation.method == "POST", operation.path.hasSuffix("/time") { pendingTimes.insert(group) }
+            guard firstInSequence, !operation.blocked, !operation.needsServerID, !isUnavailable(operation.path),
+                  (operation.retryAfter ?? .distantPast) <= now, syncTasks[group] == nil, !resolvingGroups.contains(group) else { continue }
+            if !allowLateTime, pendingTimes.contains(group), operation.path.hasSuffix("/complete"),
+               (try? CommissionOfflineJSON.object(operation.body)["completed"] as? Bool) == true { continue }
+            if operation.bodyFilename != nil {
+                guard uploadGroups.count < 2 else { continue }
+                uploadGroups.insert(group)
+            }
+            sendingGroups.insert(group)
+            syncTasks[group] = Task { [weak self] in
+                guard let self else { return }
+                defer {
+                    if generation == expected {
+                        syncTasks[group] = nil
+                        sendingGroups.remove(group)
+                        uploadGroups.remove(group)
+                        if syncTasks.isEmpty {
+                            isSyncing = false
+                            resumePreparation()
                         }
-                        snapshot.operations[index].blocked = [400, 403, 404, 409, 413, 422].contains(status)
-                        snapshot.operations[index].errorDetails = details.data(using: .utf8)
-                        if let data = details.data(using: .utf8), let text = try? CommissionOfflineJSON.object(data)["message"] as? String { snapshot.operations[index].error = text }
+                        requestSync()
                     }
-                    snapshot.operations[index].retryAfter = Date().addingTimeInterval(min(300, 30 * pow(2, Double(min(snapshot.operations[index].attempts, 4)))))
-                    message = snapshot.operations[index].error ?? error.localizedDescription
-                    try? persist()
-                    blocked.insert(group)
-                    if InspectionOfflineError.isConnectionError(error) || (error as? APIError).map({ if case .unauthorized = $0 { return true }; return false }) == true { return }
                 }
+                await send(operation, using: transport, rootURL: rootURL, generation: expected)
             }
         }
+        if !syncTasks.isEmpty && !isSyncing { isSyncing = true }
+    }
+
+    private func syncRequest(_ transport: APIClient, path: String, method: String = "GET", body: Data? = nil, contentType: String = "application/json") async throws -> Data {
+        try await withThrowingTaskGroup(of: Data.self) { group in
+            group.addTask {
+                try await transport.commissionRemoteData(path: path, method: method, body: body, contentType: contentType)
+            }
+            group.addTask {
+                try await Task.sleep(for: .seconds(45))
+                throw URLError(.timedOut)
+            }
+            defer { group.cancelAll() }
+            guard let data = try await group.next() else { throw CancellationError() }
+            return data
+        }
+    }
+
+    private func receipt(for operation: CommissionOfflineOperation, using transport: APIClient) async throws -> [String: Any]? {
+        do {
+            let data = try await syncRequest(transport, path: "/api/mobile/offline-operations/" + operation.id)
+            return try CommissionOfflineJSON.object(data)
+        } catch APIError.serverStatus(404, _) {
+            return nil
+        }
+    }
+
+    private func applyReceipt(_ response: [String: Any], to operation: CommissionOfflineOperation) throws {
+        guard response["id"] as? String == operation.id, let payload = response["payload"] as? [String: Any] else { throw APIError.invalidResponse }
+        try acknowledge(operation, payload: payload, timeDays: response["my_time"] as? [String: Any] ?? [:], references: response["references"] as? [String: Int] ?? [:])
+    }
+
+    private func send(_ queued: CommissionOfflineOperation, using transport: APIClient, rootURL: URL, generation expected: Int) async {
+        var operation = queued
+        do {
+            if operation.scopedDependencies != true {
+                let existing = try await receipt(for: operation, using: transport)
+                guard generation == expected, !Task.isCancelled, let index = snapshot.operations.firstIndex(where: { $0.id == queued.id }) else { return }
+                if let existing {
+                    try applyReceipt(existing, to: operation)
+                    return
+                }
+                guard !isUnavailable(operation.path) else { return }
+                if operation.createsBooking {
+                    operation.predecessorID = nil
+                } else if let predecessor = snapshot.operations.first(where: { $0.id == operation.predecessorID }),
+                          predecessor.sequenceKey != operation.sequenceKey, predecessor.path != "/api/commissions/simple" {
+                    operation.predecessorID = nil
+                }
+                operation.scopedDependencies = true
+                snapshot.operations[index] = operation
+                do { try persist() } catch {
+                    snapshot.operations[index] = queued
+                    throw error
+                }
+            }
+            var value: [String: Any] = [
+                "id": operation.id, "path": operation.path, "method": operation.method,
+                "body": try CommissionOfflineJSON.object(operation.body), "content_type": operation.contentType,
+                "local_photo_ids": operation.photoIDs
+            ]
+            if let base = operation.base { value["base"] = try CommissionOfflineJSON.object(base) }
+            if let predecessor = operation.predecessorID { value["predecessor_id"] = predecessor }
+            if operation.createsBooking {
+                value["device_id"] = snapshot.deviceID
+                value["known_booking_ids"] = operation.knownBookingIDs ?? []
+                if operation.confirmDuplicate == true { value["confirm_duplicate"] = true }
+            }
+
+            let operationData = try CommissionOfflineJSON.data(value)
+            let data: Data
+            let contentType: String
+            if let filename = operation.bodyFilename {
+                let file = rootURL.appendingPathComponent(filename)
+                let boundary = "WattNu-" + UUID().uuidString
+                contentType = "multipart/form-data; boundary=\(boundary)"
+                data = try await Task.detached(priority: .utility) {
+                    var body = Data("--\(boundary)\r\nContent-Disposition: form-data; name=\"operation\"\r\n\r\n".utf8)
+                    body.append(operationData)
+                    body.append(Data("\r\n--\(boundary)\r\nContent-Disposition: form-data; name=\"request_body\"; filename=\"request.bin\"\r\nContent-Type: application/octet-stream\r\n\r\n".utf8))
+                    body.append(try Data(contentsOf: file))
+                    body.append(Data("\r\n--\(boundary)--\r\n".utf8))
+                    return body
+                }.value
+            } else {
+                data = operationData
+                contentType = "application/json"
+            }
+            guard generation == expected, !Task.isCancelled, !isUnavailable(operation.path) else { return }
+            let response = try await syncRequest(transport, path: "/api/mobile/offline-operations", method: "POST", body: data, contentType: contentType)
+            guard generation == expected, !Task.isCancelled else { return }
+            try applyReceipt(CommissionOfflineJSON.object(response), to: operation)
+            message = ""
+        } catch {
+            guard generation == expected, !Task.isCancelled, !isUnavailable(operation.path),
+                  let index = snapshot.operations.firstIndex(where: { $0.id == operation.id }) else { return }
+            if error.isRequestCancellation {
+                snapshot.operations[index].retryAfter = Date().addingTimeInterval(5)
+                return
+            }
+            recordSyncFailure(error, index: index)
+        }
+    }
+
+    private func recordSyncFailure(_ error: Error, index: Int) {
+        let operation = snapshot.operations[index]
+        if case APIError.unauthorized = error { authenticationRetryAfter = Date().addingTimeInterval(30) }
+        if case APIError.serverStatus(let status, let details) = error {
+            let problem = details.data(using: .utf8).flatMap { try? CommissionOfflineJSON.object($0) }
+            let code = problem?["code"] as? String
+            if code == "commission_unavailable", let commissionID = operation.commissionID {
+                do {
+                    try invalidateCommission(commissionID)
+                    try persist()
+                    return
+                } catch { message = error.localizedDescription }
+            }
+            if code == "dependency_pending", let predecessor = operation.predecessorID,
+               !snapshot.operations.contains(where: { $0.id == predecessor }) {
+                snapshot.operations[index].predecessorID = nil
+                snapshot.operations[index].retryAfter = nil
+                try? persist()
+                return
+            }
+            if status == 409, let data = details.data(using: .utf8), (try? autoMerge(index: index, details: data)) == true {
+                try? persist()
+                return
+            }
+            snapshot.operations[index].blocked = [400, 403, 404, 409, 410, 413, 422].contains(status)
+            snapshot.operations[index].errorDetails = details.data(using: .utf8)
+            snapshot.operations[index].error = problem?["message"] as? String ?? error.localizedDescription
+            if status == 409, operation.changesStatus, let commissionID = operation.commissionID {
+                refreshInBackground("/api/commissions/\(commissionID)", query: [])
+            }
+            if code == "duplicate_booking" { refreshInBackground(operation.path, query: []) }
+        } else {
+            snapshot.operations[index].error = error.localizedDescription
+        }
+        snapshot.operations[index].attempts += 1
+        snapshot.operations[index].retryAfter = Date().addingTimeInterval(min(300, 30 * pow(2, Double(min(snapshot.operations[index].attempts, 4)))))
+        try? persist()
     }
 
     func autoMerge(index: Int, details: Data) throws -> Bool {
@@ -877,18 +1051,23 @@ private extension CommissionOfflineStore {
         for (date, value) in timeDays {
             let resource = CommissionOfflineResource(path: "/api/my-time", query: [CommissionOfflineQuery(name: "date", value: date)], data: try CommissionOfflineJSON.data(value), fetchedAt: Date())
             snapshot.resources[resource.key] = resource
-            snapshot.preparation.removeAll { $0 == resource.key }
+            if !snapshot.preparation.contains(resource.key) { snapshot.preparation.append(resource.key) }
             snapshot.preparationErrors[resource.key] = nil
         }
         snapshot.resources = try CommissionOfflineJSON.overlay(snapshot.resources, operations: [acknowledged])
         if let product = payload["inventory_item"] as? [String: Any] {
-            for (key, var resource) in snapshot.resources {
-                resource.data = try CommissionOfflineJSON.data(replacingInventory(CommissionOfflineJSON.object(resource.data), product: product))
+            let itemNumber = Data("\"item_number\"".utf8)
+            for (key, var resource) in snapshot.resources where resource.data.range(of: itemNumber) != nil {
+                let updatedData = try CommissionOfflineJSON.data(replacingInventory(CommissionOfflineJSON.object(resource.data), product: product))
+                guard resource.data != updatedData else { continue }
+                resource.data = updatedData
                 snapshot.resources[key] = resource
+                if ["/api/inventory/search", "/api/inventory/lookup"].contains(resource.path), !snapshot.preparation.contains(key) {
+                    snapshot.preparation.append(key)
+                }
             }
         }
         snapshot.operations.removeAll { $0.id == operation.id }
-        if let parent = operation.commissionID { snapshot.lastOperations["/api/commissions/\(parent)"] = operation.id }
         snapshot.lastSynchronizedAt = Date()
         dataEpoch += 1
         do { try persist() } catch { snapshot = previous; throw error }
@@ -906,7 +1085,7 @@ private extension CommissionOfflineStore {
         let date = resource.query.first { $0.name == "date" }?.value ?? payload["date"] as? String ?? ""
         var items = payload["items"] as? [[String: Any]] ?? []
         var minutes = payload["recorded_minutes"] as? Int ?? 0
-        for operation in operations ?? snapshot.operations where operation.path.contains("/time") {
+        for operation in operations ?? snapshot.operations where operation.path.contains("/time") && operation.errorCode != "duplicate_booking" {
             let response = try CommissionOfflineJSON.object(operation.localResponse)
             let new = response["item"] as? [String: Any]
             if let owner = (new?["user"] as? [String: Any])?["id"] as? Int, owner != user?.id { continue }
@@ -955,60 +1134,98 @@ extension CommissionOfflineStore {
 
     func retrySynchronization() throws {
         preparationMessage = ""
-        for index in snapshot.operations.indices where !snapshot.operations[index].blocked {
-            snapshot.operations[index].error = nil; snapshot.operations[index].retryAfter = nil
+        authenticationRetryAfter = nil
+        for index in snapshot.operations.indices {
+            let operation = snapshot.operations[index]
+            guard !operation.blocked || (operation.changesStatus && operation.errorCode == "conflict") else { continue }
+            snapshot.operations[index].blocked = false
+            snapshot.operations[index].error = nil
+            snapshot.operations[index].retryAfter = nil
         }
         try persist()
         resume()
     }
 
+    func canResolve(groupID: Int) -> Bool {
+        !sendingGroups.contains(groupID) && !resolvingGroups.contains(groupID)
+    }
+
     func resolve(operationID: String, keepLocal: Bool) async throws {
-        guard !isSyncing, let index = snapshot.operations.firstIndex(where: { $0.id == operationID }) else { throw InspectionOfflineError.message("Bitte die laufende Übertragung abwarten.") }
+        guard let operation = snapshot.operations.first(where: { $0.id == operationID }),
+              let transport, canResolve(groupID: operation.groupID) else {
+            throw InspectionOfflineError.message("Bitte die Übertragung dieses Auftrags abwarten.")
+        }
         let expected = generation
-        let operation = snapshot.operations[index]
+        let group = operation.groupID
+        resolvingGroups.insert(group)
+        defer {
+            if generation == expected {
+                resolvingGroups.remove(group)
+                resume()
+            }
+        }
+
+        let existing = try await receipt(for: operation, using: transport)
+        guard generation == expected, let index = snapshot.operations.firstIndex(where: { $0.id == operationID }) else { throw CancellationError() }
+        if let existing {
+            try applyReceipt(existing, to: operation)
+            return
+        }
         if keepLocal {
-            if !operation.blocked {
-                snapshot.operations[index].error = nil
-                snapshot.operations[index].retryAfter = nil
-                try persist(); resume(); return
+            if isUnavailable(operation.path) || operation.errorCode == "commission_closed" || operation.errorCode == "local_dependency_discarded" {
+                throw InspectionOfflineError.message(operation.error ?? "Der Vorgang benötigt Prüfung.")
             }
-            if let details = operation.errorDetails, (try? CommissionOfflineJSON.object(details)["code"] as? String) == "operation_reused" {
-                throw InspectionOfflineError.message("Dieser Vorgang wurde bereits bestätigt. Bitte den Serverstand übernehmen und den Auftrag prüfen.")
+            var updated = snapshot.operations[index]
+            if operation.errorCode == "duplicate_booking" { updated.confirmDuplicate = true }
+            if operation.errorCode == "material_booking_confirmation_required" {
+                var body = try CommissionOfflineJSON.object(updated.body)
+                body["confirm_missing_material"] = true
+                updated.body = try CommissionOfflineJSON.data(body)
             }
-            if let baseData = operation.base {
+            if operation.blocked, let baseData = operation.base {
                 var base = try CommissionOfflineJSON.object(baseData)
                 if let path = base["path"] as? String {
                     try await refresh([CommissionOfflineResource(path: path, query: [], data: Data(), fetchedAt: .distantPast)])
-                    guard generation == expected, let resource = snapshot.resources[path], let currentIndex = snapshot.operations.firstIndex(where: { $0.id == operationID }) else { throw CancellationError() }
+                    guard generation == expected else { throw CancellationError() }
+                    guard let resource = snapshot.resources[path] else { throw unavailableCommissionError }
                     base["value"] = CommissionOfflineJSON.normalized(path: path, payload: try CommissionOfflineJSON.object(resource.data), targetID: base["target_id"] as? Int)
-                    snapshot.operations[currentIndex].base = try CommissionOfflineJSON.data(base)
-                    snapshot.operations[currentIndex].predecessorID = nil
+                    updated.base = try CommissionOfflineJSON.data(base)
+                    updated.predecessorID = nil
                 }
             }
-            guard let currentIndex = snapshot.operations.firstIndex(where: { $0.id == operationID }) else { return }
-            snapshot.operations[currentIndex].blocked = false; snapshot.operations[currentIndex].error = nil; snapshot.operations[currentIndex].retryAfter = nil
+            guard generation == expected, let currentIndex = snapshot.operations.firstIndex(where: { $0.id == operationID }) else { throw CancellationError() }
+            let previous = snapshot
+            updated.blocked = false
+            updated.error = nil
+            updated.errorDetails = nil
+            updated.retryAfter = nil
+            snapshot.operations[currentIndex] = updated
+            do { try persist() } catch { snapshot = previous; throw error }
         } else {
-            guard let transport else { throw APIError.missingToken }
-            do {
-                let data = try await transport.commissionRemoteData(path: "/api/mobile/offline-operations/" + operation.id)
-                guard generation == expected else { throw CancellationError() }
-                let receipt = try CommissionOfflineJSON.object(data)
-                guard receipt["id"] as? String == operation.id, let payload = receipt["payload"] as? [String: Any] else { throw APIError.invalidResponse }
-                try acknowledge(operation, payload: payload, timeDays: receipt["my_time"] as? [String: Any] ?? [:], references: receipt["references"] as? [String: Int] ?? [:])
-            } catch APIError.serverStatus(404, _) {
+            let previous = snapshot
+            snapshot.operations.remove(at: index)
+            let missingMessage = "Der zugehörige lokale Auftrag oder Eintrag wurde verworfen. Diese Änderung bleibt zur Prüfung erhalten."
+            let missingDetails = try CommissionOfflineJSON.data(["code": "local_dependency_discarded", "message": missingMessage])
+            let localIDs = Set([operation.localID] + operation.photoIDs)
+            for index in snapshot.operations.indices {
+                let queued = snapshot.operations[index]
+                if queued.predecessorID == operationID { snapshot.operations[index].predecessorID = nil }
+                if operation.method == "POST", queued.needsServerID,
+                   queued.path.split(separator: "/").dropFirst(2).compactMap({ Int($0) }).contains(where: { localIDs.contains($0) }) {
+                    snapshot.operations[index].blocked = true
+                    snapshot.operations[index].error = missingMessage
+                    snapshot.operations[index].errorDetails = missingDetails
+                } else if queued.predecessorID == operationID, queued.errorCode == "dependency_pending" {
+                    snapshot.operations[index].blocked = false
+                    snapshot.operations[index].error = nil
+                    snapshot.operations[index].errorDetails = nil
+                    snapshot.operations[index].retryAfter = nil
+                }
             }
-            guard generation == expected else { throw CancellationError() }
-            let group = snapshot.idMappings[String(operation.commissionID ?? operation.localID)] ?? operation.commissionID ?? operation.localID
-            if group > 0 {
-                let parent = "/api/commissions/\(group)"
-                let paths = [parent] + ["/time", "/materials", "/photos", "/appointments", "/infos"].map { parent + $0 }
-                try await refresh(paths.map { CommissionOfflineResource(path: $0, query: [], data: Data(), fetchedAt: .distantPast) })
-                guard generation == expected else { throw CancellationError() }
-            }
-            let discarded = snapshot.operations.filter { $0.id == operationID || (($0.commissionID ?? $0.localID) == group && $0.createdAt >= operation.createdAt) }
-            snapshot.operations.removeAll { queued in discarded.contains { $0.id == queued.id } }
+            do { try persist() } catch { snapshot = previous; throw error }
+            if let file = operation.bodyFilename, let rootURL { try? FileManager.default.removeItem(at: rootURL.appendingPathComponent(file)) }
+            if group > 0 { refreshInBackground("/api/commissions/\(group)", query: []) }
         }
-        try persist(); resume()
     }
 
     func retryServerDeliveries() async {

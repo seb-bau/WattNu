@@ -49,10 +49,44 @@ struct CommissionOfflineOperation: Codable, Identifiable {
     var retryAfter: Date?
     var blocked = false
     var photoIDs: [Int] = []
+    var scopedDependencies: Bool?
+    var knownBookingIDs: [Int]?
+    var confirmDuplicate: Bool?
 
     var commissionID: Int? {
         let parts = path.split(separator: "/")
         return parts.count > 2 ? Int(parts[2]) : nil
+    }
+
+    var groupID: Int { commissionID ?? localID }
+
+    var changesStatus: Bool {
+        ["/start", "/reject", "/complete"].contains { path.hasSuffix($0) }
+    }
+
+    var createsBooking: Bool {
+        method == "POST" && ["/time", "/materials"].contains { path.hasSuffix($0) }
+    }
+
+    var sequenceKey: String {
+        let parts = path.split(separator: "/")
+        guard parts.count >= 4 else { return path + "/\(localID)" }
+        let parent = "/api/commissions/\(groupID)"
+        if changesStatus { return parent + "/status" }
+        let section = String(parts[3])
+        if ["time", "photos", "materials"].contains(section) {
+            let target = parts.count > 4 ? Int(parts[4]) ?? localID : localID
+            return parent + "/" + section + "/\(target)"
+        }
+        return parent + "/" + section
+    }
+
+    var needsServerID: Bool {
+        path.split(separator: "/").dropFirst(2).contains { (Int($0) ?? 0) < 0 }
+    }
+
+    var errorCode: String? {
+        errorDetails.flatMap { try? CommissionOfflineJSON.object($0)["code"] as? String }
     }
 
     var title: String {
@@ -74,11 +108,12 @@ struct CommissionOfflineSnapshot: Codable {
     var media: [String: String] = [:]
     var preparation: [String] = []
     var preparationErrors: [String: String] = [:]
-    var lastOperations: [String: String] = [:]
     var idMappings: [String: Int] = [:]
     var unavailableCommissionIDs: Set<Int>?
     var nextID = -1
     var lastSynchronizedAt: Date?
+    var deviceID: String?
+    var queueVersion: Int?
 }
 
 struct SynchronizationPreparationIssue: Identifiable {
@@ -135,15 +170,25 @@ enum CommissionOfflineJSON {
     }
 
     static func overlay(_ resources: [String: CommissionOfflineResource], operations: [CommissionOfflineOperation]) throws -> [String: CommissionOfflineResource] {
+        guard !operations.isEmpty else { return resources }
         var result = resources
+        var keysByPath = Dictionary(grouping: resources, by: { $0.value.path }).mapValues { $0.map { $0.key } }
+        var changedPayloads: [String: [String: Any]] = [:]
         for operation in operations {
             let response = try object(operation.localResponse)
             let item = response["item"] as? [String: Any]
             let parts = operation.path.split(separator: "/").map(String.init)
             let parent = operation.commissionID.map { "/api/commissions/\($0)" }
             let isCommission = operation.path == "/api/commissions/simple" || ["start", "reject", "complete", "accepted"].contains(parts.last ?? "")
-            for (key, var resource) in result {
-                var payload = try object(resource.data)
+            let paths: Set<String>
+            if isCommission, item != nil {
+                paths = Set(["/api/commissions", "/api/commissions/\(operation.localID)"] + (parent.map { [$0] } ?? []))
+            } else if let parent, parts.count >= 4 {
+                paths = [parent + "/" + parts[3]]
+            } else { continue }
+            for key in paths.flatMap({ keysByPath[$0] ?? [] }) {
+                guard let resource = result[key] else { continue }
+                var payload = try changedPayloads[key] ?? object(resource.data)
                 if isCommission, let item {
                     if resource.path == "/api/commissions" {
                         var items = payload["items"] as? [[String: Any]] ?? []
@@ -185,13 +230,17 @@ enum CommissionOfflineJSON {
                         payload["items"] = items
                     }
                 }
-                resource.data = try data(payload)
-                result[key] = resource
+                changedPayloads[key] = payload
             }
             if isCommission, let item, let id = item["id"] as? Int {
                 let path = "/api/commissions/\(id)"
-                result[path] = CommissionOfflineResource(path: path, query: [], data: try data(["item": item]), fetchedAt: .distantPast)
+                if result[path] == nil { keysByPath[path, default: []].append(path) }
+                result[path] = CommissionOfflineResource(path: path, query: [], data: Data(), fetchedAt: .distantPast)
+                changedPayloads[path] = ["item": item]
             }
+        }
+        for (key, payload) in changedPayloads {
+            result[key]?.data = try data(payload)
         }
         return result
     }
