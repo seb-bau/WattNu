@@ -108,6 +108,7 @@ struct CommissionOfflineSnapshot: Codable {
     var media: [String: String] = [:]
     var preparation: [String] = []
     var preparationErrors: [String: String] = [:]
+    var lastOperations: [String: String] = [:]
     var idMappings: [String: Int] = [:]
     var unavailableCommissionIDs: Set<Int>?
     var nextID = -1

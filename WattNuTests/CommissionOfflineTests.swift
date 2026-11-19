@@ -357,6 +357,28 @@ struct CommissionOfflineTests {
         #expect(!store.snapshot.preparation.contains(key))
     }
 
+    @Test func olderQueueRecoversACheckedReceiptBeforeSending() async throws {
+        let directory = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+        defer { try? FileManager.default.removeItem(at: directory) }
+        let initial = try fixture(directory)
+        _ = try await book(initial)
+        var snapshot = initial.snapshot
+        initial.stop()
+        snapshot.operations[0].scopedDependencies = nil
+        snapshot.queueVersion = nil
+        snapshot.deviceID = nil
+        let key = SHA256.hash(data: Data("\(baseURL.absoluteString)|1".utf8)).map { String(format: "%02x", $0) }.joined()
+        try JSONEncoder().encode(snapshot).write(to: directory.appendingPathComponent(key).appendingPathComponent("state.json"))
+        let configuration = URLSessionConfiguration.ephemeral
+        configuration.protocolClasses = [OfflineTestURLProtocol.self]
+        let store = CommissionOfflineStore(storageDirectory: directory, session: URLSession(configuration: configuration))
+        defer { store.stop() }
+        try store.bind(user: user, baseURL: baseURL, token: "legacy-receipt")
+        try await waitUntil { store.snapshot.operations.isEmpty }
+        let data = try await store.execute(path: "/api/commissions/10/time", method: "GET", body: nil, contentType: nil, accept: "application/json")
+        #expect(try JSONDecoder().decode(ListResponse<TimeEntry>.self, from: data).items.map(\.id) == [200])
+    }
+
     @Test func multipartPreservesBinaryPhotoBytes() throws {
         let bytes = Data([0, 255, 128, 13, 10, 1, 2])
         var body = Data("--sample\r\nContent-Disposition: form-data; name=\"photo\"; filename=\"foto.jpg\"\r\nContent-Type: image/jpeg\r\n\r\n".utf8)
@@ -469,6 +491,10 @@ private final class OfflineTestURLProtocol: URLProtocol, @unchecked Sendable {
         var status = missing ? 404 : 200
         var data = Data((missing ? "{\"message\":\"Nicht bestätigt\"}" : "{\"items\":[]}").utf8)
         let profile = request.value(forHTTPHeaderField: "Authorization") ?? ""
+        if missing, profile == "Bearer legacy-receipt" {
+            status = 200
+            data = (try? JSONSerialization.data(withJSONObject: ["id": url.lastPathComponent, "payload": ["item": timeItem(commissionID: 10)]])) ?? data
+        }
         if url.path == "/api/my-time" {
             let minutes = profile == "Bearer shared-time" ? 120 : 60
             let commission: [String: Any] = ["id": 10, "number": "10", "title": "Auftrag"]
@@ -491,7 +517,10 @@ private final class OfflineTestURLProtocol: URLProtocol, @unchecked Sendable {
             if let operation = try? JSONSerialization.jsonObject(with: body) as? [String: Any],
                let id = operation["id"] as? String, let path = operation["path"] as? String {
                 if profile == "Bearer parallel", path.hasSuffix("/10/start") { return }
-                if profile == "Bearer blocked-status", path.hasSuffix("/10/start") {
+                if profile == "Bearer legacy-receipt" {
+                    status = 409
+                    data = Data("{\"code\":\"operation_reused\",\"message\":\"Vorgang wurde schon bestätigt.\"}".utf8)
+                } else if profile == "Bearer blocked-status", path.hasSuffix("/10/start") {
                     status = 409
                     data = Data("{\"code\":\"conflict\",\"message\":\"Der Serverstand wurde geändert.\"}".utf8)
                 } else if profile == "Bearer deleted-order", path.hasSuffix("/10/start") {
@@ -502,7 +531,7 @@ private final class OfflineTestURLProtocol: URLProtocol, @unchecked Sendable {
                     data = Data("{\"code\":\"duplicate_booking\",\"message\":\"Buchung bereits vorhanden.\"}".utf8)
                 } else {
                     let commissionID = path.hasSuffix("/11/time") ? 11 : 10
-                    let item: [String: Any] = ["id": 200, "commission_id": commissionID, "user": ["id": 1, "email": "one@example.invalid", "display_name": "One", "is_admin": false, "is_foreman": false], "minutes": 60, "service_date": "2026-11-10", "deviation_minutes": 0, "deviation_percent": 0, "review_status": "ok"]
+                    let item = timeItem(commissionID: commissionID)
                     let day: [String: Any] = ["date": "2026-11-10", "recorded_minutes": 60, "status": "complete", "items": [["id": 200, "minutes": 60, "service_date": "2026-11-10", "is_free_time": false, "commission": ["id": commissionID, "number": "\(commissionID)", "title": "Auftrag"]]]]
                     data = (try? JSONSerialization.data(withJSONObject: ["id": id, "payload": ["item": item], "my_time": ["2026-11-10": day], "references": [:]])) ?? data
                 }
@@ -513,5 +542,10 @@ private final class OfflineTestURLProtocol: URLProtocol, @unchecked Sendable {
         client?.urlProtocol(self, didLoad: data)
         client?.urlProtocolDidFinishLoading(self)
     }
+
+    private func timeItem(commissionID: Int) -> [String: Any] {
+        ["id": 200, "commission_id": commissionID, "user": ["id": 1, "email": "one@example.invalid", "display_name": "One", "is_admin": false, "is_foreman": false], "minutes": 60, "service_date": "2026-11-10", "deviation_minutes": 0, "deviation_percent": 0, "review_status": "ok"]
+    }
+
     override func stopLoading() {}
 }

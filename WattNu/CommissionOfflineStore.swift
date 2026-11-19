@@ -64,9 +64,10 @@ final class CommissionOfflineStore: ObservableObject {
             if snapshot.queueVersion != 2 || snapshot.deviceID == nil {
                 snapshot.deviceID = snapshot.deviceID ?? UUID().uuidString.lowercased()
                 snapshot.queueVersion = 2
+                snapshot.lastOperations.removeAll()
                 for index in snapshot.operations.indices where snapshot.operations[index].scopedDependencies != true {
                     let queued = snapshot.operations[index]
-                    if queued.changesStatus || queued.errorCode == "dependency_pending" || queued.errorCode == "operation_reused" {
+                    if queued.errorCode != "operation_reused", queued.changesStatus || queued.errorCode == "dependency_pending" {
                         snapshot.operations[index].blocked = false
                         snapshot.operations[index].retryAfter = nil
                     }
@@ -1157,6 +1158,9 @@ extension CommissionOfflineStore {
         }
         let expected = generation
         let group = operation.groupID
+        if keepLocal, operation.errorCode == "operation_reused" {
+            throw InspectionOfflineError.message("Unter dieser Kennung ist bereits ein Vorgang bestätigt. Bitte den Serverstand prüfen und die Änderung bei Bedarf neu erfassen.")
+        }
         resolvingGroups.insert(group)
         defer {
             if generation == expected {

@@ -195,7 +195,7 @@ struct SynchronizationView: View {
                 if let details = item.details, !details.isEmpty {
                     DisclosureGroup("Details") { Text(details).font(.caption).textSelection(.enabled) }
                 }
-                if !["commission_unavailable", "commission_closed", "local_dependency_discarded"].contains(item.errorCode ?? "") {
+                if !["commission_unavailable", "commission_closed", "local_dependency_discarded", "operation_reused"].contains(item.errorCode ?? "") {
                     let retry = Resolution(id: item.id, entityID: item.entityID, module: module, keepLocal: true, errorCode: item.errorCode)
                     Button(confirmationLabel(retry)) { resolution = retry }
                 }
