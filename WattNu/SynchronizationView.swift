@@ -7,6 +7,7 @@ struct SynchronizationItem: Identifiable {
     let createdAt: Date
     let error: String?
     let details: String?
+    var errorCode: String? = nil
 }
 
 private struct CommissionOfflineRefreshModifier: ViewModifier {
@@ -84,6 +85,7 @@ struct SynchronizationView: View {
         let entityID: Int
         let module: String
         let keepLocal: Bool
+        var errorCode: String? = nil
     }
 
     var body: some View {
@@ -92,7 +94,7 @@ struct SynchronizationView: View {
                 statusRow(isSyncing: commissions.isSyncing, pending: commissions.snapshot.operations.count, lastSync: commissions.snapshot.lastSynchronizedAt)
                 if !commissions.message.isEmpty { Text(commissions.message).font(.footnote).foregroundStyle(.secondary) }
                 ForEach(commissions.snapshot.operations) { operation in
-                    entry(SynchronizationItem(id: operation.id, entityID: operation.commissionID ?? operation.localID, title: operation.title, createdAt: operation.createdAt, error: operation.error, details: operation.errorDetails.flatMap { String(data: $0, encoding: .utf8) }), module: "commissions")
+                    entry(SynchronizationItem(id: operation.id, entityID: operation.groupID, title: operation.title, createdAt: operation.createdAt, error: operation.error, details: operation.errorDetails.flatMap { String(data: $0, encoding: .utf8) }, errorCode: operation.errorCode), module: "commissions")
                 }
                 if !commissions.preparationMessage.isEmpty || !commissions.preparationIssues.isEmpty {
                     Text("Datenaktualisierung").font(.subheadline).bold()
@@ -127,7 +129,7 @@ struct SynchronizationView: View {
                     } catch { errorMessage = error.localizedDescription }
                     Task { await commissions.retryServerDeliveries() }
                 }
-                .disabled(commissions.isSyncing || inspections.isSyncing || isResolving)
+                .disabled(isResolving)
             } footer: {
                 Text("Diese Seite zeigt ausstehende Änderungen und Probleme des angemeldeten Kontos auf diesem Gerät. Die Übertragung wird bei aktiver App automatisch fortgesetzt.")
             }
@@ -137,12 +139,12 @@ struct SynchronizationView: View {
         .task { await commissions.loadDeliveryIssues() }
         .refreshable { await commissions.loadDeliveryIssues() }
         .confirmationDialog(
-            resolution?.keepLocal == true ? "Lokale Änderungen erneut anwenden?" : "Serverstand übernehmen?",
+            resolution?.keepLocal == true ? "Lokale Änderungen erneut anwenden?" : "Lokale Änderungen verwerfen?",
             isPresented: Binding(get: { resolution != nil }, set: { if !$0 { resolution = nil } }),
             titleVisibility: .visible,
             presenting: resolution
         ) { item in
-            Button(item.keepLocal ? "Erneut prüfen und anwenden" : "Lokale Änderungen verwerfen", role: item.keepLocal ? nil : .destructive) {
+            Button(confirmationLabel(item), role: item.keepLocal ? nil : .destructive) {
                 isResolving = true
                 Task {
                     defer { isResolving = false; resolution = nil }
@@ -154,11 +156,29 @@ struct SynchronizationView: View {
             }
             Button("Abbrechen", role: .cancel) { resolution = nil }
         } message: { item in
-            Text(item.keepLocal ? "Der aktuelle Serverstand wird erneut geprüft. Lagerbestände, Berechtigungen und fachliche Regeln gelten weiterhin." : "Die betroffenen lokalen Änderungen und davon abhängige Vorgänge werden verworfen. Bei Prüfaufträgen betrifft dies alle ausstehenden Änderungen dieser Prüfung.")
+            Text(confirmationMessage(item))
         }
         .alert("Synchronisierung", isPresented: Binding(get: { errorMessage != nil }, set: { if !$0 { errorMessage = nil } })) {
             Button("OK", role: .cancel) { errorMessage = nil }
         } message: { Text(errorMessage ?? "") }
+    }
+
+    private func confirmationLabel(_ item: Resolution) -> String {
+        if !item.keepLocal { return "Lokale Änderungen verwerfen" }
+        if item.errorCode == "duplicate_booking" { return "Zusätzlich buchen" }
+        if item.errorCode == "material_booking_confirmation_required" { return "Trotzdem abschließen" }
+        return "Erneut prüfen und anwenden"
+    }
+
+    private func confirmationMessage(_ item: Resolution) -> String {
+        if !item.keepLocal {
+            return item.module == "commissions"
+                ? "Nur dieser lokale Vorgang wird verworfen. Weitere Änderungen bleiben zur Übertragung oder Prüfung erhalten."
+                : "Alle ausstehenden Änderungen dieser Prüfung werden verworfen."
+        }
+        if item.errorCode == "duplicate_booking" { return "Eine gleichartige Buchung ist am Server vorhanden. Bestätige hier, dass beide Buchungen gewollt sind." }
+        if item.errorCode == "material_booking_confirmation_required" { return "Für diesen Auftrag ist eine Materialbuchung vorgesehen. Möchtest du den Auftrag trotzdem abschließen?" }
+        return "Der aktuelle Serverstand wird erneut geprüft. Lagerbestände, Berechtigungen und fachliche Regeln gelten weiterhin."
     }
 
     private func statusRow(isSyncing: Bool, pending: Int, lastSync: Date?) -> some View {
@@ -175,8 +195,11 @@ struct SynchronizationView: View {
                 if let details = item.details, !details.isEmpty {
                     DisclosureGroup("Details") { Text(details).font(.caption).textSelection(.enabled) }
                 }
-                Button("Lokale Änderungen erneut anwenden") { resolution = Resolution(id: item.id, entityID: item.entityID, module: module, keepLocal: true) }
-                Button("Serverstand übernehmen", role: .destructive) { resolution = Resolution(id: item.id, entityID: item.entityID, module: module, keepLocal: false) }
+                if !["commission_unavailable", "commission_closed", "local_dependency_discarded", "operation_reused"].contains(item.errorCode ?? "") {
+                    let retry = Resolution(id: item.id, entityID: item.entityID, module: module, keepLocal: true, errorCode: item.errorCode)
+                    Button(confirmationLabel(retry)) { resolution = retry }
+                }
+                Button(module == "commissions" ? "Diesen Vorgang verwerfen" : "Serverstand übernehmen", role: .destructive) { resolution = Resolution(id: item.id, entityID: item.entityID, module: module, keepLocal: false) }
             } else { Text("Wartet auf Übertragung").font(.footnote).foregroundStyle(.secondary) }
             Text(item.createdAt, format: .dateTime.day().month().year().hour().minute()).font(.caption)
         } label: {
@@ -185,6 +208,6 @@ struct SynchronizationView: View {
                 Text(item.error == nil ? "Ausstehend" : "Übertragung benötigt Prüfung").font(.caption).foregroundStyle(item.error == nil ? Color.secondary : Color.orange)
             }
         }
-        .disabled(isResolving || commissions.isSyncing || inspections.isSyncing)
+        .disabled(isResolving || (module == "commissions" ? !commissions.canResolve(groupID: item.entityID) : inspections.isSyncing))
     }
 }

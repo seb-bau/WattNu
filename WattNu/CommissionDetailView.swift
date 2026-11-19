@@ -84,6 +84,8 @@ struct CommissionDetailView: View {
 
                     Divider()
 
+                    PendingCommissionStatusView(store: session.commissionStore, commissionID: commissionId)
+
                     switch selectedSection {
                     case .order:
                         OrderSectionView(
@@ -291,6 +293,22 @@ struct CommissionDetailView: View {
             commission = try await session.apiClient.startCommission(id: commissionId)
         } catch {
             errorMessage = error.localizedDescription
+        }
+    }
+}
+
+private struct PendingCommissionStatusView: View {
+    @ObservedObject var store: CommissionOfflineStore
+    let commissionID: Int
+
+    var body: some View {
+        if let operation = store.snapshot.operations.first(where: { $0.groupID == commissionID && $0.changesStatus }) {
+            Label(
+                operation.blocked ? "Statusänderung benötigt Prüfung" : "Statusänderung wartet auf Synchronisierung",
+                systemImage: operation.blocked ? "exclamationmark.triangle" : "arrow.triangle.2.circlepath"
+            )
+            .font(.footnote)
+            .padding(.vertical, 6)
         }
     }
 }
