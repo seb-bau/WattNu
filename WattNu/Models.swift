@@ -262,6 +262,8 @@ struct Commission: Codable, Identifiable, Hashable {
     let description: String?
     let damageLocation: String?
     let contactPerson: String?
+    let reporter: String?
+    let otherAffected: String?
     let statusId: Int?
     let statusCode: String?
     let localStatus: String
@@ -313,6 +315,8 @@ struct Commission: Codable, Identifiable, Hashable {
         case description
         case damageLocation = "damage_location"
         case contactPerson = "contact_person"
+        case reporter
+        case otherAffected = "other_affected"
         case statusId = "status_id"
         case statusCode = "status_code"
         case localStatus = "local_status"
@@ -358,6 +362,16 @@ struct Commission: Codable, Identifiable, Hashable {
     
     var isHighPriorityValue: Bool {
         isHighPriority ?? false
+    }
+
+    var reporterText: String? {
+        guard let text = reporter?.trimmingCharacters(in: .whitespacesAndNewlines), !text.isEmpty else { return nil }
+        return text
+    }
+
+    var otherAffectedText: String? {
+        guard let text = otherAffected?.trimmingCharacters(in: .whitespacesAndNewlines), !text.isEmpty else { return nil }
+        return text
     }
 
     var isEconomicUnitOrder: Bool {
@@ -2375,4 +2389,5 @@ extension SafetyInspectionJob {
         return parts.joined(separator: " · ")
     }
 }
+
 

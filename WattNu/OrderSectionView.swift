@@ -115,6 +115,14 @@ struct OrderSectionView: View {
                     )
                 }
 
+                if let text = commission.reporterText {
+                    contactInformation(title: "Melder", text: text)
+                }
+
+                if let text = commission.otherAffectedText {
+                    contactInformation(title: "Weitere Betroffene", text: text)
+                }
+
                 RelatedCommissionsSectionView(commissionId: commission.id)
 
                 CommissionAppointmentSectionView(
@@ -322,6 +330,19 @@ struct OrderSectionView: View {
         }
     }
 
+    private func contactInformation(title: String, text: String) -> some View {
+        VStack(alignment: .leading, spacing: 8) {
+            Text(title)
+                .font(.headline)
+            Text(text)
+                .textSelection(.enabled)
+        }
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .padding()
+        .background(.thinMaterial)
+        .clipShape(RoundedRectangle(cornerRadius: 18))
+    }
+
     @ViewBuilder
     private var addressRow: some View {
         if let address = commission.apartmentAddress?.trimmingCharacters(in: .whitespacesAndNewlines),
@@ -374,3 +395,4 @@ struct OrderSectionView: View {
         }
     }
 }
+
