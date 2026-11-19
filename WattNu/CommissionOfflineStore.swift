@@ -24,6 +24,8 @@ final class CommissionOfflineStore: ObservableObject {
     private var isActive = true
     private var syncTasks: [Int: Task<Void, Never>] = [:]
     private var uploadGroups: Set<Int> = []
+    private var sharedWrites: [Int: String] = [:]
+    private var overlappingWrites: Set<Int> = []
     private var resolvingGroups: Set<Int> = []
     private var authenticationRetryAfter: Date?
     private var preparationTask: Task<Void, Never>?
@@ -91,6 +93,7 @@ final class CommissionOfflineStore: ObservableObject {
         for task in refreshTasks.values { task.cancel() }
         syncTasks = [:]; preparationTask = nil; timerTask = nil
         sendingGroups = []; uploadGroups = []; resolvingGroups = []; authenticationRetryAfter = nil
+        sharedWrites = [:]; overlappingWrites = []
         refreshTasks = [:]
         snapshot = CommissionOfflineSnapshot()
         transport = nil; user = nil; rootURL = nil; accountKey = nil
@@ -492,7 +495,13 @@ final class CommissionOfflineStore: ObservableObject {
         let expected = generation
         preparationTask = Task { [weak self] in
             guard let self else { return }
-            defer { if generation == expected { preparationTask = nil } }
+            let initialEpoch = dataEpoch
+            defer {
+                if generation == expected {
+                    preparationTask = nil
+                    if dataEpoch != initialEpoch && syncTasks.isEmpty { resumePreparation() }
+                }
+            }
             var attempted: Set<String> = []
             while generation == expected && isActive && !Task.isCancelled {
                 let selected = Array(snapshot.preparation.filter { !attempted.contains($0) }.prefix(20))
@@ -826,6 +835,16 @@ private extension CommissionOfflineStore {
                 guard uploadGroups.count < 2 else { continue }
                 uploadGroups.insert(group)
             }
+            if let section = operation.path.split(separator: "/").dropFirst(3).first,
+               section == "time" || section == "materials" {
+                let sharedSection = String(section)
+                let overlapping = sharedWrites.filter { $0.value == sharedSection }.keys
+                if !overlapping.isEmpty {
+                    overlappingWrites.formUnion(overlapping)
+                    overlappingWrites.insert(group)
+                }
+                sharedWrites[group] = sharedSection
+            }
             sendingGroups.insert(group)
             syncTasks[group] = Task { [weak self] in
                 guard let self else { return }
@@ -834,6 +853,8 @@ private extension CommissionOfflineStore {
                         syncTasks[group] = nil
                         sendingGroups.remove(group)
                         uploadGroups.remove(group)
+                        sharedWrites[group] = nil
+                        overlappingWrites.remove(group)
                         if syncTasks.isEmpty {
                             isSyncing = false
                             resumePreparation()
@@ -871,9 +892,9 @@ private extension CommissionOfflineStore {
         }
     }
 
-    private func applyReceipt(_ response: [String: Any], to operation: CommissionOfflineOperation) throws {
+    private func applyReceipt(_ response: [String: Any], to operation: CommissionOfflineOperation, refreshShared: Bool) throws {
         guard response["id"] as? String == operation.id, let payload = response["payload"] as? [String: Any] else { throw APIError.invalidResponse }
-        try acknowledge(operation, payload: payload, timeDays: response["my_time"] as? [String: Any] ?? [:], references: response["references"] as? [String: Int] ?? [:])
+        try acknowledge(operation, payload: payload, timeDays: response["my_time"] as? [String: Any] ?? [:], references: response["references"] as? [String: Int] ?? [:], refreshShared: refreshShared)
     }
 
     private func send(_ queued: CommissionOfflineOperation, using transport: APIClient, rootURL: URL, generation expected: Int) async {
@@ -883,7 +904,7 @@ private extension CommissionOfflineStore {
                 let existing = try await receipt(for: operation, using: transport)
                 guard generation == expected, !Task.isCancelled, let index = snapshot.operations.firstIndex(where: { $0.id == queued.id }) else { return }
                 if let existing {
-                    try applyReceipt(existing, to: operation)
+                    try applyReceipt(existing, to: operation, refreshShared: true)
                     return
                 }
                 guard !isUnavailable(operation.path) else { return }
@@ -935,7 +956,8 @@ private extension CommissionOfflineStore {
             guard generation == expected, !Task.isCancelled, !isUnavailable(operation.path) else { return }
             let response = try await syncRequest(transport, path: "/api/mobile/offline-operations", method: "POST", body: data, contentType: contentType)
             guard generation == expected, !Task.isCancelled else { return }
-            try applyReceipt(CommissionOfflineJSON.object(response), to: operation)
+            let refreshShared = overlappingWrites.contains(queued.groupID) || operation.attempts > 0
+            try applyReceipt(CommissionOfflineJSON.object(response), to: operation, refreshShared: refreshShared)
             message = ""
         } catch {
             guard generation == expected, !Task.isCancelled, !isUnavailable(operation.path),
@@ -1018,7 +1040,7 @@ private extension CommissionOfflineStore {
         return true
     }
 
-    func acknowledge(_ operation: CommissionOfflineOperation, payload: [String: Any], timeDays: [String: Any], references: [String: Int]) throws {
+    func acknowledge(_ operation: CommissionOfflineOperation, payload: [String: Any], timeDays: [String: Any], references: [String: Int], refreshShared: Bool = false) throws {
         let previous = snapshot
         var acknowledged = operation
         acknowledged.localResponse = try CommissionOfflineJSON.data(payload)
@@ -1052,7 +1074,11 @@ private extension CommissionOfflineStore {
         for (date, value) in timeDays {
             let resource = CommissionOfflineResource(path: "/api/my-time", query: [CommissionOfflineQuery(name: "date", value: date)], data: try CommissionOfflineJSON.data(value), fetchedAt: Date())
             snapshot.resources[resource.key] = resource
-            if !snapshot.preparation.contains(resource.key) { snapshot.preparation.append(resource.key) }
+            if refreshShared {
+                if !snapshot.preparation.contains(resource.key) { snapshot.preparation.append(resource.key) }
+            } else {
+                snapshot.preparation.removeAll { $0 == resource.key }
+            }
             snapshot.preparationErrors[resource.key] = nil
         }
         snapshot.resources = try CommissionOfflineJSON.overlay(snapshot.resources, operations: [acknowledged])
@@ -1063,7 +1089,7 @@ private extension CommissionOfflineStore {
                 guard resource.data != updatedData else { continue }
                 resource.data = updatedData
                 snapshot.resources[key] = resource
-                if ["/api/inventory/search", "/api/inventory/lookup"].contains(resource.path), !snapshot.preparation.contains(key) {
+                if refreshShared, ["/api/inventory/search", "/api/inventory/lookup"].contains(resource.path), !snapshot.preparation.contains(key) {
                     snapshot.preparation.append(key)
                 }
             }
@@ -1172,7 +1198,7 @@ extension CommissionOfflineStore {
         let existing = try await receipt(for: operation, using: transport)
         guard generation == expected, let index = snapshot.operations.firstIndex(where: { $0.id == operationID }) else { throw CancellationError() }
         if let existing {
-            try applyReceipt(existing, to: operation)
+            try applyReceipt(existing, to: operation, refreshShared: true)
             return
         }
         if keepLocal {
