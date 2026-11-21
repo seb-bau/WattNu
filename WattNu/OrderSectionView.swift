@@ -94,11 +94,6 @@ struct OrderSectionView: View {
                             title: "Sachbearbeiter",
                             value: commission.creatorDisplayName
                         )
-
-                        DetailRowView(
-                            title: "Kontakt Auftrag",
-                            value: commission.contactPerson ?? "-"
-                        )
                     }
                     .padding()
                     .background(.thinMaterial)
