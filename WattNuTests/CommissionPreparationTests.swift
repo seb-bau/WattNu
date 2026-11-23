@@ -786,6 +786,40 @@ struct CommissionPreparationTests {
         #expect(commission.economicUnitDisplayName == nil)
     }
 
+    @Test func refreshingACachedDayReturnsNewInspectionTime() async throws {
+        let date = Date(timeIntervalSince1970: 1_780_000_000)
+        let dateText = Formatters.apiDateText(date)
+        let path = "/api/my-time"
+        let cached = CommissionOfflineResource(
+            path: path,
+            query: [CommissionOfflineQuery(name: "date", value: dateText)],
+            data: PreparationScenario.dayData(dateText),
+            fetchedAt: Date()
+        )
+        let fixture = try fixture(dates: [], resources: [cached])
+        defer { fixture.close() }
+        let client = apiClient(fixture)
+
+        let entry: [String: Any] = [
+            "id": 7, "minutes": 35, "service_date": dateText, "is_free_time": false,
+            "safety_inspection": ["id": 24, "title": "Spielplatzkontrolle"]
+        ]
+        let payload = try CommissionOfflineJSON.data([
+            "date": dateText, "recorded_minutes": 35, "status": "complete", "items": [entry]
+        ])
+        let key = path + "?date=" + dateText
+        fixture.scenario.setReplies([.response(200, payload)], for: key)
+
+        let previous = try await client.fetchMyTime(date: date)
+        #expect(previous.items.isEmpty)
+        #expect(fixture.scenario.count(key) == 0)
+
+        let refreshed = try await client.fetchMyTime(date: date, refresh: true)
+        #expect(refreshed.recordedMinutes == 35)
+        #expect(refreshed.items.first?.safetyInspection?.id == 24)
+        #expect(fixture.scenario.count(key) == 1)
+    }
+
     @Test func olderDayResponseAfterBookingDoesNotOverwriteConfirmationOrReportCancellation() async throws {
         let date = "2026-11-01"
         let key = "/api/my-time?date=" + date

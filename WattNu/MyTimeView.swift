@@ -98,7 +98,7 @@ struct MyTimeView: View {
                     }
                     .refreshable {
                         await session.loadMobileConfig()
-                        await loadSummary()
+                        await loadSummary(refresh: true)
                     }
                 }
             }
@@ -132,12 +132,12 @@ struct MyTimeView: View {
             .refreshForCommissionChanges { await loadSummary() }
             .task(id: navigation.selectedTab == .times ? selectedDate : nil) {
                 if navigation.selectedTab == .times {
-                    await loadSummary()
+                    await loadSummary(refresh: true)
                 }
             }
             .onChange(of: inspections.completionJobIds) { previous, current in
                 if navigation.selectedTab == .times && !previous.isSubset(of: current) {
-                    Task { await loadSummary() }
+                    Task { await loadSummary(refresh: true) }
                 }
             }
             .sheet(isPresented: $isMonthPresented) {
@@ -391,7 +391,7 @@ struct MyTimeView: View {
         ) ?? selectedDate
     }
 
-    private func loadSummary() async {
+    private func loadSummary(refresh: Bool = false) async {
         guard !Task.isCancelled else {
             return
         }
@@ -416,7 +416,8 @@ struct MyTimeView: View {
         do {
             let loadedSummary = try await session.apiClient
                 .fetchMyTime(
-                    date: date
+                    date: date,
+                    refresh: refresh
                 )
             try Task.checkCancellation()
 
