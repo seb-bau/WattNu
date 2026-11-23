@@ -4,6 +4,7 @@ struct OrderSectionView: View {
     @Environment(\.openURL) private var openURL
 
     let commission: Commission
+    let isCheckingCompletionTime: Bool
     let startAction: () -> Void
     let rejectAction: () -> Void
     let completeAction: () -> Void
@@ -297,16 +298,25 @@ struct OrderSectionView: View {
                     Button {
                         completeAction()
                     } label: {
-                        Label(
-                            "Auftrag abschließen",
-                            systemImage: "checkmark.circle.fill"
-                        )
+                        Group {
+                            if isCheckingCompletionTime {
+                                HStack(spacing: 8) {
+                                    ProgressView()
+                                    Text("Zeiten werden geprüft …")
+                                }
+                            } else {
+                                Label(
+                                    "Auftrag abschließen",
+                                    systemImage: "checkmark.circle.fill"
+                                )
+                            }
+                        }
                         .frame(maxWidth: .infinity)
                     }
                     .buttonStyle(.bordered)
                     .disabled(
-                        commission.localStatus
-                            != "in_progress"
+                        isCheckingCompletionTime
+                        || commission.localStatus != "in_progress"
                         || !commission.isActionableValue
                         || !commission.canEditValue
                     )

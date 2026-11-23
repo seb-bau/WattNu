@@ -36,6 +36,8 @@ struct CommissionDetailView: View {
     @State private var refreshRevision = 0
     @State private var isLoading = false
     @State private var errorMessage: String?
+    @State private var isCheckingCompletionTime = false
+    @State private var completionTimeWarning: String?
     @State private var isCompletionPresented = false
     @State private var isRejectionPresented = false
 
@@ -90,6 +92,7 @@ struct CommissionDetailView: View {
                     case .order:
                         OrderSectionView(
                             commission: commission,
+                            isCheckingCompletionTime: isCheckingCompletionTime,
                             startAction: {
                                 Task {
                                     await startCommission()
@@ -99,7 +102,7 @@ struct CommissionDetailView: View {
                                 isRejectionPresented = true
                             },
                             completeAction: {
-                                isCompletionPresented = true
+                                isCheckingCompletionTime = true
                             },
                             commissionUpdatedAction: { updatedCommission in
                                 self.commission = updatedCommission
@@ -201,6 +204,30 @@ struct CommissionDetailView: View {
         .refreshable {
             await loadCommission()
         }
+        .task(id: isCheckingCompletionTime) {
+            if isCheckingCompletionTime {
+                await prepareCompletion()
+            }
+        }
+        .confirmationDialog(
+            "Zeiten vor dem Abschluss",
+            isPresented: Binding(
+                get: { completionTimeWarning != nil },
+                set: { if !$0 { completionTimeWarning = nil } }
+            ),
+            titleVisibility: .visible,
+            presenting: completionTimeWarning
+        ) { _ in
+            Button("Zeit erfassen") {
+                selectedSection = .time
+            }
+            Button("Trotzdem zum Abschluss") {
+                isCompletionPresented = true
+            }
+            Button("Abbrechen", role: .cancel) {}
+        } message: { warning in
+            Text(warning)
+        }
         .sheet(
             isPresented: $isRejectionPresented
         ) {
@@ -293,6 +320,26 @@ struct CommissionDetailView: View {
             commission = try await session.apiClient.startCommission(id: commissionId)
         } catch {
             errorMessage = error.localizedDescription
+        }
+    }
+
+    private func prepareCompletion() async {
+        defer { isCheckingCompletionTime = false }
+
+        let warning: String?
+        do {
+            let hasTime = try await session.apiClient.hasRecordedTime(commissionId: commissionId)
+            warning = hasTime ? nil : "Für diesen Auftrag wurden noch keine Zeiten erfasst."
+        } catch {
+            if error.isRequestCancellation { return }
+            warning = "Die Zeiten für diesen Auftrag konnten gerade nicht geprüft werden."
+        }
+
+        guard !Task.isCancelled, selectedSection == .order else { return }
+        if let warning {
+            completionTimeWarning = warning
+        } else {
+            isCompletionPresented = true
         }
     }
 }

@@ -873,6 +873,11 @@ final class APIClient {
         return response.items
     }
 
+    func hasRecordedTime(commissionId: Int) async throws -> Bool {
+        let entries = try await fetchTimeEntries(commissionId: commissionId)
+        return entries.contains { $0.minutes > 0 }
+    }
+
     func addTimeEntry(
         commissionId: Int,
         taskTemplateId: Int?,
