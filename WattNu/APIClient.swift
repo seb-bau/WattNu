@@ -963,7 +963,8 @@ final class APIClient {
     }
     
     func fetchMyTime(
-        date: Date
+        date: Date,
+        refresh: Bool = false
     ) async throws -> MyTimeDay {
         try requireToken()
 
@@ -974,7 +975,8 @@ final class APIClient {
                     name: "date",
                     value: Formatters.apiDateText(date)
                 )
-            ]
+            ],
+            refreshBeforeReturning: refresh
         )
     }
 
