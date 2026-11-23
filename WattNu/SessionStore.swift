@@ -22,6 +22,7 @@ final class SessionStore: ObservableObject {
     let apiClient: APIClient
     let inspectionStore = SafetyInspectionOfflineStore()
     let commissionStore = CommissionOfflineStore()
+    private let synchronizationReporter = SynchronizationReporter()
     
     private let tokenStore = KeychainTokenStore()
     private var lastRegisteredDeviceKey: String?
@@ -92,6 +93,43 @@ final class SessionStore: ObservableObject {
         } catch {
             if user == nil {
                 errorMessage = error.localizedDescription
+            }
+        }
+    }
+
+    func reportSynchronizationProblems() {
+        guard let user, let accessToken, commissionStore.snapshot.deviceID != nil else { return }
+        let baseURL = apiClient.baseURL
+        let now = Date()
+        let commissionEntries = commissionStore.snapshot.operations.compactMap { operation in
+            SynchronizationReportEntry(item: SynchronizationItem(operation: operation), module: "commissions", now: now)
+        }
+        let inspectionEntries = inspectionStore.synchronizationItems.compactMap { item in
+            SynchronizationReportEntry(item: item, module: "inspections", now: now)
+        }
+        let preparationEntries = commissionStore.preparationIssues.map(SynchronizationReportEntry.init(issue:))
+        let report = SynchronizationReport(
+            deviceID: PushNotificationManager.shared.installationId,
+            appVersion: Bundle.main.object(forInfoDictionaryKey: "CFBundleShortVersionString") as? String ?? "",
+            appBuild: Bundle.main.object(forInfoDictionaryKey: "CFBundleVersion") as? String ?? "",
+            entries: commissionEntries + inspectionEntries + preparationEntries
+        )
+
+        Task {
+            guard self.user?.id == user.id, self.accessToken == accessToken, self.apiClient.baseURL == baseURL else { return }
+            await synchronizationReporter.sendIfNeeded(
+                report, baseURL: baseURL, userID: user.id, now: now, send: apiClient.sendSynchronizationReport
+            )
+        }
+    }
+
+    func reportSynchronizationProblemsPeriodically() async {
+        while !Task.isCancelled {
+            reportSynchronizationProblems()
+            do {
+                try await Task.sleep(for: .seconds(300))
+            } catch {
+                return
             }
         }
     }

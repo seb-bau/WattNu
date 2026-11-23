@@ -37,6 +37,11 @@ struct DatLaeuftApp: App {
                     await synchronizePushDevice()
                     await synchronizeProcessInfoBadge()
                 }
+                .task(id: scenePhase) {
+                    if scenePhase == .active {
+                        await session.reportSynchronizationProblemsPeriodically()
+                    }
+                }
                 .onChange(of: session.user?.id) { _, _ in
                     navigation.mapCommissions = nil
 
