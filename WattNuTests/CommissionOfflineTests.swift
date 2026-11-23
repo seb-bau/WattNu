@@ -22,7 +22,12 @@ struct CommissionOfflineTests {
         }
         if otherUserTime {
             let path = "/api/commissions/11/time"
-            let item: [String: Any] = ["id": 90, "user": ["id": 2], "service_date": "2026-11-10", "minutes": 45]
+            let colleague = AppUser(id: 2, email: "colleague@example.invalid", displayName: "Colleague", craftsmanErpId: nil, isAdmin: false, isForeman: false)
+            let item: [String: Any] = [
+                "id": 90, "commission_id": 11, "user": try CommissionOfflineJSON.object(JSONEncoder().encode(colleague)),
+                "service_date": "2026-11-10", "minutes": 45,
+                "deviation_minutes": 0, "deviation_percent": 0, "review_status": "ok",
+            ]
             snapshot.resources[path] = CommissionOfflineResource(path: path, query: [], data: try CommissionOfflineJSON.data(["items": [item]]), fetchedAt: Date())
         }
         if let allowOnCompleted {
@@ -147,6 +152,26 @@ struct CommissionOfflineTests {
                 #expect(store.snapshot.operations.count == 1)
             }
         }
+    }
+
+    @Test func completionTimeCheckCountsExistingAndLocallySavedBookings() async throws {
+        let directory = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+        defer { try? FileManager.default.removeItem(at: directory) }
+        let store = try fixture(directory, otherUserTime: true)
+        defer { store.stop() }
+        let client = APIClient(baseURL: baseURL)
+        client.accessToken = "test"
+        client.commissionStore = store
+
+        let emptyOrderHasTime = try await client.hasRecordedTime(commissionId: 10)
+        #expect(!emptyOrderHasTime)
+        let orderWithColleaguesTimeHasTime = try await client.hasRecordedTime(commissionId: 11)
+        #expect(orderWithColleaguesTimeHasTime)
+
+        let localEntry = try await book(store)
+        #expect(localEntry.id < 0)
+        let orderWithLocalTimeHasTime = try await client.hasRecordedTime(commissionId: 10)
+        #expect(orderWithLocalTimeHasTime)
     }
 
     @Test func disabledLateRecordingRemainsAvailableAfterReopeningTheOfflineStore() async throws {
