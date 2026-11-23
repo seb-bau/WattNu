@@ -94,7 +94,7 @@ struct SynchronizationView: View {
                 statusRow(isSyncing: commissions.isSyncing, pending: commissions.snapshot.operations.count, lastSync: commissions.snapshot.lastSynchronizedAt)
                 if !commissions.message.isEmpty { Text(commissions.message).font(.footnote).foregroundStyle(.secondary) }
                 ForEach(commissions.snapshot.operations) { operation in
-                    entry(SynchronizationItem(id: operation.id, entityID: operation.groupID, title: operation.title, createdAt: operation.createdAt, error: operation.error, details: operation.errorDetails.flatMap { String(data: $0, encoding: .utf8) }, errorCode: operation.errorCode), module: "commissions")
+                    entry(SynchronizationItem(operation: operation), module: "commissions")
                 }
                 if !commissions.preparationMessage.isEmpty || !commissions.preparationIssues.isEmpty {
                     Text("Datenaktualisierung").font(.subheadline).bold()

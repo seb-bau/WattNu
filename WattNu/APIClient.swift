@@ -1442,6 +1442,15 @@ final class APIClient {
         return try await performRaw(path: path, method: method, contentType: contentType, accept: accept, bodyData: body, queryItems: query, preserveErrorResponse: true)
     }
 
+    func sendSynchronizationReport(_ report: SynchronizationReport) async throws {
+        try requireToken()
+        let _: EmptyResponse = try await send(
+            path: "/api/mobile/synchronization-report",
+            method: "PUT",
+            body: report
+        )
+    }
+
     private func requireToken() throws {
         if accessToken == nil {
             throw APIError.missingToken

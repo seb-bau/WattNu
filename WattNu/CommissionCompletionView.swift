@@ -239,6 +239,10 @@ struct CommissionCompletionView: View {
                 }
             }
 
+            if completed {
+                session.reportSynchronizationProblems()
+            }
+
             let updatedCommission = try await session
                 .apiClient
                 .completeCommission(
