@@ -1431,6 +1431,7 @@ struct MyTimeEntry: Decodable, Identifiable {
     let note: String?
     let serviceDate: String
     let commission: MyTimeCommission?
+    let safetyInspection: MyTimeSafetyInspection?
     let isFreeTime: Bool
     let canEdit: Bool?
 
@@ -1441,6 +1442,7 @@ struct MyTimeEntry: Decodable, Identifiable {
         case note
         case serviceDate = "service_date"
         case commission
+        case safetyInspection = "safety_inspection"
         case isFreeTime = "is_free_time"
         case canEdit = "can_edit"
     }
@@ -1450,6 +1452,17 @@ struct MyTimeCommission: Decodable, Hashable {
     let id: Int
     let number: String
     let title: String
+}
+
+struct MyTimeSafetyInspection: Decodable {
+    let id: Int
+    let title: String
+    let objectAddress: String?
+
+    enum CodingKeys: String, CodingKey {
+        case id, title
+        case objectAddress = "object_address"
+    }
 }
 
 struct FreeTimeEntryRequest: Encodable {

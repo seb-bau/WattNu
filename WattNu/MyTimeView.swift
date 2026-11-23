@@ -2,6 +2,8 @@ import SwiftUI
 
 struct MyTimeView: View {
     @EnvironmentObject private var session: SessionStore
+    @EnvironmentObject private var navigation: AppNavigationStore
+    @EnvironmentObject private var inspections: SafetyInspectionOfflineStore
     @Environment(\.horizontalSizeClass) private var horizontalSizeClass
 
     @State private var selectedDate =
@@ -128,8 +130,15 @@ struct MyTimeView: View {
                 }
             }
             .refreshForCommissionChanges { await loadSummary() }
-        .task(id: selectedDate) {
-                await loadSummary()
+            .task(id: navigation.selectedTab == .times ? selectedDate : nil) {
+                if navigation.selectedTab == .times {
+                    await loadSummary()
+                }
+            }
+            .onChange(of: inspections.completionJobIds) { previous, current in
+                if navigation.selectedTab == .times && !previous.isSubset(of: current) {
+                    Task { await loadSummary() }
+                }
             }
             .sheet(isPresented: $isMonthPresented) {
                 NavigationStack {
@@ -273,13 +282,47 @@ struct MyTimeView: View {
         )
     }
 
-    private func entryRow(
+    @ViewBuilder
+    private func entryRow(_ entry: MyTimeEntry) -> some View {
+        if let inspection = entry.safetyInspection {
+            linkedEntry(entry) {
+                navigation.openSafetyInspection(id: inspection.id)
+            }
+        } else if let commission = entry.commission {
+            linkedEntry(entry) {
+                navigation.openCommission(id: commission.id)
+            }
+        } else {
+            entryContent(entry)
+        }
+    }
+
+    private func linkedEntry(
+        _ entry: MyTimeEntry,
+        action: @escaping () -> Void
+    ) -> some View {
+        Button(action: action) {
+            HStack(spacing: 12) {
+                entryContent(entry)
+
+                Image(systemName: "chevron.right")
+                    .font(.footnote.weight(.semibold))
+                    .foregroundStyle(.tertiary)
+                    .accessibilityHidden(true)
+            }
+            .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
+    }
+
+    private func entryContent(
         _ entry: MyTimeEntry
     ) -> some View {
         VStack(alignment: .leading, spacing: 5) {
             HStack(alignment: .firstTextBaseline) {
                 Text(
-                    entry.taskTemplate?.displayTitle
+                    entry.safetyInspection?.title
+                    ?? entry.taskTemplate?.displayTitle
                     ?? "Keine Leistungsposition"
                 )
                 .font(.headline)
@@ -296,7 +339,14 @@ struct MyTimeView: View {
                 )
             }
 
-            if let commission = entry.commission {
+            if let inspection = entry.safetyInspection {
+                Label(
+                    inspection.objectAddress.map { "Prüfung · \($0)" } ?? "Prüfung",
+                    systemImage: "checklist"
+                )
+                .font(.caption)
+                .foregroundStyle(.secondary)
+            } else if let commission = entry.commission {
                 Text(
                     "Auftrag \(commission.number) · \(commission.title)"
                 )
