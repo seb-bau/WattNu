@@ -820,6 +820,57 @@ struct CommissionPreparationTests {
         #expect(fixture.scenario.count(key) == 1)
     }
 
+    @Test func objectSearchReusesMemoryAndRemembersOnlyCommittedSearches() async throws {
+        let path = "/api/commission-objects/search"
+        let key = path + "?q=Erika&context=all&hierarchy=1&limit=30"
+        let fixture = try fixture(dates: [])
+        defer { fixture.close() }
+        let client = apiClient(fixture)
+        let response = try CommissionOfflineJSON.data(["items": [CommissionObjectSearchTests.tenant]])
+        fixture.scenario.setReplies([.response(200, response)], for: key)
+
+        let items = try await client.searchCommissionObjects(query: "Erika")
+        #expect(items.first?.tenantName == "Erika Muster")
+        _ = try await client.searchCommissionObjects(query: "Erika")
+        #expect(fixture.scenario.count(key) == 1)
+        #expect(!fixture.store.snapshot.resources.values.contains { $0.path == path })
+
+        fixture.store.rememberCommissionObjectSearch("  Erika ")
+        #expect(fixture.store.snapshot.resources.values.contains { $0.path == path })
+
+        let offlineKey = path + "?q=MV-4&context=all&hierarchy=1&limit=30"
+        fixture.scenario.setReplies([.failure(.notConnectedToInternet)], for: offlineKey)
+        let offline = try await client.searchCommissionObjects(query: "MV-4")
+        #expect(offline.first?.licenseAgreement?.idNum == "MV-4")
+    }
+
+    @Test func mobileParentSelectionsAreQueuedWithTheirRealObjectLevelAndId() async throws {
+        let fixture = try fixture(dates: [])
+        defer { fixture.close() }
+        let client = apiClient(fixture)
+        let contract = try JSONDecoder().decode(
+            CommissionObjectChoice.self, from: CommissionOfflineJSON.data(CommissionObjectSearchTests.tenant)
+        )
+
+        for level in [CommissionObjectLevel.building, .economicUnit] {
+            let choice = try #require(contract.parentChoice(at: level))
+            let order = try await client.createSimpleCommission(
+                body: SimpleCommissionCreateRequest(
+                    clientRequestId: UUID().uuidString, objectType: choice.objectType, objectId: choice.objectId,
+                    commissionTypeId: 100, craftActivityId: 20, craftsmanUserId: 1,
+                    title: "Reparatur", commissionText: "Reparatur", contactPerson: nil,
+                    executionDate: nil, notifyTenants: false
+                ),
+                photos: []
+            )
+            let operation = try #require(fixture.store.snapshot.operations.last)
+            let payload = try CommissionOfflineJSON.object(operation.body)
+            #expect(order.objectType == level.rawValue)
+            #expect(payload["object_type"] as? String == level.rawValue)
+            #expect(payload["object_id"] as? Int == choice.objectId)
+        }
+    }
+
     @Test func olderDayResponseAfterBookingDoesNotOverwriteConfirmationOrReportCancellation() async throws {
         let date = "2026-11-01"
         let key = "/api/my-time?date=" + date

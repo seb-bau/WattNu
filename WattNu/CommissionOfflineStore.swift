@@ -5,6 +5,8 @@ import Network
 
 @MainActor
 final class CommissionOfflineStore: ObservableObject {
+    private static let objectSearchPath = "/api/commission-objects/search"
+    private static let objectSearchCacheLimit = 12
     @Published private(set) var revision = 0
     @Published private(set) var isSyncing = false
     @Published private(set) var message = ""
@@ -31,6 +33,7 @@ final class CommissionOfflineStore: ObservableObject {
     private var preparationTask: Task<Void, Never>?
     private var timerTask: Task<Void, Never>?
     private var refreshTasks: [String: Task<Void, Never>] = [:]
+    private var recentObjectSearches: [String: CommissionOfflineResource] = [:]
     private let monitor = NWPathMonitor()
     private let storageDirectory: URL?
     private let networkSession: URLSession
@@ -95,6 +98,7 @@ final class CommissionOfflineStore: ObservableObject {
         sendingGroups = []; uploadGroups = []; resolvingGroups = []; authenticationRetryAfter = nil
         sharedWrites = [:]; overlappingWrites = []
         refreshTasks = [:]
+        recentObjectSearches = [:]
         snapshot = CommissionOfflineSnapshot()
         transport = nil; user = nil; rootURL = nil; accountKey = nil
         isSyncing = false; message = ""; preparationMessage = ""; deliveryIssues = []
@@ -112,7 +116,7 @@ final class CommissionOfflineStore: ObservableObject {
 
     func handles(path: String, method: String) -> Bool {
         if path.hasPrefix("offline-commission-photo/") { return true }
-        if path.hasPrefix("/api/commissions") || path == "/api/commission-objects/search" { return true }
+        if path.hasPrefix("/api/commissions") || path == Self.objectSearchPath { return true }
         if path == "/api/mobile/config" { return method == "GET" && hasBoundSession }
         return method == "GET" && (["/api/time-tasks", "/api/time-tasks/search", "/api/inventory/search", "/api/inventory/lookup", "/api/inventory/locations", "/api/appointment-windows", "/api/my-time"].contains(path))
     }
@@ -248,6 +252,9 @@ final class CommissionOfflineStore: ObservableObject {
         if method != "GET" { return try enqueue(path: path, method: method, body: body ?? Data("{}".utf8), contentType: contentType ?? "application/json") }
         if accept != "application/json" || path.hasPrefix("offline-commission-photo/") { return try await binary(path) }
         let query = queryItems.map { CommissionOfflineQuery(name: $0.name, value: $0.value ?? "") }
+        if path == Self.objectSearchPath {
+            return try await searchCommissionObjectData(queryItems, query: query)
+        }
         let available = try effectiveResources()
         if !refreshBeforeReturning, let cached = cachedResource(path: path, query: query, resources: available) {
             if cached.fetchedAt.timeIntervalSinceNow < -30 { refreshInBackground(path, query: query) }
@@ -272,6 +279,86 @@ final class CommissionOfflineStore: ObservableObject {
         let refreshed = try effectiveResources()
         guard let cached = cachedResource(path: path, query: query, resources: refreshed) else { throw InspectionOfflineError.message("Die angeforderten Daten konnten nicht geladen werden.") }
         return try presented(cached)
+    }
+
+    private func searchCommissionObjectData(_ queryItems: [URLQueryItem], query: [CommissionOfflineQuery]) async throws -> Data {
+        guard let transport else { throw APIError.missingToken }
+        let path = Self.objectSearchPath
+        let key = CommissionOfflineResource.key(path, query)
+        if let cached = recentObjectSearches[key], Date().timeIntervalSince(cached.fetchedAt) < 30 {
+            return cached.data
+        }
+
+        let expectedGeneration = generation
+        do {
+            let data = try await transport.commissionRemoteData(path: path, query: queryItems)
+            guard generation == expectedGeneration, !Task.isCancelled else { throw CancellationError() }
+            recentObjectSearches[key] = CommissionOfflineResource(path: path, query: query, data: data, fetchedAt: Date())
+            if recentObjectSearches.count > Self.objectSearchCacheLimit,
+               let oldest = recentObjectSearches.min(by: { $0.value.fetchedAt < $1.value.fetchedAt }) {
+                recentObjectSearches.removeValue(forKey: oldest.key)
+            }
+            return data
+        } catch {
+            guard generation == expectedGeneration, !Task.isCancelled, !error.isRequestCancellation else {
+                throw CancellationError()
+            }
+            guard InspectionOfflineError.isConnectionError(error),
+                  let cached = try cachedCommissionObjectData(key: key, query: query) else { throw error }
+            return cached
+        }
+    }
+
+    func rememberCommissionObjectSearch(_ searchText: String) {
+        let normalized = searchText.split(whereSeparator: \.isWhitespace).joined(separator: " ")
+        guard let resource = recentObjectSearches.values.first(where: {
+            $0.query.contains(CommissionOfflineQuery(name: "q", value: normalized))
+        }), snapshot.resources[resource.key]?.data != resource.data else { return }
+
+        let previous = snapshot
+        snapshot.resources[resource.key] = resource
+        let savedSearches = snapshot.resources.values.filter {
+            $0.path == Self.objectSearchPath && $0.query.contains(CommissionOfflineQuery(name: "hierarchy", value: "1"))
+        }.sorted { $0.fetchedAt > $1.fetchedAt }
+        for oldSearch in savedSearches.dropFirst(Self.objectSearchCacheLimit) {
+            snapshot.resources.removeValue(forKey: oldSearch.key)
+        }
+        do { try persist() } catch { snapshot = previous }
+    }
+
+    private func cachedCommissionObjectData(key: String, query: [CommissionOfflineQuery]) throws -> Data? {
+        if let exact = recentObjectSearches[key] ?? snapshot.resources[key] {
+            return exact.data
+        }
+        let history = snapshot.resources.values.filter { $0.path == Self.objectSearchPath }
+        let available = (Array(recentObjectSearches.values) + history).sorted { $0.fetchedAt > $1.fetchedAt }
+        guard !available.isEmpty else { return nil }
+
+        let text = query.first { $0.name == "q" }?.value ?? ""
+        let terms = text.split(whereSeparator: \.isWhitespace)
+        let limit = min(50, max(1, query.first { $0.name == "limit" }.flatMap { Int($0.value) } ?? 30))
+        var result: [[String: Any]] = []
+        var seen = Set<String>()
+
+        for resource in available {
+            let payload = try? CommissionOfflineJSON.object(resource.data)
+            for item in payload?["items"] as? [[String: Any]] ?? [] {
+                guard let objectType = item["object_type"] as? String, let objectId = item["object_id"] as? Int else { continue }
+                let objects = ["economic_unit", "building", "use_unit", "license_agreement"]
+                    .compactMap { item[$0] as? [String: Any] }
+                let fields = [item["label"] as? String, item["tenant_name"] as? String]
+                    + objects.flatMap { object in ["id_num", "address", "name", "description"].map { object[$0] as? String } }
+                let searchable = fields.compactMap { $0 }.joined(separator: " ")
+                if terms.allSatisfy({ searchable.range(of: $0, options: [.caseInsensitive, .diacriticInsensitive]) != nil }),
+                   seen.insert("\(objectType):\(objectId)").inserted {
+                    result.append(item)
+                    if result.count == limit {
+                        return try CommissionOfflineJSON.data(["items": result])
+                    }
+                }
+            }
+        }
+        return try CommissionOfflineJSON.data(["items": result])
     }
 
     private func fallbackResource(path: String, query: [CommissionOfflineQuery], resources: [String: CommissionOfflineResource]) -> CommissionOfflineResource? {
@@ -611,6 +698,7 @@ private extension CommissionOfflineStore {
         }
         if path == "/api/commissions/simple" {
             commission = ["id": id, "local_status": "recorded", "positions": [], "title": fields["title"] ?? "Auftrag", "description": fields["commission_text"] ?? "", "public_id": fields["client_request_id"] ?? UUID().uuidString, "source": "ios", "is_actionable": false, "erp_sync_state": "pending", "can_edit": true, "is_own": true, "assigned_user": userValue]
+            commission["object_type"] = fields["object_type"]
             commission["created_by_name"] = user.displayName
             commission["contact_person"] = fields["contact_person"]
             commission["recording_date"] = createdAt.ISO8601Format()

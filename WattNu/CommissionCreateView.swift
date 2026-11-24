@@ -14,7 +14,9 @@ struct CommissionCreateView: View {
     @State private var selectedCraftActivityId = 0
     @State private var selectedCraftsmanUserId = 0
     @State private var objectSearchText = ""
-    @State private var objectSearchResults: [CommissionObjectChoice] = []
+    @State private var objectSearchResults: [CommissionObjectSearchRow] = []
+    @State private var objectSearchTask: Task<Void, Never>?
+    @State private var objectSearchNotice: String?
     @State private var selectedObject: CommissionObjectChoice?
     @State private var isSearchingObjects = false
     @State private var title = ""
@@ -65,6 +67,14 @@ struct CommissionCreateView: View {
 
     private var effectiveTitle: String {
         normalizedText(title) ?? normalizedText(commissionText) ?? ""
+    }
+
+    private var canNotifyTenants: Bool {
+        selectedObject?.licenseAgreement != nil && selectedObject?.isVacancy == false
+    }
+
+    private var shouldNotifyTenants: Bool {
+        canNotifyTenants && (notifyTenants ?? options?.notifyTenantsDefault ?? false)
     }
 
     private var canSubmit: Bool {
@@ -126,16 +136,19 @@ struct CommissionCreateView: View {
     private var objectSection: some View {
         Section("Objektbezug") {
             HStack {
-                TextField("Mieter, Vertrag oder Adresse", text: $objectSearchText)
+                TextField("Mieter, Adresse oder Wowiport-Nummer", text: $objectSearchText)
                     .textInputAutocapitalization(.never)
                     .autocorrectionDisabled()
                     .submitLabel(.search)
                     .onSubmit {
-                        Task { await searchObjects() }
+                        startObjectSearch(immediately: true)
+                    }
+                    .onChange(of: objectSearchText) { _, _ in
+                        startObjectSearch()
                     }
 
                 Button {
-                    Task { await searchObjects() }
+                    startObjectSearch(immediately: true)
                 } label: {
                     if isSearchingObjects {
                         ProgressView()
@@ -147,30 +160,32 @@ struct CommissionCreateView: View {
                     isSearchingObjects
                     || objectSearchText.trimmingCharacters(in: .whitespacesAndNewlines).count < 2
                 )
+                .accessibilityLabel("Objekte suchen")
             }
 
-            ForEach(objectSearchResults) { item in
-                Button {
-                    selectObject(item)
-                } label: {
-                    VStack(alignment: .leading, spacing: 4) {
-                        Text(item.label)
-                            .foregroundStyle(.primary)
-
-                        Text(objectDescription(item))
-                            .font(.caption)
-                            .foregroundStyle(.secondary)
-                            .multilineTextAlignment(.leading)
+            ForEach(objectSearchResults) { row in
+                if let item = row.selection {
+                    Button {
+                        selectObject(item)
+                    } label: {
+                        CommissionObjectSearchLabel(row: row)
                     }
-                    .frame(maxWidth: .infinity, alignment: .leading)
+                    .buttonStyle(.plain)
+                } else {
+                    CommissionObjectSearchLabel(row: row)
                 }
-                .buttonStyle(.plain)
+            }
+
+            if let objectSearchNotice {
+                Text(objectSearchNotice)
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
             }
 
             if let selectedObject {
                 SelectedCommissionObjectView(item: selectedObject)
             } else {
-                Text("Es kann ein Mietvertrag, ein Leerstand, eine Nutzungseinheit ohne Vertrag oder direkt ein Gebäude gewählt werden.")
+                Text("Wähle eine Wirtschaftseinheit, ein Gebäude, eine Nutzungseinheit oder einen Mietvertrag.")
                     .font(.caption)
                     .foregroundStyle(.secondary)
             }
@@ -212,13 +227,14 @@ struct CommissionCreateView: View {
                 "Mieter über Beauftragung informieren",
                 isOn: Binding(
                     get: {
-                        notifyTenants ?? options?.notifyTenantsDefault ?? false
+                        shouldNotifyTenants
                     },
                     set: {
                         notifyTenants = $0
                     }
                 )
             )
+            .disabled(!canNotifyTenants)
         }
     }
 
@@ -355,6 +371,9 @@ struct CommissionCreateView: View {
         .task {
             await loadData()
         }
+        .onDisappear {
+            stopObjectSearch()
+        }
         .onChange(of: selectedCraftActivityId) { _, value in
             if value > 0 { preferences.values.lastCraftActivityId = value }
         }
@@ -465,9 +484,7 @@ struct CommissionCreateView: View {
                 executionDate: hasExecutionDate
                     ? formattedExecutionDate()
                     : nil,
-                notifyTenants: notifyTenants
-                    ?? options?.notifyTenantsDefault
-                    ?? false
+                notifyTenants: shouldNotifyTenants
             )
         }
 
@@ -587,68 +604,59 @@ struct CommissionCreateView: View {
         return DraftPhoto(data: data, preview: preview)
     }
 
-    private func searchObjects() async {
-        let query = objectSearchText.trimmingCharacters(
-            in: .whitespacesAndNewlines
-        )
+    private func startObjectSearch(immediately: Bool = false) {
+        if immediately && isSearchingObjects { return }
+        stopObjectSearch()
+        objectSearchResults = []
+        objectSearchNotice = nil
 
-        guard query.count >= 2 else {
-            objectSearchResults = []
-            return
+        let query = objectSearchText.split(whereSeparator: \.isWhitespace).joined(separator: " ")
+        guard query.count >= 2 else { return }
+
+        objectSearchTask = Task {
+            defer {
+                if !Task.isCancelled {
+                    isSearchingObjects = false
+                    objectSearchTask = nil
+                }
+            }
+            do {
+                if !immediately {
+                    try await Task.sleep(for: .milliseconds(300))
+                }
+                try Task.checkCancellation()
+                isSearchingObjects = true
+                let items = try await session.apiClient.searchCommissionObjects(query: query)
+                try Task.checkCancellation()
+                objectSearchResults = CommissionObjectSearchRow.grouped(items)
+                if objectSearchResults.isEmpty {
+                    objectSearchNotice = "Keine passenden Objekte gefunden."
+                }
+                if immediately {
+                    session.commissionStore.rememberCommissionObjectSearch(query)
+                }
+            } catch {
+                guard !Task.isCancelled, !error.isRequestCancellation else { return }
+                objectSearchNotice = "Die Objektsuche konnte nicht geladen werden. \(error.localizedDescription)"
+            }
         }
+    }
 
-        isSearchingObjects = true
-        defer { isSearchingObjects = false }
-
-        do {
-            objectSearchResults = try await session.apiClient
-                .searchCommissionObjects(query: query)
-        } catch {
-            objectSearchResults = []
-            errorMessage = error.localizedDescription
-        }
+    private func stopObjectSearch() {
+        objectSearchTask?.cancel()
+        objectSearchTask = nil
+        isSearchingObjects = false
     }
 
     private func selectObject(_ item: CommissionObjectChoice) {
+        if normalizedText(contactPerson) == nil || normalizedText(contactPerson) == selectedObject?.tenantName {
+            contactPerson = item.tenantName ?? ""
+        }
+        session.commissionStore.rememberCommissionObjectSearch(objectSearchText)
+        stopObjectSearch()
         selectedObject = item
         objectSearchResults = []
-
-        if normalizedText(contactPerson) == nil,
-           let tenantName = item.tenantName {
-            contactPerson = tenantName
-        }
-    }
-
-    private func objectDescription(
-        _ item: CommissionObjectChoice
-    ) -> String {
-        var values = [String]()
-
-        if let tenantName = item.tenantName {
-            values.append(tenantName)
-        }
-
-        if item.isVacancy {
-            values.append("Leerstand")
-        }
-
-        if let idNum = item.licenseAgreement?.idNum {
-            values.append("Vertrag \(idNum)")
-        }
-
-        if let idNum = item.useUnit?.idNum {
-            values.append("Nutzungseinheit \(idNum)")
-        }
-
-        if let address = item.building?.address {
-            values.append(address)
-        }
-
-        if let idNum = item.building?.idNum {
-            values.append("Gebäude \(idNum)")
-        }
-
-        return values.joined(separator: " · ")
+        objectSearchNotice = nil
     }
 
     private func normalizedText(_ value: String) -> String? {
@@ -857,95 +865,28 @@ struct TimeTaskSelectionView: View {
 struct SelectedCommissionObjectView: View {
     let item: CommissionObjectChoice
 
-    private var economicUnitText: String {
-        [
-            item.economicUnit.idNum,
-            item.economicUnit.name,
-        ]
-        .compactMap { $0 }
-        .joined(separator: " · ")
-    }
-
-    private var buildingText: String? {
-        guard let building = item.building else {
-            return nil
-        }
-
-        return [
-            building.idNum,
-            building.address,
-        ]
-        .compactMap { $0 }
-        .joined(separator: " · ")
-    }
-
-    private var useUnitText: String? {
-        guard let useUnit = item.useUnit else {
-            return nil
-        }
-
-        return [
-            useUnit.idNum,
-            useUnit.floor,
-            useUnit.position,
-            useUnit.description,
-        ]
-        .compactMap { $0 }
-        .joined(separator: " · ")
-    }
-
     var body: some View {
-        VStack(
-            alignment: .leading,
-            spacing: 8
-        ) {
+        if let level = CommissionObjectLevel(rawValue: item.objectType) {
+            let title = item.displayTitle(at: level)
+            VStack(alignment: .leading, spacing: 5) {
+                Label(title, systemImage: level.icon)
+                    .font(.headline)
+                Text(item.displayDetails(at: level, includeNumber: true))
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+                if let address = item.useUnit?.address ?? item.building?.address ?? item.economicUnit.address,
+                   address != title {
+                    Text(address)
+                        .font(.caption)
+                }
+                if level != .economicUnit, let name = item.economicUnit.name {
+                    Text(name)
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                }
+            }
+        } else {
             Text(item.label)
-                .font(.headline)
-
-            if let tenantName = item.tenantName {
-                LabeledContent(
-                    "Mieter",
-                    value: tenantName
-                )
-            } else if item.isVacancy {
-                LabeledContent(
-                    "Belegung",
-                    value: "Leerstand"
-                )
-            }
-
-            LabeledContent(
-                "Buchwerk",
-                value: item.companyCode.code ?? "-"
-            )
-
-            LabeledContent(
-                "Wirtschaftseinheit",
-                value: economicUnitText
-            )
-
-            if let buildingText {
-                LabeledContent(
-                    "Gebäude",
-                    value: buildingText
-                )
-            }
-
-            if let useUnitText {
-                LabeledContent(
-                    "Nutzungseinheit",
-                    value: useUnitText
-                )
-            }
-
-            if let agreementIdNum = item
-                .licenseAgreement?
-                .idNum {
-                LabeledContent(
-                    "Mietvertrag",
-                    value: agreementIdNum
-                )
-            }
         }
     }
 }
