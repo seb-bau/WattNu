@@ -142,6 +142,11 @@ struct AppSettingsView: View {
                     .buttonStyle(.borderedProminent)
                     .controlSize(.large)
                     .disabled(isRefreshingBackendSettings)
+
+                    if let message = session.mobileConfigErrorMessage {
+                        Text(message)
+                            .foregroundStyle(.red)
+                    }
                 }
 
                 Section("Anmeldung") {

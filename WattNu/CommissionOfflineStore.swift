@@ -106,10 +106,15 @@ final class CommissionOfflineStore: ObservableObject {
         if active { resume() } else { timerTask?.cancel(); timerTask = nil }
     }
 
+    private var hasBoundSession: Bool {
+        transport != nil && user != nil && rootURL != nil
+    }
+
     func handles(path: String, method: String) -> Bool {
         if path.hasPrefix("offline-commission-photo/") { return true }
         if path.hasPrefix("/api/commissions") || path == "/api/commission-objects/search" { return true }
-        return method == "GET" && (["/api/mobile/config", "/api/time-tasks", "/api/time-tasks/search", "/api/inventory/search", "/api/inventory/lookup", "/api/inventory/locations", "/api/appointment-windows", "/api/my-time"].contains(path))
+        if path == "/api/mobile/config" { return method == "GET" && hasBoundSession }
+        return method == "GET" && (["/api/time-tasks", "/api/time-tasks/search", "/api/inventory/search", "/api/inventory/lookup", "/api/inventory/locations", "/api/appointment-windows", "/api/my-time"].contains(path))
     }
 
     private func persist() throws {
@@ -236,7 +241,7 @@ final class CommissionOfflineStore: ObservableObject {
     }
 
     func execute(path: String, method: String, queryItems: [URLQueryItem] = [], body: Data?, contentType: String?, accept: String, refreshBeforeReturning: Bool = false) async throws -> Data {
-        guard transport != nil, user != nil, rootURL != nil else { throw APIError.missingToken }
+        guard hasBoundSession else { throw APIError.missingToken }
         let resolved = resolvedPath(path)
         if resolved != path { return try await execute(path: resolved, method: method, queryItems: queryItems, body: body, contentType: contentType, accept: accept, refreshBeforeReturning: refreshBeforeReturning) }
         if isUnavailable(path) { throw unavailableCommissionError }

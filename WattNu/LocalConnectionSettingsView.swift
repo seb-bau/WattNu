@@ -56,15 +56,25 @@ struct LocalConnectionSettingsView: View {
             }
 
             Section("Anmeldung") {
-                Label(
-                    session.isPasswordLoginAvailable ? "Kennwort-Anmeldung verfügbar" : "Kennwort-Anmeldung nicht verfügbar",
-                    systemImage: session.isPasswordLoginAvailable ? "checkmark.circle" : "xmark.circle"
-                )
+                if let message = session.mobileConfigErrorMessage {
+                    Text(message)
+                        .foregroundStyle(.red)
+                }
 
-                Label(
-                    session.isMicrosoftLoginAvailable ? "Microsoft-Anmeldung verfügbar" : "Microsoft-Anmeldung nicht verfügbar",
-                    systemImage: session.isMicrosoftLoginAvailable ? "checkmark.circle" : "xmark.circle"
-                )
+                if session.mobileConfig != nil {
+                    Label(
+                        session.isPasswordLoginAvailable ? "Kennwort-Anmeldung verfügbar" : "Kennwort-Anmeldung nicht verfügbar",
+                        systemImage: session.isPasswordLoginAvailable ? "checkmark.circle" : "xmark.circle"
+                    )
+
+                    Label(
+                        session.isMicrosoftLoginAvailable ? "Microsoft-Anmeldung verfügbar" : "Microsoft-Anmeldung nicht verfügbar",
+                        systemImage: session.isMicrosoftLoginAvailable ? "checkmark.circle" : "xmark.circle"
+                    )
+                } else if session.mobileConfigErrorMessage == nil && !isLoadingBackendSettings {
+                    Text("Backend-Einstellungen noch nicht geladen.")
+                        .foregroundStyle(.secondary)
+                }
             }
 
             Section {

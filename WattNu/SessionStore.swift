@@ -7,6 +7,7 @@ final class SessionStore: ObservableObject {
     @Published var user: AppUser?
     @Published var accessToken: String?
     @Published var mobileConfig: MobileConfig?
+    @Published private(set) var mobileConfigErrorMessage: String?
     @Published var pushPreferences: PushPreferences?
     @Published var appointmentPreferences: AppointmentPreferences?
     @Published var isAppointmentPreferencesLoading = false
@@ -25,6 +26,7 @@ final class SessionStore: ObservableObject {
     private let synchronizationReporter = SynchronizationReporter()
     
     private let tokenStore = KeychainTokenStore()
+    private var mobileConfigRequestID: UUID?
     private var lastRegisteredDeviceKey: String?
     private var pendingDeviceRegistrationKey: String?
     private var lastUnregisteredDeviceKey: String?
@@ -135,11 +137,38 @@ final class SessionStore: ObservableObject {
     }
 
     func loadMobileConfig() async {
-        do {
-            applyCurrentBaseURL()
-            mobileConfig = try await apiClient.fetchMobileConfig()
-        } catch {
+        guard !Task.isCancelled else { return }
+
+        guard let baseURL = localSettings.baseURL,
+              ["http", "https"].contains(baseURL.scheme?.lowercased() ?? ""),
+              baseURL.host?.isEmpty == false else {
+            mobileConfigRequestID = nil
+            mobileConfig = nil
+            mobileConfigErrorMessage = APIError.invalidBaseURL.localizedDescription
             return
+        }
+
+        applyCurrentBaseURL()
+        let requestID = UUID()
+        mobileConfigRequestID = requestID
+
+        do {
+            let config = try await apiClient.fetchMobileConfig()
+            guard !Task.isCancelled, mobileConfigRequestID == requestID else { return }
+            mobileConfig = config
+            mobileConfigErrorMessage = nil
+        } catch {
+            guard !Task.isCancelled, !error.isRequestCancellation,
+                  mobileConfigRequestID == requestID else { return }
+
+            if case APIError.serverStatus(let status, _) = error {
+                let detail = (200..<300).contains(status)
+                    ? APIError.invalidResponse.localizedDescription
+                    : "HTTP \(status)."
+                mobileConfigErrorMessage = "Backend-Einstellungen konnten nicht geladen werden. \(detail)"
+            } else {
+                mobileConfigErrorMessage = "Backend-Einstellungen konnten nicht geladen werden. \(error.localizedDescription)"
+            }
         }
     }
 
@@ -392,6 +421,9 @@ final class SessionStore: ObservableObject {
         }
 
         if apiClient.baseURL != baseURL {
+            mobileConfigRequestID = nil
+            mobileConfig = nil
+            mobileConfigErrorMessage = nil
             apiClient.updateBaseURL(baseURL)
             resetPushRegistration()
             configureInspectionStorage()
