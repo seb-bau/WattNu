@@ -343,7 +343,9 @@ final class CommissionOfflineStore: ObservableObject {
         for resource in available {
             let payload = try? CommissionOfflineJSON.object(resource.data)
             for item in payload?["items"] as? [[String: Any]] ?? [] {
-                guard let objectType = item["object_type"] as? String, let objectId = item["object_id"] as? Int else { continue }
+                guard let objectType = item["object_type"] as? String,
+                      CommissionObjectLevel(rawValue: objectType) != nil,
+                      let objectId = item["object_id"] as? Int else { continue }
                 let objects = ["economic_unit", "building", "use_unit", "license_agreement"]
                     .compactMap { item[$0] as? [String: Any] }
                 let fields = [item["label"] as? String, item["tenant_name"] as? String]

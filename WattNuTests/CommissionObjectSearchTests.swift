@@ -12,6 +12,25 @@ struct CommissionObjectSearchTests {
         "use_unit": ["erp_id": 3003, "id_num": "NE-3", "description": "2. OG links"],
         "license_agreement": ["erp_id": 4004, "id_num": "MV-4"],
     ]
+    static let apartment: [String: Any] = {
+        var item = tenant
+        item["object_type"] = "use_unit"
+        item["object_id"] = 3
+        item["label"] = "Wohnung"
+        item["tenant_name"] = nil
+        item["license_agreement"] = nil
+        return item
+    }()
+
+    @Test func standaloneApartmentsAreNotDisplayedOrSelectable() throws {
+        let choices = try [Self.apartment, Self.tenant].map {
+            try JSONDecoder().decode(CommissionObjectChoice.self, from: CommissionOfflineJSON.data($0))
+        }
+        #expect(CommissionObjectSearchRow.grouped(Array(choices.prefix(1))).isEmpty)
+        let rows = CommissionObjectSearchRow.grouped(choices)
+        #expect(rows.map(\.level) == [.economicUnit, .building, .agreement])
+        #expect(rows.map { $0.selection?.objectId } == [1, 2, 4])
+    }
 
     @Test func tenantSearchShowsOnlyItsParentsAndItsOwnNumber() throws {
         let data = try CommissionOfflineJSON.data(Self.tenant)
