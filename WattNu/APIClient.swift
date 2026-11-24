@@ -10,6 +10,7 @@ import Foundation
 enum APIError: LocalizedError {
     case invalidBaseURL
     case invalidResponse
+    case invalidCommissionObject
     case unauthorized
     case serverStatus(Int, String)
     case missingToken
@@ -20,6 +21,8 @@ enum APIError: LocalizedError {
             return "Die Backend-URL ist ungültig."
         case .invalidResponse:
             return "Die Antwort des Servers ist ungültig."
+        case .invalidCommissionObject:
+            return "Bitte eine Wirtschaftseinheit, ein Gebäude oder einen Mietvertrag auswählen."
         case .unauthorized:
             return "Die Anmeldung ist abgelaufen oder ungültig."
         case .serverStatus(let status, let message):
@@ -210,6 +213,7 @@ final class APIClient {
         photos: [Data]
     ) async throws -> Commission {
         try requireToken()
+        guard CommissionObjectLevel(rawValue: body.objectType) != nil else { throw APIError.invalidCommissionObject }
 
         let boundary = "WattNu-\(UUID().uuidString)"
         var data = Data()
@@ -290,6 +294,7 @@ final class APIClient {
         body: CommissionCreateRequest
     ) async throws -> Commission {
         try requireToken()
+        guard CommissionObjectLevel(rawValue: body.objectType) != nil else { throw APIError.invalidCommissionObject }
 
         let response: ItemResponse<Commission> = try await send(
             path: "/api/commissions",

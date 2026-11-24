@@ -3,14 +3,12 @@ import SwiftUI
 enum CommissionObjectLevel: String {
     case economicUnit = "economic_unit"
     case building
-    case useUnit = "use_unit"
     case agreement = "license_agreement"
 
     var title: String {
         switch self {
         case .economicUnit: "Wirtschaftseinheit"
         case .building: "Gebäude"
-        case .useUnit: "Wohnung / Nutzungseinheit"
         case .agreement: "Mietvertrag"
         }
     }
@@ -19,7 +17,6 @@ enum CommissionObjectLevel: String {
         switch self {
         case .economicUnit: "building.2"
         case .building: "house"
-        case .useUnit: "door.left.hand.open"
         case .agreement: "doc.text"
         }
     }
@@ -28,7 +25,7 @@ enum CommissionObjectLevel: String {
         switch self {
         case .economicUnit: 0
         case .building: 8
-        case .useUnit, .agreement: 16
+        case .agreement: 16
         }
     }
 }
@@ -81,11 +78,10 @@ struct CommissionObjectSearchRow: Identifiable {
                     rows.append(CommissionObjectSearchRow(parentOf: child, level: .building, erpId: building.erpId))
                 }
 
-                var leaves = Set<String>()
-                for leaf in children where leaves.insert(leaf.id).inserted {
-                    guard let level = CommissionObjectLevel(rawValue: leaf.objectType),
-                          level == .agreement || level == .useUnit else { continue }
-                    rows.append(CommissionObjectSearchRow(item: leaf, level: level))
+                var agreements = Set<Int>()
+                for agreement in children where agreement.objectType == CommissionObjectLevel.agreement.rawValue {
+                    guard agreements.insert(agreement.objectId).inserted else { continue }
+                    rows.append(CommissionObjectSearchRow(item: agreement, level: .agreement))
                 }
             }
         }
@@ -101,8 +97,6 @@ extension CommissionObjectChoice {
             economicUnit.name ?? economicUnit.address ?? level.title
         case .building:
             building?.address ?? level.title
-        case .useUnit:
-            isVacancy ? "Leerstand" : "Wohnung"
         case .agreement:
             tenantName ?? (isVacancy ? "Leerstand" : level.title)
         }
@@ -114,13 +108,11 @@ extension CommissionObjectChoice {
             let number: String? = switch level {
             case .economicUnit: economicUnit.idNum
             case .building: building?.idNum
-            case .useUnit: useUnit?.idNum
             case .agreement: licenseAgreement?.idNum
             }
             if let number, !number.isEmpty { values.append(number) }
         }
-        if level == .agreement || level == .useUnit,
-           let location = useUnit?.description, !location.isEmpty {
+        if level == .agreement, let location = useUnit?.description, !location.isEmpty {
             values.append(location)
         }
         return values.joined(separator: " · ")
@@ -130,7 +122,7 @@ extension CommissionObjectChoice {
         let objectId: Int? = switch level {
         case .economicUnit: economicUnit.objectId
         case .building: building?.objectId
-        case .useUnit, .agreement: nil
+        case .agreement: nil
         }
         guard let objectId else { return nil }
 

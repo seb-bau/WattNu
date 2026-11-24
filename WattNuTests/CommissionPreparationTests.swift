@@ -826,11 +826,13 @@ struct CommissionPreparationTests {
         let fixture = try fixture(dates: [])
         defer { fixture.close() }
         let client = apiClient(fixture)
-        let response = try CommissionOfflineJSON.data(["items": [CommissionObjectSearchTests.tenant]])
+        let response = try CommissionOfflineJSON.data([
+            "items": [CommissionObjectSearchTests.apartment, CommissionObjectSearchTests.tenant],
+        ])
         fixture.scenario.setReplies([.response(200, response)], for: key)
 
         let items = try await client.searchCommissionObjects(query: "Erika")
-        #expect(items.first?.tenantName == "Erika Muster")
+        #expect(CommissionObjectSearchRow.grouped(items).last?.selection?.tenantName == "Erika Muster")
         _ = try await client.searchCommissionObjects(query: "Erika")
         #expect(fixture.scenario.count(key) == 1)
         #expect(!fixture.store.snapshot.resources.values.contains { $0.path == path })
@@ -838,10 +840,29 @@ struct CommissionPreparationTests {
         fixture.store.rememberCommissionObjectSearch("  Erika ")
         #expect(fixture.store.snapshot.resources.values.contains { $0.path == path })
 
-        let offlineKey = path + "?q=MV-4&context=all&hierarchy=1&limit=30"
+        let offlineKey = path + "?q=NE-3&context=all&hierarchy=1&limit=1"
         fixture.scenario.setReplies([.failure(.notConnectedToInternet)], for: offlineKey)
-        let offline = try await client.searchCommissionObjects(query: "MV-4")
+        let offline = try await client.searchCommissionObjects(query: "NE-3", limit: 1)
         #expect(offline.first?.licenseAgreement?.idNum == "MV-4")
+    }
+
+    @Test func standaloneApartmentsCannotBeQueuedForCreation() async throws {
+        let fixture = try fixture(dates: [])
+        defer { fixture.close() }
+        let client = apiClient(fixture)
+        let body = SimpleCommissionCreateRequest(
+            clientRequestId: UUID().uuidString, objectType: "use_unit", objectId: 3,
+            commissionTypeId: 100, craftActivityId: 20, craftsmanUserId: 1,
+            title: "Reparatur", commissionText: "Reparatur", contactPerson: nil,
+            executionDate: nil, notifyTenants: false
+        )
+
+        do {
+            _ = try await client.createSimpleCommission(body: body, photos: [])
+            Issue.record("Eine Wohnung wurde als Auftragsziel akzeptiert.")
+        } catch APIError.invalidCommissionObject {
+            #expect(fixture.store.snapshot.operations.isEmpty)
+        }
     }
 
     @Test func mobileParentSelectionsAreQueuedWithTheirRealObjectLevelAndId() async throws {
