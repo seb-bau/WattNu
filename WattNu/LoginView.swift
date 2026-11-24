@@ -76,6 +76,13 @@ struct LoginView: View {
                             .foregroundStyle(.secondary)
                             .multilineTextAlignment(.center)
                     }
+
+                    if let message = session.mobileConfigErrorMessage {
+                        Text(message)
+                            .font(.footnote)
+                            .foregroundStyle(.red)
+                            .multilineTextAlignment(.center)
+                    }
                 }
                 .padding(.horizontal, 24)
 
