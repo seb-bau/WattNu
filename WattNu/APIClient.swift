@@ -277,6 +277,8 @@ final class APIClient {
             path: "/api/commission-objects/search",
             queryItems: [
                 URLQueryItem(name: "q", value: query),
+                URLQueryItem(name: "context", value: "all"),
+                URLQueryItem(name: "hierarchy", value: "1"),
                 URLQueryItem(name: "limit", value: "\(limit)")
             ]
         )

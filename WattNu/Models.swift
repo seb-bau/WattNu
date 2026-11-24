@@ -1216,23 +1216,29 @@ struct CommissionObjectCompanyCode: Decodable, Hashable {
 
 struct CommissionObjectEconomicUnit: Decodable, Hashable {
     let erpId: Int
+    let objectId: Int?
     let idNum: String?
     let name: String?
+    let address: String?
 
     enum CodingKeys: String, CodingKey {
         case erpId = "erp_id"
+        case objectId = "object_id"
         case idNum = "id_num"
         case name
+        case address
     }
 }
 
 struct CommissionObjectBuilding: Decodable, Hashable {
     let erpId: Int
+    let objectId: Int?
     let idNum: String?
     let address: String?
 
     enum CodingKeys: String, CodingKey {
         case erpId = "erp_id"
+        case objectId = "object_id"
         case idNum = "id_num"
         case address
     }
