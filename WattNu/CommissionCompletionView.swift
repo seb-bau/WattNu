@@ -8,12 +8,18 @@ struct CommissionCompletionView: View {
     let completionAction: (Commission) -> Void
 
     @State private var completed = true
-    @State private var tenantCharge = false
+    @State private var tenantCharge: Bool
     @State private var reason = ""
     @State private var isSaving = false
     @State private var errorMessage: String?
     @State private var materialWarningMessage = ""
     @State private var isMaterialWarningPresented = false
+
+    init(commission: Commission, completionAction: @escaping (Commission) -> Void) {
+        self.commission = commission
+        self.completionAction = completionAction
+        _tenantCharge = State(initialValue: commission.tenantChargeDefault ?? false)
+    }
 
     private var normalizedReason: String? {
         let value = reason.trimmingCharacters(
@@ -56,7 +62,7 @@ struct CommissionCompletionView: View {
 
                     if tenantCharge {
                         Text(
-                            "Der Auftrag wird in Wowiport auf „Warte auf Rechnung“ gesetzt. Der Sachbearbeiter kann ihn dort weiterbearbeiten."
+                            "Der Auftrag geht zur Mieterbelastung in die Auftragsprüfung."
                         )
                         .font(.caption)
                         .foregroundStyle(.secondary)
@@ -139,13 +145,6 @@ struct CommissionCompletionView: View {
                         cornerRadius: 14
                     )
                 )
-            }
-        }
-        .onChange(of: completed) {
-            _, newValue in
-
-            if !newValue {
-                tenantCharge = false
             }
         }
         .confirmationDialog(

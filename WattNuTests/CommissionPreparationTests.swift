@@ -738,6 +738,26 @@ struct CommissionPreparationTests {
         return try JSONDecoder().decode(Commission.self, from: JSONSerialization.data(withJSONObject: payload))
     }
 
+    @Test func tenantChargeDefaultIsPreservedOfflineAndOptionalForOlderOrders() throws {
+        let commission = try scopedCommission(["tenant_charge_default": true])
+        let restored = try JSONDecoder().decode(Commission.self, from: JSONEncoder().encode(commission))
+        let older = try scopedCommission()
+        #expect(restored.tenantChargeDefault == true)
+        #expect(older.tenantChargeDefault == nil)
+    }
+
+    @Test func aDifferentTenantIsEncodedWithTheOrder() throws {
+        let request = SimpleCommissionCreateRequest(
+            clientRequestId: UUID().uuidString, objectType: "license_agreement", objectId: 4,
+            commissionTypeId: 100, craftActivityId: 20, craftsmanUserId: 1,
+            title: "Reparatur", commissionText: "Reparatur", contactPerson: nil,
+            executionDate: nil, notifyTenants: true, tenantChargeRecipient: "401:501"
+        )
+        let payload = try CommissionOfflineJSON.object(JSONEncoder().encode(request))
+        #expect(payload["tenant_charge_recipient"] as? String == "401:501")
+        #expect(payload["notify_tenants"] as? Bool == true)
+    }
+
     @Test func economicUnitOrdersShowTheWholeScopeAboveTheirReferenceAddress() throws {
         let commission = try scopedCommission([
             "object_type": "economic_unit", "economic_unit_idnum": "123", "economic_unit_name": "Parkstraße",
