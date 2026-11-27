@@ -208,6 +208,22 @@ final class APIClient {
         return try await request(path: "/api/commissions/simple-create-options")
     }
 
+    func fetchTenantChargeChoices(
+        object: CommissionObjectChoice,
+        commissionTypeId: Int
+    ) async throws -> CommissionTenantChargeChoices {
+        try requireToken()
+        return try await request(
+            path: "/api/commission-objects/tenant-charge-recipients",
+            queryItems: [
+                URLQueryItem(name: "object_type", value: object.objectType),
+                URLQueryItem(name: "object_id", value: String(object.objectId)),
+                URLQueryItem(name: "commission_type_id", value: String(commissionTypeId))
+            ],
+            refreshBeforeReturning: true
+        )
+    }
+
     func createSimpleCommission(
         body: SimpleCommissionCreateRequest,
         photos: [Data]

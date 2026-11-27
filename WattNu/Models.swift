@@ -298,6 +298,7 @@ struct Commission: Codable, Identifiable, Hashable {
     let displayTitleFromAPI: String?
     let completionSuccessful: Bool?
     let tenantChargeRequested: Bool?
+    var tenantChargeDefault: Bool? = nil
     let completionReason: String?
     let positions: [CommissionPosition]
     let acceptedAppointmentFrom: String?
@@ -351,6 +352,7 @@ struct Commission: Codable, Identifiable, Hashable {
         case displayTitleFromAPI = "display_title"
         case completionSuccessful = "completion_successful"
         case tenantChargeRequested = "tenant_charge_requested"
+        case tenantChargeDefault = "tenant_charge_default"
         case completionReason = "completion_reason"
         case positions
         case acceptedAppointmentFrom = "accepted_appointment_from"
@@ -1121,6 +1123,7 @@ struct SimpleCommissionCreateRequest: Encodable {
     let contactPerson: String?
     let executionDate: String?
     let notifyTenants: Bool
+    var tenantChargeRecipient: String? = nil
 
     enum CodingKeys: String, CodingKey {
         case clientRequestId = "client_request_id"
@@ -1134,6 +1137,7 @@ struct SimpleCommissionCreateRequest: Encodable {
         case contactPerson = "contact_person"
         case executionDate = "execution_date"
         case notifyTenants = "notify_tenants"
+        case tenantChargeRecipient = "tenant_charge_recipient"
     }
 }
 
@@ -1164,6 +1168,12 @@ struct CompanyCodeOption: Codable, Identifiable, Hashable {
 struct CommissionTypeOption: Codable, Identifiable, Hashable {
     let id: Int
     let code: String?
+    var tenantCharge: Bool? = nil
+
+    enum CodingKeys: String, CodingKey {
+        case id, code
+        case tenantCharge = "tenant_charge"
+    }
 
     var displayName: String {
         if let code, !code.isEmpty {
@@ -1172,6 +1182,24 @@ struct CommissionTypeOption: Codable, Identifiable, Hashable {
 
         return String(id)
     }
+}
+
+struct CommissionTenantChargeChoices: Decodable {
+    let currentAvailable: Bool
+    let items: [CommissionTenantChargeOption]
+
+    enum CodingKeys: String, CodingKey {
+        case currentAvailable = "current_available"
+        case items
+    }
+}
+
+struct CommissionTenantChargeOption: Decodable, Identifiable {
+    let value: String
+    let label: String
+    let suggested: Bool
+
+    var id: String { value }
 }
 
 struct CommissionObjectChoice: Decodable, Identifiable, Hashable {

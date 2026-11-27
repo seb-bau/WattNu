@@ -18,6 +18,10 @@ struct CommissionCreateView: View {
     @State private var objectSearchTask: Task<Void, Never>?
     @State private var objectSearchNotice: String?
     @State private var selectedObject: CommissionObjectChoice?
+    @State private var tenantChargeChoices: CommissionTenantChargeChoices?
+    @State private var tenantChargeRecipient = ""
+    @State private var tenantChargeChoicesContext: String?
+    @State private var tenantChargeError: String?
     @State private var isSearchingObjects = false
     @State private var title = ""
     @State private var commissionText = ""
@@ -77,6 +81,15 @@ struct CommissionCreateView: View {
         canNotifyTenants && (notifyTenants ?? options?.notifyTenantsDefault ?? false)
     }
 
+    private var needsTenantChargeRecipient: Bool {
+        options?.commissionTypes.first { $0.id == selectedCommissionTypeId }?.tenantCharge == true
+    }
+
+    private var tenantChargeChoicesKey: String? {
+        guard needsTenantChargeRecipient, let selectedObject, selectedObject.useUnit != nil else { return nil }
+        return "\(selectedCommissionTypeId):\(selectedObject.id)"
+    }
+
     private var canSubmit: Bool {
         guard !isLoading, !isSaving, !isImportingPhotos else { return false }
 
@@ -84,6 +97,9 @@ struct CommissionCreateView: View {
 
         return options?.canCreate == true
             && selectedObject != nil
+            && (!needsTenantChargeRecipient || (
+                tenantChargeChoicesKey == tenantChargeChoicesContext && !tenantChargeRecipient.isEmpty
+            ))
             && (options?.commissionTypes.contains(where: { $0.id == selectedCommissionTypeId }) ?? false)
             && selectedCraft != nil
             && craftError == nil
@@ -91,6 +107,44 @@ struct CommissionCreateView: View {
             && !effectiveTitle.isEmpty
             && effectiveTitle.unicodeScalars.count <= 255
             && (normalizedText(contactPerson)?.unicodeScalars.count ?? 0) <= 255
+    }
+
+    private var tenantChargeSection: some View {
+        Section("Wer soll belastet werden?") {
+            if tenantChargeChoicesKey == nil {
+                Text("Bitte zuerst einen Mietvertrag für die Wohnung auswählen.")
+            } else if let tenantChargeError {
+                Text(tenantChargeError)
+                    .foregroundStyle(.secondary)
+                Button("Erneut laden") {
+                    Task { await loadTenantChargeChoices() }
+                }
+            } else if let tenantChargeChoices, tenantChargeChoicesContext == tenantChargeChoicesKey {
+                if tenantChargeChoices.currentAvailable {
+                    Toggle(
+                        "Beauftragten Mieter belasten",
+                        isOn: Binding(
+                            get: { tenantChargeRecipient == "current" },
+                            set: { tenantChargeRecipient = $0 ? "current" : "" }
+                        )
+                    )
+                }
+                if tenantChargeRecipient != "current" {
+                    Picker("Vertragsnehmer dieser Wohnung", selection: $tenantChargeRecipient) {
+                        Text("Bitte auswählen").tag("")
+                        ForEach(tenantChargeChoices.items) { item in
+                            Text(item.suggested ? "\(item.label) · Vorschlag Vormieter" : item.label).tag(item.value)
+                        }
+                    }
+                }
+                if tenantChargeChoices.items.isEmpty {
+                    Text("Für diese Wohnung sind keine Vertragsnehmer verfügbar.")
+                        .foregroundStyle(.secondary)
+                }
+            } else {
+                ProgressView("Mietverträge werden geladen …")
+            }
+        }
     }
 
     private var assignmentSection: some View {
@@ -319,6 +373,9 @@ struct CommissionCreateView: View {
 
                 assignmentSection
                 objectSection
+                if needsTenantChargeRecipient {
+                    tenantChargeSection
+                }
                 orderSection
                 executionSection
                 photosSection
@@ -370,6 +427,9 @@ struct CommissionCreateView: View {
         }
         .task {
             await loadData()
+        }
+        .task(id: tenantChargeChoicesKey) {
+            await loadTenantChargeChoices()
         }
         .onDisappear {
             stopObjectSearch()
@@ -462,6 +522,26 @@ struct CommissionCreateView: View {
         }
     }
 
+    private func loadTenantChargeChoices() async {
+        tenantChargeChoices = nil
+        tenantChargeChoicesContext = nil
+        tenantChargeRecipient = ""
+        tenantChargeError = nil
+        guard let key = tenantChargeChoicesKey, let selectedObject else { return }
+
+        do {
+            let choices = try await session.apiClient.fetchTenantChargeChoices(
+                object: selectedObject, commissionTypeId: selectedCommissionTypeId
+            )
+            guard !Task.isCancelled, key == tenantChargeChoicesKey else { return }
+            tenantChargeChoices = choices
+            tenantChargeChoicesContext = key
+        } catch {
+            guard !Task.isCancelled, key == tenantChargeChoicesKey else { return }
+            tenantChargeError = error.localizedDescription
+        }
+    }
+
     private func submit() async {
         guard canSubmit else { return }
 
@@ -484,7 +564,8 @@ struct CommissionCreateView: View {
                 executionDate: hasExecutionDate
                     ? formattedExecutionDate()
                     : nil,
-                notifyTenants: shouldNotifyTenants
+                notifyTenants: shouldNotifyTenants,
+                tenantChargeRecipient: needsTenantChargeRecipient ? tenantChargeRecipient : nil
             )
         }
 
